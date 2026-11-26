@@ -151,12 +151,15 @@ const (
 	ByClientViaCaptain ApprovalBy = "client_via_captain" // the captain relayed the client's confirmation
 )
 
-// Approval is a decision record made through the API that approves one exact action. It binds to
-// the action's digest, so an approval for one action can never be used for another.
+// Approval is a decision record made through the API that approves one exact action under the
+// facts the approver saw. It binds to the action's digest, so an approval for one action can never
+// be used for another, and to the digest of the bound facts, so it lapses when they change (a new
+// push to the pull request, a path that now resolves elsewhere).
 type Approval struct {
 	Decision     string     `json:"decision"`      // the decision record's id
 	By           ApprovalBy `json:"by"`            // whose decision it records
 	ActionSHA256 string     `json:"action_sha256"` // ActionDigest of the approved request
+	FactsSHA256  string     `json:"facts_sha256"`  // FactsDigest of the facts the approver saw
 }
 
 // Facts are what the daemon knows about a request, gathered from trusted sources: config, the
@@ -168,6 +171,10 @@ type Facts struct {
 	RequiredUnreported bool             `json:"required_unreported,omitempty"` // a required check has not reported
 	UnintendedClosing  bool             `json:"unintended_closing,omitempty"`  // the PR closes issues the task did not intend
 	Exceptions         []Exception      `json:"exceptions,omitempty"`          // fixed-list categories the change touches
+	HeadSHA            string           `json:"head_sha,omitempty"`            // the pull request's head commit
+	BaseRef            string           `json:"base_ref,omitempty"`            // the pull request's base branch
+	BaseSHA            string           `json:"base_sha,omitempty"`            // the base branch's commit
+	CredentialScope    string           `json:"credential_scope,omitempty"`    // the scope the credential grants
 	DefaultBranch      string           `json:"default_branch,omitempty"`      // the project's default branch
 	Home               string           `json:"home,omitempty"`                // the user's resolved home directory
 	Roots              []pathguard.Root `json:"roots,omitempty"`               // resolved roots this request may delete in
@@ -193,6 +200,7 @@ type Decision struct {
 	RuleSetVersion int     `json:"ruleset_version"`
 	RuleSetSHA256  string  `json:"ruleset_sha256"`
 	ActionSHA256   string  `json:"action_sha256"`      // ActionDigest(request)
+	FactsSHA256    string  `json:"facts_sha256"`       // FactsDigest(request kind, facts)
 	Tainted        bool    `json:"tainted"`            // some input came from an untrusted source
 	Approval       string  `json:"approval,omitempty"` // the approval decision used, if any
 }
@@ -206,6 +214,35 @@ func ActionDigest(r Request) string {
 		Kind   Kind   `json:"kind"`
 		Target Target `json:"target"`
 	}{r.Actor, r.Kind, r.Target})
+	if err != nil {
+		return "" // cannot happen for these field types; an empty digest matches no approval
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// FactsDigest is the SHA-256 of the facts an approval of a kind of action binds to, the facts the
+// approver saw: for a merge the pull request's head SHA, base ref and base SHA; for a delete the
+// symlink-resolved path; for a credential use the credential's scope; for a force-push, branch
+// delete or history rewrite the project's default branch. Other kinds bind to no facts. It is the
+// SHA-256 of the JSON object {"kind": kind, "facts": {...}} with exactly those fields, so it is
+// deterministic and an approval made under one set of facts never matches another.
+func FactsDigest(k Kind, f Facts) string {
+	bound := map[string]string{}
+	switch k {
+	case KindMerge:
+		bound = map[string]string{"head_sha": f.HeadSHA, "base_ref": f.BaseRef, "base_sha": f.BaseSHA}
+	case KindDelete:
+		bound = map[string]string{"resolved_path": f.ResolvedPath}
+	case KindCredentialUse:
+		bound = map[string]string{"credential_scope": f.CredentialScope}
+	case KindForcePush, KindBranchDelete, KindHistoryRewrite:
+		bound = map[string]string{"default_branch": f.DefaultBranch}
+	}
+	data, err := json.Marshal(struct {
+		Kind  Kind              `json:"kind"`
+		Facts map[string]string `json:"facts"`
+	}{k, bound})
 	if err != nil {
 		return "" // cannot happen for these field types; an empty digest matches no approval
 	}

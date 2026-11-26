@@ -103,7 +103,7 @@ func TestEvaluateProperties(t *testing.T) {
 	pick := func(rng *rand.Rand, n int) int { return rng.IntN(n) }
 	rng := rand.New(rand.NewPCG(7, 11))
 	seenAllow := map[Kind]bool{}
-	for i := 0; i < 20000; i++ {
+	for i := 0; i < 50000; i++ {
 		role := roles[pick(rng, len(roles))]
 		actor := Actor{ID: "a", Role: role, Org: orgs[pick(rng, len(orgs))]}
 		req := Request{Actor: actor, Kind: kinds[pick(rng, len(kinds))],
@@ -123,12 +123,21 @@ func TestEvaluateProperties(t *testing.T) {
 			df := facts(req.Target.Resource)
 			f.Home, f.Roots, f.ResolvedPath = df.Home, df.Roots, df.ResolvedPath
 		}
-		switch pick(rng, 4) {
+		if pick(rng, 4) != 0 {
+			f.HeadSHA = "abc"
+		}
+		seen := f
+		if pick(rng, 5) == 0 {
+			seen.HeadSHA, seen.DefaultBranch, seen.ResolvedPath = "old", "old", "/old"
+		}
+		switch pick(rng, 5) {
 		case 0:
-			f.Approvals = []Approval{approval(req, ByCaptain)}
+			f.Approvals = []Approval{approval(req, seen, ByCaptain)}
 		case 1:
-			f.Approvals = []Approval{approval(req, ByClientViaCaptain)}
+			f.Approvals = []Approval{approval(req, seen, ByClientViaCaptain)}
 		case 2:
+			f.Approvals = []Approval{approval(req, seen, ByCaptain), approval(req, seen, ByClientViaCaptain)}
+		case 3:
 			f.Approvals = []Approval{{Decision: "d/x", By: ByCaptain, ActionSHA256: strings.Repeat("0", 64)}}
 		}
 		before := deepCopy(req, f)
@@ -169,13 +178,21 @@ func checkInvariants(t *testing.T, r Request, f Facts, d Decision) {
 	if orgBound[r.Actor.Role] && r.Actor.Org != r.Target.Org && d.Outcome != Deny {
 		fail("a cross-org request was not denied")
 	}
+	approvedBy := func(by ApprovalBy) bool {
+		for _, a := range f.Approvals {
+			if a.By == by && a.Decision != "" && a.ActionSHA256 == ActionDigest(r) && a.FactsSHA256 == FactsDigest(r.Kind, f) {
+				return true
+			}
+		}
+		return false
+	}
 	if d.Approval != "" {
 		matched := false
 		for _, a := range f.Approvals {
-			matched = matched || a.Decision == d.Approval && a.ActionSHA256 == ActionDigest(r)
+			matched = matched || a.Decision == d.Approval && a.ActionSHA256 == ActionDigest(r) && a.FactsSHA256 == FactsDigest(r.Kind, f)
 		}
 		if !matched {
-			fail("the decision used an approval that does not bind to this action")
+			fail("the decision used an approval that does not bind to this action and these facts")
 		}
 	}
 	if d.Outcome != Allow {
@@ -201,22 +218,25 @@ func checkInvariants(t *testing.T, r Request, f Facts, d Decision) {
 			fail("a non-gateway was allowed to use a credential")
 		}
 	case KindMerge:
-		if !mergers[r.Actor.Role] || f.Checks != ChecksGreen || f.RequiredUnreported || f.UnintendedClosing {
-			fail("a merge was allowed by the wrong role or without green, fully reported checks")
+		if !mergers[r.Actor.Role] || f.HeadSHA == "" || f.Checks != ChecksGreen || f.RequiredUnreported || f.UnintendedClosing {
+			fail("a merge was allowed by the wrong role, with its head unknown, or without green, fully reported checks")
 		}
-		if (len(f.Exceptions) > 0 || f.Posture != PostureGreen) && d.Approval == "" {
-			fail("a merge outside the green posture, or on the fixed list, was allowed without an approval")
+		if len(f.Exceptions) > 0 && !approvedBy(ByCaptain) {
+			fail("a fixed-list merge was allowed without the captain's approval")
+		}
+		if (f.Posture == PostureCaptain || f.Posture == "") && !approvedBy(ByCaptain) || f.Posture == PostureClient && !approvedBy(ByClientViaCaptain) {
+			fail("a merge was allowed without the approval its posture needs")
 		}
 	case KindDelete:
 		root, err := pathguardCheck(f, r)
 		if err != nil {
 			fail("a delete the path guard refuses was allowed: " + err.Error())
 		}
-		if root != "scratch" && d.Approval == "" {
+		if root != "scratch" && !approvedBy(ByCaptain) {
 			fail("a delete outside the scratch dir was allowed without an approval")
 		}
 	case KindForcePush, KindBranchDelete, KindHistoryRewrite:
-		if d.Approval == "" || f.DefaultBranch == "" || r.Target.Resource == f.DefaultBranch || neverWrite[r.Actor.Role] {
+		if !approvedBy(ByCaptain) || f.DefaultBranch == "" || strings.EqualFold(shortBranch(r.Target.Resource), shortBranch(f.DefaultBranch)) || neverWrite[r.Actor.Role] {
 			fail("a destructive git action was allowed without an approval, or on the default branch")
 		}
 	default:
@@ -232,11 +252,21 @@ func TestDecisionRecordRegisters(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := request(worker, KindMerge, "app", "pr/3", issueInput, taskInput)
-	f := Facts{Checks: ChecksGreen, Approvals: []Approval{approval(r, ByCaptain)}}
+	f := Facts{Checks: ChecksGreen, HeadSHA: "abc", BaseRef: "main", BaseSHA: "def"}
+	f.Approvals = []Approval{approval(r, f, ByCaptain)}
 	rec := NewRecord(r, f, Evaluate(r, f))
 	if rec.Outcome != Deny || rec.Rule != "merge.role" || len(rec.Inputs) != 2 || rec.Inputs[0].Trusted || !rec.Inputs[1].Trusted ||
-		len(rec.Facts.Approvals) != 1 || !rec.Tainted || rec.RuleSetSHA256 == "" {
+		len(rec.Facts.Approvals) != 1 || !rec.Tainted || rec.RuleSetSHA256 == "" || rec.FactsSHA256 != FactsDigest(KindMerge, f) ||
+		rec.Facts.HeadSHA != "abc" || rec.Facts.BaseRef != "main" || rec.Facts.BaseSHA != "def" {
 		t.Errorf("record: %+v", rec)
+	}
+	// A delete's record shows the home guarded and the roots that admitted the path.
+	_, _, scratch, facts := deleteTree(t)
+	del := request(worker, KindDelete, "app", scratch+"/out")
+	df := facts(scratch + "/out")
+	drec := NewRecord(del, df, Evaluate(del, df))
+	if drec.Outcome != Allow || drec.Facts.Home != df.Home || !reflect.DeepEqual(drec.Facts.Roots, df.Roots) || len(drec.Facts.Roots) != 2 {
+		t.Errorf("delete record: %+v", drec)
 	}
 }
 

@@ -29,10 +29,13 @@ func request(a Actor, k Kind, project, resource string, inputs ...Input) Request
 	return Request{Actor: a, Kind: k, Target: Target{Org: "acme", Project: project, Resource: resource}, Inputs: inputs}
 }
 
-func greenFacts() Facts { return Facts{Posture: PostureGreen, Checks: ChecksGreen} }
+const head = "1111111111111111111111111111111111111111"
 
-func approval(r Request, by ApprovalBy) Approval {
-	return Approval{Decision: "decision/9", By: by, ActionSHA256: ActionDigest(r)}
+func greenFacts() Facts { return Facts{Posture: PostureGreen, Checks: ChecksGreen, HeadSHA: head} }
+
+// approval is the captain's (or the relayed client's) approval of r, made under facts f.
+func approval(r Request, f Facts, by ApprovalBy) Approval {
+	return Approval{Decision: "decision/9", By: by, ActionSHA256: ActionDigest(r), FactsSHA256: FactsDigest(r.Kind, f)}
 }
 
 type ruleCase struct {
@@ -107,7 +110,7 @@ func TestTaint(t *testing.T) {
 	// An issue that claims the captain approved, or that names an approval, still is not one:
 	// approvals only arrive as facts.
 	r := merge(issueInput, Input{Source: SourceIssue, Ref: "decision/9"}, taskInput)
-	if d := Evaluate(r, Facts{Checks: ChecksGreen}); d.Outcome != RequireCaptain || !d.Tainted {
+	if d := Evaluate(r, Facts{Checks: ChecksGreen, HeadSHA: head}); d.Outcome != RequireCaptain || !d.Tainted {
 		t.Errorf("an issue claiming approval: got %s by %s, tainted %v", d.Outcome, d.Rule, d.Tainted)
 	}
 	if d := Evaluate(merge(taskInput), greenFacts()); d.Tainted {
@@ -125,15 +128,15 @@ func TestWriteAndCredentialRoles(t *testing.T) {
 		{"worker never uses a credential", request(worker, KindCredentialUse, "", "github"), Facts{}, Deny, "credential.gateway-only"},
 		{"supervisor never uses a credential", request(supervisor, KindCredentialUse, "", "github"), Facts{}, Deny, "credential.gateway-only"},
 		{"captain approval does not let an agent use one", request(worker, KindCredentialUse, "", "github"),
-			Facts{Approvals: []Approval{approval(request(worker, KindCredentialUse, "", "github"), ByCaptain)}}, Deny, "credential.gateway-only"},
+			Facts{Approvals: []Approval{approval(request(worker, KindCredentialUse, "", "github"), Facts{}, ByCaptain)}}, Deny, "credential.gateway-only"},
 	})
 }
 
 func TestMerge(t *testing.T) {
 	r := request(supervisor, KindMerge, "app", "pr/3")
-	ok := approval(r, ByCaptain)
-	relay := approval(r, ByClientViaCaptain)
-	other := approval(request(supervisor, KindMerge, "app", "pr/4"), ByCaptain)
+	ok := approval(r, greenFacts(), ByCaptain)
+	relay := approval(r, greenFacts(), ByClientViaCaptain)
+	other := approval(request(supervisor, KindMerge, "app", "pr/4"), greenFacts(), ByCaptain)
 	with := func(f Facts, mut func(*Facts)) Facts { mut(&f); return f }
 	runCases(t, []ruleCase{
 		{"worker never merges", request(worker, KindMerge, "app", "pr/3"), greenFacts(), Deny, "merge.role"},
@@ -141,35 +144,60 @@ func TestMerge(t *testing.T) {
 		{"reviewer never merges", request(reviewer, KindMerge, "app", "pr/3"), greenFacts(), Deny, "merge.role"},
 		{"red checks", r, with(greenFacts(), func(f *Facts) { f.Checks = ChecksRed }), Deny, "merge.checks-green"},
 		{"pending checks", r, with(greenFacts(), func(f *Facts) { f.Checks = ChecksPending }), Deny, "merge.checks-green"},
-		{"unknown checks", r, Facts{Posture: PostureGreen}, Deny, "merge.checks-green"},
-		{"red even with the captain's approval", r, Facts{Posture: PostureCaptain, Checks: ChecksRed, Approvals: []Approval{ok}}, Deny, "merge.checks-green"},
+		{"unknown checks", r, Facts{Posture: PostureGreen, HeadSHA: head}, Deny, "merge.checks-green"},
+		{"red even with the captain's approval", r, Facts{Posture: PostureCaptain, Checks: ChecksRed, HeadSHA: head, Approvals: []Approval{ok}}, Deny, "merge.checks-green"},
 		{"a required check unreported", r, with(greenFacts(), func(f *Facts) { f.RequiredUnreported = true }), Deny, "merge.checks-green"},
 		{"unintended closing refs", r, with(greenFacts(), func(f *Facts) { f.UnintendedClosing = true }), Deny, "merge.closing-refs"},
 		{"fixed list under green", r, with(greenFacts(), func(f *Facts) { f.Exceptions = []Exception{ExceptionSecurity} }), RequireCaptain, "merge.fixed-list"},
 		{"fixed list approved", r, with(greenFacts(), func(f *Facts) {
 			f.Exceptions, f.Approvals = []Exception{ExceptionDataMigration}, []Approval{ok}
-		}), Allow, "merge.fixed-list"},
+		}), Allow, "merge.posture"},
+		{"fixed list approved, captain posture", r, Facts{Posture: PostureCaptain, Checks: ChecksGreen, HeadSHA: head,
+			Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{ok}}, Allow, "merge.posture"},
+		{"fixed list, client posture: the captain's approval alone is not enough", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head,
+			Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{ok}}, RequireCaptain, "merge.posture"},
+		{"fixed list, client posture: the relay alone is not enough", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head,
+			Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{relay}}, RequireCaptain, "merge.fixed-list"},
+		{"fixed list, client posture: both", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head,
+			Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{ok, relay}}, Allow, "merge.posture"},
+		{"head commit unknown", r, Facts{Posture: PostureGreen, Checks: ChecksGreen}, Deny, "merge.head-known"},
+		{"a new push invalidates the captain's approval", r, Facts{Posture: PostureCaptain, Checks: ChecksGreen,
+			HeadSHA: "2222222222222222222222222222222222222222", Approvals: []Approval{ok}}, Deny, "merge.posture"},
+		{"a new push invalidates a fixed-list approval", r, Facts{Posture: PostureGreen, Checks: ChecksGreen,
+			HeadSHA: "2222222222222222222222222222222222222222", Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{ok}}, Deny, "merge.fixed-list"},
+		{"a moved base invalidates the relay", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head, BaseSHA: "3333",
+			Approvals: []Approval{relay}}, Deny, "merge.posture"},
 		{"fixed list: a client relay is not enough", r, with(greenFacts(), func(f *Facts) {
 			f.Exceptions, f.Approvals = []Exception{ExceptionBilling}, []Approval{relay}
 		}), RequireCaptain, "merge.fixed-list"},
 		{"green posture merges", r, greenFacts(), Allow, "merge.posture"},
-		{"default posture is captain", r, Facts{Checks: ChecksGreen}, RequireCaptain, "merge.posture"},
-		{"captain posture", r, Facts{Posture: PostureCaptain, Checks: ChecksGreen}, RequireCaptain, "merge.posture"},
-		{"captain posture approved", r, Facts{Posture: PostureCaptain, Checks: ChecksGreen, Approvals: []Approval{ok}}, Allow, "merge.posture"},
-		{"approval for another PR", r, Facts{Posture: PostureCaptain, Checks: ChecksGreen, Approvals: []Approval{other}}, RequireCaptain, "merge.posture"},
-		{"approval without a decision id", r, Facts{Posture: PostureCaptain, Checks: ChecksGreen, Approvals: []Approval{{By: ByCaptain, ActionSHA256: ActionDigest(r)}}}, RequireCaptain, "merge.posture"},
-		{"client posture", r, Facts{Posture: PostureClient, Checks: ChecksGreen}, RequireCaptain, "merge.posture"},
-		{"client posture: captain approval is not the client's", r, Facts{Posture: PostureClient, Checks: ChecksGreen, Approvals: []Approval{ok}}, RequireCaptain, "merge.posture"},
-		{"client posture relayed", r, Facts{Posture: PostureClient, Checks: ChecksGreen, Approvals: []Approval{relay}}, Allow, "merge.posture"},
+		{"default posture is captain", r, Facts{Checks: ChecksGreen, HeadSHA: head}, RequireCaptain, "merge.posture"},
+		{"captain posture", r, Facts{Posture: PostureCaptain, Checks: ChecksGreen, HeadSHA: head}, RequireCaptain, "merge.posture"},
+		{"captain posture approved", r, Facts{Posture: PostureCaptain, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{ok}}, Allow, "merge.posture"},
+		{"approval for another PR", r, Facts{Posture: PostureCaptain, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{other}}, RequireCaptain, "merge.posture"},
+		{"approval without a decision id", r, Facts{Posture: PostureCaptain, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{{By: ByCaptain, ActionSHA256: ActionDigest(r)}}}, RequireCaptain, "merge.posture"},
+		{"client posture", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head}, RequireCaptain, "merge.posture"},
+		{"client posture: captain approval is not the client's", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{ok}}, RequireCaptain, "merge.posture"},
+		{"client posture relayed", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{relay}}, Allow, "merge.posture"},
 		{"the daemon merges under green", request(daemon, KindMerge, "app", "pr/3"), greenFacts(), Allow, "merge.posture"},
 	})
+	// A stale approval is denied with the reason, not silently escalated.
+	moved := Facts{Posture: PostureCaptain, Checks: ChecksGreen, HeadSHA: "2222222222222222222222222222222222222222", Approvals: []Approval{ok}}
+	if d := Evaluate(r, moved); !strings.Contains(d.Reason, "the approval was for different facts") || d.Approval != "" {
+		t.Errorf("stale approval: %+v", d)
+	}
+	// The fixed-list approval is recorded when the green posture then allows.
+	fixed := with(greenFacts(), func(f *Facts) { f.Exceptions, f.Approvals = []Exception{ExceptionSecurity}, []Approval{ok} })
+	if d := Evaluate(r, fixed); d.Approval != ok.Decision {
+		t.Errorf("fixed-list approval used = %q, want %q", d.Approval, ok.Decision)
+	}
 	// The approval used is recorded on the decision.
-	if d := Evaluate(r, Facts{Checks: ChecksGreen, Approvals: []Approval{other, ok}}); d.Approval != ok.Decision {
+	if d := Evaluate(r, Facts{Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{other, ok}}); d.Approval != ok.Decision {
 		t.Errorf("approval used = %q, want %q", d.Approval, ok.Decision)
 	}
 	// An approval binds to the actor too: the captain approving the supervisor's merge does not
 	// approve the daemon's.
-	if d := Evaluate(request(daemon, KindMerge, "app", "pr/3"), Facts{Checks: ChecksGreen, Approvals: []Approval{ok}}); d.Outcome != RequireCaptain {
+	if d := Evaluate(request(daemon, KindMerge, "app", "pr/3"), Facts{Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{ok}}); d.Outcome != RequireCaptain {
 		t.Errorf("another actor reused an approval: %s by %s", d.Outcome, d.Rule)
 	}
 }
@@ -180,12 +208,24 @@ func TestDestructiveGit(t *testing.T) {
 		r := request(worker, k, "app", "feature/x")
 		runCases(t, []ruleCase{
 			{string(k) + " by a worker", r, facts, RequireCaptain, "git.captain"},
-			{string(k) + " approved", r, Facts{DefaultBranch: "main", Approvals: []Approval{approval(r, ByCaptain)}}, Allow, "git.captain"},
+			{string(k) + " approved", r, Facts{DefaultBranch: "main", Approvals: []Approval{approval(r, facts, ByCaptain)}}, Allow, "git.captain"},
+			{string(k) + " approved under another default branch", r, Facts{DefaultBranch: "trunk", Approvals: []Approval{approval(r, facts, ByCaptain)}}, Deny, "git.captain"},
 			{string(k) + " of the default branch", request(worker, k, "app", "main"), facts, Deny, "git.default-branch"},
 			{string(k) + " of refs/heads/main", request(worker, k, "app", "refs/heads/main"), facts, Deny, "git.default-branch"},
 			{string(k) + " of the default branch, approved", request(worker, k, "app", "main"),
-				Facts{DefaultBranch: "main", Approvals: []Approval{approval(request(worker, k, "app", "main"), ByCaptain)}}, Deny, "git.default-branch"},
+				Facts{DefaultBranch: "main", Approvals: []Approval{approval(request(worker, k, "app", "main"), facts, ByCaptain)}}, Deny, "git.default-branch"},
 			{string(k) + " with the default branch unknown", r, Facts{}, Deny, "git.default-branch"},
+			{string(k) + " of Main", request(worker, k, "app", "Main"), facts, Deny, "git.default-branch"},
+			{string(k) + " of refs/heads/MAIN", request(worker, k, "app", "refs/heads/MAIN"), facts, Deny, "git.default-branch"},
+			{string(k) + " of heads/main", request(worker, k, "app", "heads/main"), facts, Deny, "request.valid"},
+			{string(k) + " of refs/heads//main", request(worker, k, "app", "refs/heads//main"), facts, Deny, "request.valid"},
+			{string(k) + " of +main", request(worker, k, "app", "+main"), facts, Deny, "request.valid"},
+			{string(k) + " of HEAD:main", request(worker, k, "app", "HEAD:main"), facts, Deny, "request.valid"},
+			{string(k) + " of x:refs/heads/main", request(worker, k, "app", "x:refs/heads/main"), facts, Deny, "request.valid"},
+			{string(k) + " of main with a trailing space", request(worker, k, "app", "main "), facts, Deny, "request.valid"},
+			{string(k) + " of an option", request(worker, k, "app", "-f"), facts, Deny, "request.valid"},
+			{string(k) + " of refs/tags/v1", request(worker, k, "app", "refs/tags/v1"), facts, Deny, "request.valid"},
+			{string(k) + " of a dot-dot name", request(worker, k, "app", "feature/../main"), facts, Deny, "request.valid"},
 			{string(k) + " by a supervisor", request(supervisor, k, "app", "feature/x"), facts, Deny, "destructive.role"},
 			{string(k) + " by a scout", request(scout, k, "app", "feature/x"), facts, Deny, "destructive.role"},
 			{string(k) + " by the gateway", request(gateway, k, "app", "feature/x"), facts, Deny, "destructive.role"},
@@ -230,12 +270,18 @@ func TestDelete(t *testing.T) {
 	inProj := filepath.Join(proj, "build")
 	viaLink := filepath.Join(proj, "h")
 	del := func(a Actor, p string) Request { return request(a, KindDelete, "app", p) }
-	approved := func(r Request, f Facts) Facts { f.Approvals = []Approval{approval(r, ByCaptain)}; return f }
+	approved := func(r Request, f Facts) Facts { f.Approvals = []Approval{approval(r, f, ByCaptain)}; return f }
 	runCases(t, []ruleCase{
 		{"worker deletes in scratch", del(worker, inScratch), facts(inScratch), Allow, "delete.scratch"},
 		{"daemon deletes in scratch", del(daemon, inScratch), facts(inScratch), Allow, "delete.scratch"},
 		{"worker deletes in the project", del(worker, inProj), facts(inProj), RequireCaptain, "delete.project"},
 		{"approved project delete", del(worker, inProj), approved(del(worker, inProj), facts(inProj)), Allow, "delete.project"},
+		{"a changed resolved path invalidates the approval", del(worker, inProj), func() Facts {
+			f := facts(filepath.Join(proj, "other"))
+			f.ResolvedPath = filepath.Join(proj, "other")
+			f.Approvals = approved(del(worker, inProj), facts(inProj)).Approvals
+			return f
+		}(), Deny, "delete.project"},
 		{"the root /", del(worker, "/"), Facts{Home: home, ResolvedPath: "/"}, Deny, "delete.path-guard"},
 		{"home", del(worker, home), facts(home), Deny, "delete.path-guard"},
 		{"a link to home", del(worker, viaLink), facts(viaLink), Deny, "delete.path-guard"},

@@ -139,17 +139,25 @@ them data, not code.
   `task` are trusted; `agent`, `tool_output`, `repo_content`, `issue`, `pr_body`, `pr_comment`,
   `web`, `email` are not). The requester never sets trust (LUCY-POL-004).
 - **Facts.** What the daemon knows from trusted sources: posture (captain by default), check state,
-  unreported required checks, fixed-list categories, default branch, home, declared roots, the
-  symlink-resolved delete target and captain approvals. Approvals come only from decision records
-  and bind to the action's digest (actor, kind, target), so one cannot be reused for another
-  action (LUCY-POL-002).
+  unreported required checks, fixed-list categories, a PR's head SHA, base ref and base SHA, the
+  credential's scope, default branch, home, declared roots, the symlink-resolved delete target and
+  captain approvals. Approvals come only from decision records and name two digests: the action's
+  (`action_sha256`, over actor, kind, target), so one cannot be reused for another action, and the
+  bound facts' (`facts_sha256`, the SHA-256 of `{"kind":..., "facts":{...}}` holding a merge's head
+  SHA, base ref and base SHA, a delete's resolved path, a credential use's scope, or the default
+  branch for force-push, branch delete and history rewrite), so an approval lapses when those
+  change: a matching approval made under other facts is a deny, not an escalation (LUCY-POL-002,
+  rule set version 2).
 - **Rules, in order; the first with an opinion decides:** `request.valid`, `facts.valid`,
   `org.isolation` (an org-bound role acts only in its org), `taint.trusted-basis` (a privileged
   request needs a trusted input), `read.in-org`, `write.worker-only`, `credential.gateway-only`,
-  `merge.role`, `merge.checks-green` (never red, pending, unknown or with a required check
-  unreported), `merge.closing-refs`, `merge.fixed-list`, `merge.posture`, `destructive.role`,
-  `delete.path-guard`, `delete.scratch` (allow), `delete.project` (captain), `git.default-branch`
-  (deny), `git.captain`, and `default.deny`.
+  `merge.role`, `merge.head-known` (deny when the PR's head SHA is unknown), `merge.checks-green` (never red, pending, unknown or with a required check
+  unreported), `merge.closing-refs`, `merge.fixed-list` (needs the captain's approval, then lets
+  the posture decide, so a client-posture fixed-list merge needs both the captain's approval and
+  the relayed client confirmation), `merge.posture`, `destructive.role`, `delete.path-guard`,
+  `delete.scratch` (allow), `delete.project` (captain), `git.default-branch` (deny; the target
+  must be a plain branch name by git check-ref-format rules and is compared case-insensitively),
+  `git.captain`, and `default.deny`.
 - **Decision.** `allow`, `deny` or `require-captain`, with the rule, a reason, the approval used,
   whether any input was untrusted, and the rule set's version and SHA-256 (LUCY-POL-006). The hash
   covers the embedded `rules.go` and `trust.go` and the path guard's version;

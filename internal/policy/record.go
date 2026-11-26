@@ -1,5 +1,7 @@
 package policy
 
+import "github.com/ar4mirez/lucy/internal/pathguard"
+
 // Stream is the event stream decision records are appended to.
 const Stream = "policy"
 
@@ -14,6 +16,7 @@ type DecisionRecord struct {
 	RuleSetVersion int           `json:"ruleset_version"`
 	RuleSetSHA256  string        `json:"ruleset_sha256"`
 	ActionSHA256   string        `json:"action_sha256"`
+	FactsSHA256    string        `json:"facts_sha256"`
 	Tainted        bool          `json:"tainted"`
 	Approval       string        `json:"approval,omitempty"`
 	Actor          Actor         `json:"actor"`
@@ -32,14 +35,20 @@ type InputRecord struct {
 
 // FactsRecord is the part of the facts a reader needs to understand a decision.
 type FactsRecord struct {
-	Posture            Posture     `json:"posture,omitempty"`
-	Checks             CheckState  `json:"checks,omitempty"`
-	RequiredUnreported bool        `json:"required_unreported,omitempty"`
-	UnintendedClosing  bool        `json:"unintended_closing,omitempty"`
-	Exceptions         []Exception `json:"exceptions,omitempty"`
-	DefaultBranch      string      `json:"default_branch,omitempty"`
-	ResolvedPath       string      `json:"resolved_path,omitempty"`
-	Approvals          []string    `json:"approvals,omitempty"` // decision ids of the approvals offered
+	Posture            Posture          `json:"posture,omitempty"`
+	Checks             CheckState       `json:"checks,omitempty"`
+	RequiredUnreported bool             `json:"required_unreported,omitempty"`
+	UnintendedClosing  bool             `json:"unintended_closing,omitempty"`
+	Exceptions         []Exception      `json:"exceptions,omitempty"`
+	HeadSHA            string           `json:"head_sha,omitempty"`
+	BaseRef            string           `json:"base_ref,omitempty"`
+	BaseSHA            string           `json:"base_sha,omitempty"`
+	CredentialScope    string           `json:"credential_scope,omitempty"`
+	DefaultBranch      string           `json:"default_branch,omitempty"`
+	Home               string           `json:"home,omitempty"`
+	Roots              []pathguard.Root `json:"roots,omitempty"`
+	ResolvedPath       string           `json:"resolved_path,omitempty"`
+	Approvals          []string         `json:"approvals,omitempty"` // decision ids of the approvals offered
 }
 
 // EventType implements eventstore.Payload.
@@ -52,13 +61,15 @@ func (DecisionRecord) EventVersion() int { return 1 }
 func NewRecord(req Request, facts Facts, d Decision) DecisionRecord {
 	rec := DecisionRecord{
 		Outcome: d.Outcome, Rule: d.Rule, Reason: d.Reason, RuleSetVersion: d.RuleSetVersion,
-		RuleSetSHA256: d.RuleSetSHA256, ActionSHA256: d.ActionSHA256, Tainted: d.Tainted,
+		RuleSetSHA256: d.RuleSetSHA256, ActionSHA256: d.ActionSHA256, FactsSHA256: d.FactsSHA256, Tainted: d.Tainted,
 		Approval: d.Approval, Actor: req.Actor, Kind: req.Kind, Target: req.Target,
 		Inputs: []InputRecord{},
 		Facts: FactsRecord{
 			Posture: facts.Posture, Checks: facts.Checks, RequiredUnreported: facts.RequiredUnreported,
 			UnintendedClosing: facts.UnintendedClosing, Exceptions: facts.Exceptions,
-			DefaultBranch: facts.DefaultBranch, ResolvedPath: facts.ResolvedPath,
+			HeadSHA: facts.HeadSHA, BaseRef: facts.BaseRef, BaseSHA: facts.BaseSHA,
+			CredentialScope: facts.CredentialScope, DefaultBranch: facts.DefaultBranch,
+			Home: facts.Home, Roots: facts.Roots, ResolvedPath: facts.ResolvedPath,
 		},
 	}
 	for _, in := range req.Inputs {

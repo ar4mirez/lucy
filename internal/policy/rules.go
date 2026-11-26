@@ -39,6 +39,8 @@ type evalCtx struct {
 	req    Request
 	facts  Facts
 	action string // ActionDigest(req)
+	bound  string // FactsDigest(req.Kind, facts)
+	used   string // an approval an earlier rule accepted without deciding
 }
 
 func allow(reason string) (verdict, bool) { return verdict{outcome: Allow, reason: reason}, true }
@@ -48,14 +50,46 @@ func escalate(reason string) (verdict, bool) {
 	return verdict{outcome: RequireCaptain, reason: reason}, true
 }
 
-// approved allows when a matching approval exists, else escalates to the captain.
-func (c *evalCtx) approved(by ApprovalBy, allowWhy, escalateWhy string) (verdict, bool) {
+// match returns the decision id of an approval by by for this action under these facts, or
+// whether one for this action was made under different facts. Approvals for other actions are
+// ignored.
+func (c *evalCtx) match(by ApprovalBy) (id string, stale bool) {
 	for _, a := range c.facts.Approvals {
-		if a.By == by && a.Decision != "" && a.ActionSHA256 == c.action {
-			return verdict{outcome: Allow, reason: allowWhy, approval: a.Decision}, true
+		if a.By != by || a.Decision == "" || a.ActionSHA256 != c.action {
+			continue
 		}
+		if a.FactsSHA256 == c.bound {
+			return a.Decision, false
+		}
+		stale = true
+	}
+	return "", stale
+}
+
+// approved allows when a matching approval exists, denies when the only ones for this action were
+// made under different facts, else escalates to the captain.
+func (c *evalCtx) approved(by ApprovalBy, allowWhy, escalateWhy string) (verdict, bool) {
+	id, stale := c.match(by)
+	switch {
+	case id != "":
+		return verdict{outcome: Allow, reason: allowWhy, approval: id}, true
+	case stale:
+		return deny(c.staleReason())
 	}
 	return escalate(escalateWhy)
+}
+
+// staleReason says which bound facts an approval for this action no longer matches.
+func (c *evalCtx) staleReason() string {
+	changed := map[Kind]string{
+		KindMerge:         "the pull request's head or base changed",
+		KindDelete:        "the path now resolves elsewhere",
+		KindCredentialUse: "the credential's scope changed",
+	}[c.req.Kind]
+	if changed == "" {
+		changed = "the project's default branch changed"
+	}
+	return "the approval was for different facts: " + changed
 }
 
 func (c *evalCtx) kindIs(kinds ...Kind) bool {
@@ -130,6 +164,12 @@ var rules = []Rule{
 		}
 		return pass()
 	}},
+	{"merge.head-known", "A merge needs the pull request's head commit, so an approval binds to the code it approves.", func(c *evalCtx) (verdict, bool) {
+		if c.kindIs(KindMerge) && c.facts.HeadSHA == "" {
+			return deny("the pull request's head commit is unknown")
+		}
+		return pass()
+	}},
 	{"merge.checks-green", "Never merge red, pending or unknown checks, or with a required check unreported, in any posture.", func(c *evalCtx) (verdict, bool) {
 		if !c.kindIs(KindMerge) {
 			return pass()
@@ -152,12 +192,19 @@ var rules = []Rule{
 		}
 		return pass()
 	}},
-	{"merge.fixed-list", "A change on the fixed list (destructive, irreversible, security, production, billing, credentials, data migration, cross-org, judgement) needs the captain in every posture.", func(c *evalCtx) (verdict, bool) {
+	{"merge.fixed-list", "A change on the fixed list (destructive, irreversible, security, production, billing, credentials, data migration, cross-org, judgement) needs the captain in every posture, and the posture still decides.", func(c *evalCtx) (verdict, bool) {
 		if !c.kindIs(KindMerge) || len(c.facts.Exceptions) == 0 {
 			return pass()
 		}
-		return c.approved(ByCaptain, "the captain approved this fixed-list merge",
-			fmt.Sprintf("the change touches the fixed list (%s)", joinExceptions(c.facts.Exceptions)))
+		id, stale := c.match(ByCaptain)
+		switch {
+		case id != "":
+			c.used = id
+			return pass()
+		case stale:
+			return deny(c.staleReason())
+		}
+		return escalate(fmt.Sprintf("the change touches the fixed list (%s)", joinExceptions(c.facts.Exceptions)))
 	}},
 	{"merge.posture", "Merge within the project's posture: captain needs the captain's approval, green merges, client needs the client's confirmation relayed by the captain.", func(c *evalCtx) (verdict, bool) {
 		if !c.kindIs(KindMerge) {
@@ -167,7 +214,7 @@ var rules = []Rule{
 		case PostureCaptain, "":
 			return c.approved(ByCaptain, "the captain approved this merge", "the captain posture merges only on the captain's word")
 		case PostureGreen:
-			return allow("green checks under the green posture")
+			return verdict{outcome: Allow, reason: "green checks under the green posture", approval: c.used}, true
 		case PostureClient:
 			return c.approved(ByClientViaCaptain, "the captain relayed the client's confirmation",
 				"the client posture merges only after the captain relays the client's confirmation")
@@ -215,7 +262,7 @@ var rules = []Rule{
 		if c.facts.DefaultBranch == "" {
 			return deny("the project's default branch is unknown")
 		}
-		if strings.TrimPrefix(c.req.Target.Resource, "refs/heads/") == c.facts.DefaultBranch {
+		if strings.EqualFold(shortBranch(c.req.Target.Resource), shortBranch(c.facts.DefaultBranch)) {
 			return deny("the target is the default branch")
 		}
 		return pass()
@@ -271,6 +318,9 @@ func validRequest(r Request) string {
 	if r.Kind == KindDelete && !filepath.IsAbs(r.Target.Resource) {
 		return "a delete names an absolute path"
 	}
+	if (r.Kind == KindForcePush || r.Kind == KindBranchDelete || r.Kind == KindHistoryRewrite) && !plainBranch(r.Target.Resource) {
+		return fmt.Sprintf("a %s names a plain branch name", r.Kind)
+	}
 	if len(r.Inputs) > MaxInputs {
 		return fmt.Sprintf("more than %d inputs", MaxInputs)
 	}
@@ -313,8 +363,11 @@ func validFacts(f Facts) string {
 			return "approval decision " + e
 		}
 	}
-	if e := label(f.DefaultBranch, MaxLabelBytes); e != "" {
-		return "default branch " + e
+	for name, v := range map[string]string{"default branch": f.DefaultBranch, "head sha": f.HeadSHA, "base ref": f.BaseRef,
+		"base sha": f.BaseSHA, "credential scope": f.CredentialScope} {
+		if e := label(v, MaxLabelBytes); e != "" {
+			return name + " " + e
+		}
 	}
 	for _, p := range append([]string{f.Home, f.ResolvedPath}, rootPaths(f.Roots)...) {
 		if e := label(p, MaxResourceBytes); e != "" {
@@ -339,6 +392,32 @@ func label(s string, max int) string {
 		}
 	}
 	return ""
+}
+
+// shortBranch is a branch name without its refs/heads/ prefix.
+func shortBranch(s string) string { return strings.TrimPrefix(s, "refs/heads/") }
+
+// plainBranch reports whether s, less a refs/heads/ prefix, is a plain branch name by git
+// check-ref-format rules, and not a refspec, a forced push, an option or another ref namespace
+// git could resolve it into (heads/, refs/, tags/, remotes/, HEAD).
+func plainBranch(s string) bool {
+	b := shortBranch(s)
+	if b == "" || b == "@" || strings.HasPrefix(b, "-") || strings.HasPrefix(b, "/") || strings.HasSuffix(b, "/") ||
+		strings.HasSuffix(b, ".") || strings.Contains(b, "..") || strings.Contains(b, "@{") || strings.Contains(b, "//") ||
+		strings.ContainsAny(b, " :+~^?*[\\") {
+		return false
+	}
+	parts := strings.Split(b, "/")
+	switch strings.ToLower(parts[0]) {
+	case "refs", "heads", "tags", "remotes", "head":
+		return false
+	}
+	for _, p := range parts {
+		if strings.HasPrefix(p, ".") || strings.HasSuffix(p, ".lock") {
+			return false
+		}
+	}
+	return true
 }
 
 func rootPaths(roots []pathguard.Root) []string {

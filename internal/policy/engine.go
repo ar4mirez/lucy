@@ -13,7 +13,7 @@ import (
 // RuleSetVersion is the version of the rule set. Bump it whenever rules.go or trust.go change; the
 // committed testdata/ruleset.sum, checked by TestRuleSetVersioned, records the SHA-256 of every
 // version and refuses a changed rule set under an old version.
-const RuleSetVersion = 1
+const RuleSetVersion = 2
 
 //go:embed rules.go trust.go
 var ruleSources embed.FS
@@ -64,13 +64,13 @@ func Evaluate(req Request, facts Facts) (d Decision) {
 			d.Outcome, d.Rule, d.Reason, d.Approval = Deny, "engine.error", "evaluation failed; failing safe", ""
 		}
 	}()
-	d.ActionSHA256 = ActionDigest(req)
+	d.ActionSHA256, d.FactsSHA256 = ActionDigest(req), FactsDigest(req.Kind, facts)
 	for _, in := range req.Inputs {
 		if !Trusted(in.Source) {
 			d.Tainted = true
 		}
 	}
-	c := &evalCtx{req: req, facts: facts, action: d.ActionSHA256}
+	c := &evalCtx{req: req, facts: facts, action: d.ActionSHA256, bound: d.FactsSHA256}
 	for _, r := range rules {
 		v, ok := r.eval(c)
 		if !ok {
@@ -88,7 +88,8 @@ func Evaluate(req Request, facts Facts) (d Decision) {
 // Refuse returns the fail-safe deny for a request the daemon cannot evaluate, for example because
 // it could not gather the facts. It names the engine.error rule, like any evaluation failure.
 func Refuse(req Request, why string) Decision {
-	d := Decision{RuleSetVersion: RuleSetVersion, RuleSetSHA256: ruleSetSHA256, ActionSHA256: ActionDigest(req)}
+	d := Decision{RuleSetVersion: RuleSetVersion, RuleSetSHA256: ruleSetSHA256, ActionSHA256: ActionDigest(req),
+		FactsSHA256: FactsDigest(req.Kind, Facts{})}
 	for _, in := range req.Inputs {
 		d.Tainted = d.Tainted || !Trusted(in.Source)
 	}

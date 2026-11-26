@@ -446,6 +446,10 @@
               "description": "The approval decision that allowed it, if any.",
               "type": "string"
             },
+            "facts_sha256": {
+              "description": "The digest of the facts the approver saw (a merge's head SHA, base ref and base SHA; a delete's resolved path; a credential's scope; the default branch for force-push, branch delete and history rewrite) an approval must also name; an approval for the same action under other facts is denied.",
+              "type": "string"
+            },
             "id": {
               "description": "The decision's position in the policy stream; pass as after to page.",
               "type": "integer"
@@ -514,6 +518,7 @@
             "ruleset_version",
             "ruleset_sha256",
             "action_sha256",
+            "facts_sha256",
             "tainted",
             "actor",
             "role",
@@ -571,6 +576,10 @@
                   },
                   "approval": {
                     "description": "The approval decision that allowed it, if any.",
+                    "type": "string"
+                  },
+                  "facts_sha256": {
+                    "description": "The digest of the facts the approver saw (a merge's head SHA, base ref and base SHA; a delete's resolved path; a credential's scope; the default branch for force-push, branch delete and history rewrite) an approval must also name; an approval for the same action under other facts is denied.",
                     "type": "string"
                   },
                   "id": {
@@ -641,6 +650,7 @@
                   "ruleset_version",
                   "ruleset_sha256",
                   "action_sha256",
+                  "facts_sha256",
                   "tainted",
                   "actor",
                   "role",

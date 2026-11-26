@@ -121,7 +121,8 @@ changes as needing a decision, and every "later" becomes a backlog record.
 - **2.2 and STRIDE 2-E, 5-E, 7-E, untrusted input:** every input to a request carries its source;
   the engine decides trust from a fixed table, never from the requester; a privileged request with
   no trusted input is denied, and approvals arrive only as daemon facts bound to one action's
-  digest, never from text (LUCY-POL-004).
+  digest and to the facts the approver saw (a PR's head and base, a delete's resolved path), never
+  from text; a new push to the PR voids the approval (LUCY-POL-004).
 - **3.4, RBAC and ABAC:** roles (captain, daemon, supervisor, worker, scout, reviewer, gateway) and
   attributes (org, project, posture, check state, fixed-list categories) decide; an org-bound role
   never acts in another org; only the gateway role uses credentials.
@@ -129,3 +130,7 @@ changes as needing a decision, and every "later" becomes a backlog record.
   which refuses `/`, `$HOME`, its ancestors and anything outside the declared roots after symlink
   resolution; a property test drives thousands of symlink, `..` and lookalike-character paths
   through it (LUCY-POL-007). Wiring it into every delete lucy makes is m1 (LUCY-SEC-005).
+- **Known m0 limitation, local captain:** any process running as the daemon's uid that reaches the
+  local socket counts as the captain for `policy.evaluate`. This authorizes nothing by itself in
+  m0: no executor acts on decisions yet, and `policy.evaluate` never creates approvals. Step-up
+  authentication for privileged captain actions lands in m3 (LUCY-CAP-003).

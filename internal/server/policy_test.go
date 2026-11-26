@@ -15,13 +15,13 @@ import (
 func TestPolicyEvaluateRecordsEveryDecision(t *testing.T) {
 	f := start(t, os.Geteuid(), 0, nil)
 
-	// No facts are known: a merge is denied because its checks are unknown.
+	// No facts are known: a merge is denied because its head commit is unknown.
 	d, err := f.client.Evaluate(ctx, api.EvaluateParams{Kind: "merge", Org: "acme", Project: "app", Resource: "pr/3"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	rs := policy.CurrentRuleSet()
-	if d.Outcome != "deny" || d.Rule != "merge.checks-green" || d.RuleSetVersion != rs.Version || d.RuleSetSHA256 != rs.SHA256 ||
+	if d.Outcome != "deny" || d.Rule != "merge.head-known" || d.FactsSHA256 == "" || d.RuleSetVersion != rs.Version || d.RuleSetSHA256 != rs.SHA256 ||
 		d.Role != "captain" || !strings.HasPrefix(d.Actor, "local/uid/") || d.ID != 1 || d.Tainted {
 		t.Errorf("decision = %+v", d)
 	}
@@ -74,7 +74,7 @@ func TestPolicyEvaluateUsesDaemonFacts(t *testing.T) {
 	f := start(t, os.Geteuid(), 0, func(o *Options) {
 		o.PolicyFacts = func(_ context.Context, r policy.Request) (policy.Facts, error) {
 			seen = r
-			return policy.Facts{Posture: policy.PostureGreen, Checks: policy.ChecksGreen}, nil
+			return policy.Facts{Posture: policy.PostureGreen, Checks: policy.ChecksGreen, HeadSHA: "abc123"}, nil
 		}
 	})
 	d, err := f.client.Evaluate(ctx, api.EvaluateParams{Kind: "merge", Org: "acme", Project: "app", Resource: "pr/3",
@@ -116,7 +116,7 @@ func TestUnrecordedDecisionIsNotReturned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := eventstore.Open(ctx, dir+"/lucy.db", eventstore.Options{Registry: reg, SnapshotDir: dir + "/snap"})
+	store, err := eventstore.Open(ctx, dir+"/data/lucy.db", eventstore.Options{Registry: reg, SnapshotDir: dir + "/snap"})
 	if err != nil {
 		t.Fatal(err)
 	}

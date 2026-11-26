@@ -37,6 +37,14 @@ Changes since the last release. When a version is cut, its section moves to
   denied.
 - A path guard for deletes: it refuses `/`, `$HOME` and anything outside the declared project and
   scratch roots after resolving symlinks, plus `..` tricks and invisible or lookalike characters.
+- Approvals bind to the facts the approver saw (rule set version 2): besides the action's digest,
+  an approval names `facts_sha256`, the digest of a merge's PR head SHA, base ref and base SHA, a
+  delete's resolved path, a credential's scope, or the default branch for force-push, branch delete
+  and history rewrite. A new push to the PR, or a path that now resolves elsewhere, voids the
+  approval and the action is denied. A merge whose head SHA is unknown is denied. A fixed-list merge
+  in the client posture needs both the captain's approval and the relayed client confirmation.
+  Force-push, branch delete and history rewrite name a plain branch name only, and the default
+  branch is matched case-insensitively.
 - API methods `policy.evaluate` (asks for a decision; the daemon records it as a `policy.decision`
   event before answering) and `policy.decisions` (pages the recorded decisions).
 
