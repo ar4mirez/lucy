@@ -1,0 +1,73 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+#
+# lucy's release build (D7, docs/runbooks/release.md). Only .github/workflows/release.yml publishes,
+# on a v* tag; CI validates this file and builds a snapshot on every pull request.
+version: 2
+project_name: lucy
+
+builds:
+  - id: lucy
+    main: ./cmd/lucy
+    binary: lucy
+    env:
+      - CGO_ENABLED=0 # static binaries (LUCY-REL-001)
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+      - -X main.date={{ .CommitDate }}
+    # The commit's time, not the build's, so rebuilding a tag gives the same bytes.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+archives:
+  - id: lucy
+    formats: [tar.gz]
+    # lucy_<version>_<os>_<arch>.tar.gz with the binary at the top level: the names mise's github:
+    # backend matches for `mise use -g github:ar4mirez/lucy` (LUCY-REL-004).
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+      - NOTICE
+
+# One SPDX SBOM per archive, made by syft. The SBOMs are listed in checksums.txt, so the signature
+# over it covers them too.
+sboms:
+  - id: archives
+    artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.spdx.json"
+    args: ["$artifact", "--output", "spdx-json=$document"]
+
+checksum:
+  name_template: checksums.txt
+
+# Keyless cosign signature over checksums.txt (which covers every archive and SBOM), as a Sigstore
+# bundle. The certificate names the release workflow and its tag ref, through GitHub's OIDC token:
+# no signing key exists. Verification: docs/runbooks/verify-release.md (LUCY-REL-002).
+signs:
+  - id: checksums
+    cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args: ["sign-blob", "--bundle=${signature}", "--yes", "${artifact}"]
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot+{{ .ShortCommit }}"
+
+changelog:
+  use: github-native
+
+release:
+  github:
+    owner: ar4mirez
+    name: lucy
+  # Created as a draft; the release workflow publishes it only after the signature is verified and
+  # the attestations exist, so nobody installs a release that mise cannot verify yet.
+  draft: true
+  replace_existing_draft: true
+  prerelease: auto

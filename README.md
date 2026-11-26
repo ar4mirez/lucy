@@ -2,7 +2,7 @@
 id: readme
 title: lucy
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-REPO-001, LUCY-REPO-006]
 ---
@@ -23,15 +23,19 @@ only prints its version and help. Nothing here runs agents yet. See the
 
 ## Install
 
-Releases are not published yet. Once m0's release slice lands, lucy installs through
-[mise](https://mise.jdx.dev) from GitHub Releases, with signed checksums and attestations that mise
-verifies:
+lucy installs through [mise](https://mise.jdx.dev) from GitHub Releases, on Linux and macOS (amd64
+and arm64). No release is published yet; the first tag comes once m0's release slice is merged.
 
 ```sh
-mise use -g github:ar4mirez/lucy@latest
+mise use -g github:ar4mirez/lucy@latest     # or a pinned version: github:ar4mirez/lucy@0.1.0
+lucy self-update                            # update through mise; --to <version> rolls back
 ```
 
-To build from source today: `mise install && mise run build`, then `./bin/lucy --version`.
+Each release has a keyless cosign signature over its `checksums.txt`, a GitHub build-provenance
+attestation and an SBOM per archive. mise checks the checksum and the attestation before installing;
+to verify by hand, see [verifying a release](docs/runbooks/verify-release.md).
+
+To build from source: `mise install && mise run build`, then `./bin/lucy --version`.
 
 ## Non-goals
 

@@ -2,7 +2,7 @@
 id: security-checklist
 title: Security checklist mapped to milestones
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-SEC-001, LUCY-SEC-002, LUCY-SEC-003, LUCY-SEC-004, LUCY-SEC-005, LUCY-SEC-006, LUCY-SEC-007, LUCY-SEC-008, LUCY-SEC-009, LUCY-SEC-010, LUCY-SEC-011, LUCY-SEC-012, LUCY-SEC-013]
 ---
@@ -46,7 +46,7 @@ changes as needing a decision, and every "later" becomes a backlog record.
 | 4.3 | Shared-storage security | Per-org data dirs, encrypted per-org backups, offboard and erase | m2 | LUCY-SEC-011, LUCY-CRED-006 |
 | 4.4 | Container and Kubernetes security | Hardening is berth's; lucy checks image version and the no-secret rule | m1 | LUCY-CRED-005, LUCY-SEC-013 |
 | 4.5 | IaC and policy as code | Spec resources; AutonomyPolicy and QualityGate as validated policy | m0 | LUCY-SPEC-010 |
-| 4.6 | Vulnerability management, patching | Vulnerability and dependency scans in CI; Dependabot; pinned toolchain | m0 | LUCY-SEC-002, LUCY-REPO-008 |
+| 4.6 | Vulnerability management, patching | Vulnerability and dependency scans in CI; Dependabot; pinned toolchain; release SBOMs | m0 | LUCY-SEC-002, LUCY-REPO-008, LUCY-REL-008 |
 | 4.7 | Endpoint hardening | Doctor host baseline | m1 | LUCY-SEC-007 |
 | 4.8 | Secure configuration baselines | Setup applies and doctor checks a baseline profile | m1 | LUCY-OPS-001, LUCY-OPS-002 |
 | 5.1 | Key log sources | Event store, audit chain, gateway egress log, container logs, forge events | m1 | LUCY-CRED-004, LUCY-OPS-004 |

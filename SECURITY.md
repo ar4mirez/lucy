@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -44,8 +44,9 @@ The controls that answer most of those threats:
   rule, actor and decision.
 - **Nothing public by default:** loopback and tailnet only, TLS, paired devices with hashed, scoped,
   revocable credentials.
-- **Supply chain:** signed releases (cosign) with build provenance verified by mise, pinned tools, CI
-  actions pinned by SHA with a read-only token (LUCY-REPO-008).
+- **Supply chain:** signed releases (keyless cosign) with build provenance verified by mise and an
+  SBOM per archive, pinned tools, CI actions pinned by SHA with a read-only token (LUCY-REPO-008);
+  [verifying a release](docs/runbooks/verify-release.md).
 
 The captain's security checklist (38 items in five areas) is mapped to milestones and owners in the
 [checklist map](docs/security/checklist.md). The threat model is re-checked at every milestone exit

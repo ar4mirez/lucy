@@ -50,3 +50,50 @@ jobs:
 
       - name: Tests (race)
         run: go test -race ./...
+
+  # The release config, proven on every pull request without publishing (docs/runbooks/release.md):
+  # goreleaser check, then a snapshot build with SBOMs and checksums. No signing here: keyless
+  # signing needs an OIDC token, which only the tag-triggered release workflow gets.
+  release-snapshot:
+    name: release snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Keep in step with release.yml.
+      GORELEASER_VERSION: v2.20.3
+      SYFT_VERSION: v1.57.2
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false # this job builds release artifacts; keep it off the shared build cache
+
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@dfcb83b97731532d72be422cbc51ee64adb6fd56 # v0.24.4
+        with:
+          syft-version: ${{ env.SYFT_VERSION }}
+
+      - name: Install goreleaser
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          version: ${{ env.GORELEASER_VERSION }}
+          install-only: true
+
+      - name: goreleaser check
+        run: goreleaser check
+
+      - name: Snapshot build (nothing published)
+        run: goreleaser release --snapshot --clean --skip=sign
+
+      - name: Verify the snapshot
+        run: |
+          version="$(jq -r .version dist/metadata.json)"
+          scripts/verify-dist.sh dist "$version"

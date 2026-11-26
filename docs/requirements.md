@@ -13,7 +13,7 @@ generated: true
 Generated from the requirement tables in [docs/prd](prd/README.md). Do not edit by hand:
 run `mise run docs-index` after changing a PRD table. CI fails when this file is stale.
 
-129 requirements (m0: 48, m1: 54, m2: 13, m3: 8, m4: 6). Milestone briefs: [docs/milestones](milestones/README.md).
+130 requirements (m0: 49, m1: 54, m2: 13, m3: 8, m4: 6). Milestone briefs: [docs/milestones](milestones/README.md).
 
 ## [foundation](prd/foundation.md)
 
@@ -41,6 +41,7 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 | LUCY-REL-005 | m0 | Merges to main cut releases from conventional commits; tags trigger goreleaser |
 | LUCY-REL-006 | m0 | `lucy self-update` verifies the new binary and `--to <version>` rolls back |
 | LUCY-REL-007 | m3 | A Homebrew cask ships in ar4mirez/homebrew-tap |
+| LUCY-REL-008 | m0 | Each release archive ships an SPDX SBOM, covered by the signed checksums.txt |
 | LUCY-REPO-001 | m0 | The repository is Apache-2.0, with a NOTICE file and README acknowledgements |
 | LUCY-REPO-002 | m0 | Every doc carries front matter: id, title, status, version, owner, requirements |
 | LUCY-REPO-003 | m0 | Requirement IDs are stable, defined once, scheduled in one milestone and indexed in docs/requirements.md |

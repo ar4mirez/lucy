@@ -2,7 +2,7 @@
 id: runbooks
 title: Runbooks
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: []
 ---
@@ -14,5 +14,6 @@ the result.
 
 | Runbook | When |
 |---|---|
-| [release.md](release.md) | Cutting a lucy release (stub until m0 slice 2) |
+| [release.md](release.md) | Cutting a lucy release |
+| [verify-release.md](verify-release.md) | Verifying a release's signature, checksums and attestation |
 | [repository-settings.md](repository-settings.md) | Setting up or auditing the GitHub repository's settings |
