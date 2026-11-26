@@ -35,5 +35,5 @@ real work proves the design.
 
 - **v1 (2026-11-26):** milestone 1 was "A: a read-only ledger plus doctor", catching this week's
   incident classes.
-- **v2 (2026-11-26):** Angel switched m1 to one org end to end because it "would really prove the work
-  rather than just a read-only".
+- **v2 (2026-11-26):** m1 switched to one org end to end, because running real work proves more
+  than a read-only ledger.

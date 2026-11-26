@@ -16,7 +16,7 @@ decided: 2026-11-26
 same over HTTPS", behind the CLI, TUI, dashboard, MCP and remote control (LUCY-API-001). m0 slice 4
 had to pick one. The choice was delegated to the slice with a rule: the least dependency weight that
 still gives typed Go clients and a schema other surfaces can generate from. Unlike D1 to D9, this
-ADR was written by the slice's agent under that rule; Angel can revise it.
+ADR was written by the slice's agent under that rule; the captain can revise it.
 
 ## Options
 

@@ -12,7 +12,7 @@ decided: 2026-11-26
 
 ## Context
 
-Angel: review what is built into lucy vs external tools, and account for each external as a managed
+Review what is built into lucy vs external tools, and account for each external as a managed
 risk. Installing lucy must provide the full installation of lucy plus everything it needs.
 
 ## Decision
@@ -31,4 +31,4 @@ risk. Installing lucy must provide the full installation of lucy plus everything
 ## Consequences
 
 - The full inventory with pins, risks and mitigations lives in [TECH.md](../../TECH.md).
-- lucy writes its pinned toolchain under its own data dir, leaving Angel's global mise config alone.
+- lucy writes its pinned toolchain under its own data dir, leaving the user's global mise config alone.

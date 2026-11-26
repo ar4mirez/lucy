@@ -31,7 +31,7 @@ Roles are ai-sdlc `AgentRole` resources with lucy's bundled, versioned instructi
 
 | Role | Does | Never |
 |---|---|---|
-| Captain (Angel) | Decides, grants postures, answers decisions, steers | - |
+| Captain | Decides, grants postures, answers decisions, steers | - |
 | Org supervisor | Turns captain intent into tasks, supervises, escalates | Writes to a project; addresses anyone but the captain |
 | Ship worker | Changes one project in an isolated worktree and lands a PR | Merges; answers its own findings; holds credentials |
 | Scout | Researches and reports; ships nothing | Writes to a project |

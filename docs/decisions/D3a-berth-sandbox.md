@@ -14,7 +14,7 @@ decided: 2026-11-26
 
 A worker's code ran `rm_rf('/')` on the host and wiped most of `~/.config`. A prompt-level guard could
 not have stopped it: the delete was inside code the agent ran. Only an OS-level boundary does. berth,
-Angel's own Apache-2.0 product, already gives each org a container with its own account, git key,
+a separate Apache-2.0 product, already gives each org a container with its own account, git key,
 default-deny egress firewall and repo allowlist, plus an HTTP API.
 
 ## Decision

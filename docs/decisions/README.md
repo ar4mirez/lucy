@@ -9,7 +9,7 @@ requirements: []
 
 # Decisions
 
-Architecture decision records (ADRs). Each records one decision Angel made, why, and what it changes.
+Architecture decision records (ADRs). Each records one decision the captain made, why, and what it changes.
 Decisions are never edited away: a changed decision gets a new version with a "Revisions" entry, or a
 new ADR whose front matter says `supersedes`.
 
@@ -34,5 +34,5 @@ new ADR whose front matter says `supersedes`.
 Front matter: `id`, `title`, `status` (`accepted`, `superseded` or `draft`), `version`, `owner`,
 `requirements` (the IDs this decision drives), `decided` (date), and `supersedes` or
 `superseded_by` when they apply. Body: **Context**, **Decision**, **Consequences**, and
-**Revisions** when the decision changed. D1 to D9 and R1 were made by Angel on 2026-11-26; D10 was
+**Revisions** when the decision changed. D1 to D9 and R1 were made by the captain on 2026-11-26; D10 was
 delegated to m0 slice 4 under a stated rule, which its Context records.
