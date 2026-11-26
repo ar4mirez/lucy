@@ -51,7 +51,7 @@ if [ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ]; then
 	tar -xzf lucy_*_linux_amd64.tar.gz -C "$tmp" lucy
 	got=$("$tmp/lucy" --version)
 	case "$got" in
-	"lucy $want "* | "lucy $want") ;;
+	"lucy $want") ;;
 	*) [ -z "$want" ] || fail "lucy --version printed \"$got\", want version $want" ;;
 	esac
 	echo "verify-dist: $got"
