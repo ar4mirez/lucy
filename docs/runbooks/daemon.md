@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008]
 ---
@@ -22,7 +22,7 @@ API method. **Needs:** lucy installed; for changes, the repository and `mise ins
 | Lock | `lucy.lock` beside the socket; held while a daemon runs |
 | Modes | Runtime dir 0700, owned by the user, not a symlink; socket 0600 |
 | Database | As in the [database runbook](database.md) |
-| Network | None. The daemon listens only on the socket; the HTTPS seam refuses to start until m1 |
+| Network | None. The daemon listens only on the socket; remote HTTPS with device pairing, scoped credentials and TLS lands in m1 (LUCY-VIEW-006) |
 
 ## Run, check, stop
 

@@ -27,8 +27,11 @@ type PeerListener struct {
 	// OnRefuse is told about every refused connection; cred is zero when err is set.
 	OnRefuse func(cred PeerCred, err error)
 
-	refused atomic.Int64
-	slots   chan struct{}
+	refused   atomic.Int64
+	slots     chan struct{}
+	done      chan struct{}
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // DefaultMaxConns bounds concurrent connections on the socket.
@@ -39,7 +42,16 @@ func NewPeerListener(l net.Listener, allowUID, maxConns int) *PeerListener {
 	if maxConns <= 0 {
 		maxConns = DefaultMaxConns
 	}
-	return &PeerListener{Listener: l, AllowUID: allowUID, slots: make(chan struct{}, maxConns)}
+	return &PeerListener{Listener: l, AllowUID: allowUID, slots: make(chan struct{}, maxConns), done: make(chan struct{})}
+}
+
+// Close closes the listener and wakes an Accept waiting for a free slot. It is safe to call twice.
+func (l *PeerListener) Close() error {
+	l.closeOnce.Do(func() {
+		close(l.done)
+		l.closeErr = l.Listener.Close()
+	})
+	return l.closeErr
 }
 
 // Refused is the number of connections refused so far.
@@ -48,7 +60,11 @@ func (l *PeerListener) Refused() int64 { return l.refused.Load() }
 // Accept returns the next connection from the allowed user.
 func (l *PeerListener) Accept() (net.Conn, error) {
 	for {
-		l.slots <- struct{}{}
+		select {
+		case l.slots <- struct{}{}:
+		case <-l.done:
+			return nil, net.ErrClosed
+		}
 		c, err := l.Listener.Accept()
 		if err != nil {
 			<-l.slots

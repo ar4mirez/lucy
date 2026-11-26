@@ -46,6 +46,7 @@ type fixture struct {
 	srv    *Server
 	store  *eventstore.Store
 	pl     *PeerListener
+	hs     *http.Server
 	sock   string
 	client *client.Client
 }
@@ -91,7 +92,7 @@ func start(t *testing.T, allowUID, maxConns int, tweak func(*Options), onRefuse 
 	})
 	c := client.New(sock, "test", "0")
 	t.Cleanup(c.Close)
-	return &fixture{srv: srv, store: store, pl: pl, sock: sock, client: c}
+	return &fixture{srv: srv, store: store, pl: pl, hs: hs, sock: sock, client: c}
 }
 
 // raw posts body to path over the fixture's socket and returns the HTTP status and decoded response.

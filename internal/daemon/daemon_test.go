@@ -231,13 +231,6 @@ func TestRunRefuses(t *testing.T) {
 			t.Errorf("got %v", err)
 		}
 	})
-	t.Run("a remote listener", func(t *testing.T) {
-		o := opts(shortTempDir(t))
-		o.Remote = &RemoteOptions{Addr: "127.0.0.1:0"}
-		if err := Run(ctx, o); !errors.Is(err, ErrRemoteNotAvailable) {
-			t.Errorf("got %v", err)
-		}
-	})
 }
 
 func TestRuntimeDir(t *testing.T) {

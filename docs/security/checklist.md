@@ -2,7 +2,7 @@
 id: security-checklist
 title: Security checklist mapped to milestones
 status: active
-version: 4
+version: 5
 owner: ar4mirez
 requirements: [LUCY-EVT-005, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-008, LUCY-VIEW-006, LUCY-SEC-001, LUCY-SEC-002, LUCY-SEC-003, LUCY-SEC-004, LUCY-SEC-005, LUCY-SEC-006, LUCY-SEC-007, LUCY-SEC-008, LUCY-SEC-009, LUCY-SEC-010, LUCY-SEC-011, LUCY-SEC-012, LUCY-SEC-013]
 ---
@@ -85,9 +85,9 @@ changes as needing a decision, and every "later" becomes a backlog record.
 
 ## Applied in m0 slice 4 (the typed API and `lucy daemon`)
 
-- **1.1 and 4.2, nothing on the network:** the daemon's only listener is its unix socket. The HTTPS
-  transport is a seam that refuses to start (`daemon.Options.Remote`); no network listener exists
-  by default or by flag.
+- **1.1 and 4.2, nothing on the network:** the daemon's only listener is its unix socket; no network
+  listener exists, by default or by flag. Remote HTTPS with device pairing, scoped credentials and
+  TLS lands in m1 (LUCY-VIEW-006).
 - **1.2:** the socket is 0600 in a 0700 runtime dir that must be a real directory owned by the user;
   a dir planted in a shared `/tmp` is refused, not used; only a stale socket is ever removed, never
   another file (LUCY-SEC-001).
@@ -107,7 +107,7 @@ changes as needing a decision, and every "later" becomes a backlog record.
 - **STRIDE 1-R, repudiation:** every mutating call is appended as an `api.command` event naming the
   actor, pid and device before it runs, and does not run if the append fails (LUCY-API-005); the
   hash chain over it is slice 6.
-- **Deferred, remote authentication:** mutual TLS or paired-device tokens (hashed, scoped,
-  revocable), loopback and tailnet binds and TLS land in m1 with remote control (LUCY-VIEW-006,
-  checklist 2.4); the passkey step-up for privileged remote actions in m3 (LUCY-CAP-003). Until then
+- **Deferred, remote authentication:** no network listener exists in m0. Remote HTTPS with device
+  pairing, scoped credentials (hashed, revocable) and TLS on loopback and tailnet binds lands in m1
+  with remote control (LUCY-VIEW-006, checklist 2.4); the passkey step-up for privileged remote actions in m3 (LUCY-CAP-003). Until then
   the API cannot be reached from another machine.

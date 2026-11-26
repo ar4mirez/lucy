@@ -3,8 +3,8 @@
 //
 // The socket is the only listener. It lives in a 0700 runtime directory, is itself 0600, and admits
 // only connections whose kernel-reported peer runs as this user (LUCY-API-003). No network listener
-// exists: the HTTPS transport for remote surfaces is a seam (Options.Remote) that refuses to start
-// until m1 brings device pairing and TLS (LUCY-VIEW-006).
+// exists; the HTTPS transport for remote surfaces lands in m1 with device pairing and TLS
+// (LUCY-VIEW-006).
 package daemon
 
 import (
@@ -21,9 +21,6 @@ import (
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/server"
 )
-
-// ErrRemoteNotAvailable is returned when Options.Remote is set: remote listeners land in m1.
-var ErrRemoteNotAvailable = errors.New("daemon: the remote (HTTPS) listener lands in m1 with device pairing and TLS (LUCY-VIEW-006); lucy serves only its unix socket")
 
 // DaemonStream is the event stream daemon lifecycle events are appended to.
 const DaemonStream = "daemon"
@@ -58,31 +55,19 @@ func Registry() (*eventstore.Registry, error) {
 	return eventstore.NewRegistry(Started{}, Stopped{}, server.CommandEvent{})
 }
 
-// RemoteOptions configures the HTTPS listener for remote surfaces. It is the seam m1 fills in:
-// loopback and tailnet binds only, TLS, and paired-device credentials checked per call.
-type RemoteOptions struct {
-	Addr     string // host:port; loopback or tailnet only
-	CertFile string
-	KeyFile  string
-}
-
 // Options configures Run.
 type Options struct {
-	SocketPath  string         // DefaultSocketPath when empty
-	DBPath      string         // eventstore.DefaultPath when empty
-	SnapshotDir string         // the store's pre-migration snapshot dir; its default when empty
-	Version     string         // lucy's version
-	Log         *slog.Logger   // slog.Default when nil
-	Remote      *RemoteOptions // nil: no network listener. Non-nil is refused until m1.
+	SocketPath  string       // DefaultSocketPath when empty
+	DBPath      string       // eventstore.DefaultPath when empty
+	SnapshotDir string       // the store's pre-migration snapshot dir; its default when empty
+	Version     string       // lucy's version
+	Log         *slog.Logger // slog.Default when nil
 	// OnReady is called once the socket accepts connections.
 	OnReady func(socketPath string)
 }
 
 // Run serves the API until ctx is cancelled or a daemon.shutdown call, then stops gracefully.
 func Run(ctx context.Context, opts Options) error {
-	if opts.Remote != nil {
-		return ErrRemoteNotAvailable
-	}
 	log := opts.Log
 	if log == nil {
 		log = slog.Default()

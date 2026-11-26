@@ -2,7 +2,7 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 4
+version: 5
 owner: ar4mirez
 requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-RUN-001, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007]
 ---
@@ -118,9 +118,9 @@ Operations: [daemon runbook](docs/runbooks/daemon.md).
 - **Errors** (LUCY-API-008): JSON-RPC codes plus lucy's (-32001 forbidden, -32002 unsupported
   version, -32003 too large, -32004 unavailable, -32005 timeout), one fixed message and `kind` per
   code; internal errors are logged with a correlation id, which is all the caller sees.
-- **Remote seam.** The handler is transport-neutral; HTTPS needs only a TLS listener and a device
-  authenticator. `daemon.Options.Remote` exists and refuses to start: no network listener until m1
-  brings pairing, scoped device credentials and TLS (LUCY-VIEW-006).
+- **Remote transport (m1).** The handler is transport-neutral; HTTPS needs only a TLS listener and a
+  device authenticator. No network listener exists in m0: remote HTTPS with device pairing, scoped
+  credentials and TLS lands in m1 (LUCY-VIEW-006).
 - **Clients.** `internal/api/client` is the Go client: strict about the envelope, tolerant of new
   result fields. The CLI's `lucy status`, `lucy events` and `lucy daemon stop` use it.
 

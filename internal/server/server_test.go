@@ -316,6 +316,32 @@ func TestConnectionLimit(t *testing.T) {
 	}
 }
 
+func TestCloseWakesAcceptAtTheLimit(t *testing.T) {
+	f := start(t, os.Geteuid(), 1, nil)
+	if _, err := f.client.Health(ctx); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return len(f.pl.slots) == 1 })
+	short, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- f.hs.Shutdown(short) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Shutdown with every slot held: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Shutdown hung while every connection slot was held")
+	}
+	if _, err := f.pl.Accept(); !errors.Is(err, net.ErrClosed) {
+		t.Errorf("Accept after Close = %v, want net.ErrClosed", err)
+	}
+	if err := f.pl.Close(); err != nil {
+		t.Errorf("second Close = %v", err)
+	}
+}
+
 func TestHTTPServerLimits(t *testing.T) {
 	f := start(t, os.Geteuid(), 0, nil)
 	hs := f.srv.HTTPServer()
