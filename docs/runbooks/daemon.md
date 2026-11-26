@@ -28,7 +28,7 @@ API method. **Needs:** lucy installed; for changes, the repository and `mise ins
 
 ```sh
 lucy daemon                 # foreground; logs to stderr; Ctrl-C or SIGTERM stops it
-lucy status                 # version, API version, uptime, event head, refused connections
+lucy status                 # version, API version, uptime, event head, refused connections, you:
 lucy events --after 0       # the log, oldest first; --limit up to 500
 lucy daemon stop            # graceful stop through the API (recorded as an api.command event)
 ```
