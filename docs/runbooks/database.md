@@ -85,8 +85,9 @@ Editing an old migration fails `TestMigrationsLocked`; on a user's machine it fa
 Opening a database with pending migrations first writes a snapshot into the state dir,
 `lucy.db.pre-v<N>.<UTC time>.seq<S>.bak` (0600), where `<N>` is the schema version before the
 upgrade and `<S>` the last event's sequence number, then applies each migration in its own
-transaction. The snapshot is written to a temporary file and linked into place, so it is complete
-or absent; every upgrade gets a new file and none is ever overwritten. If the snapshot cannot be
+transaction. The snapshot is written to a temporary file, synced to disk, linked into place and
+the directory synced before any migration runs, so after a crash or power loss it is complete or
+absent; every upgrade gets a new file and none is ever overwritten. If the snapshot cannot be
 written, the upgrade does not run. To roll back a bad upgrade:
 
 1. Stop lucy.

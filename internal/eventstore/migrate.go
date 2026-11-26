@@ -191,8 +191,8 @@ const snapshotTime = "20060102T150405.000000000Z"
 
 // writeSnapshot writes a consistent copy of db, at schema version, into dir as
 // <base>.pre-v<version>.<UTC time>.seq<head>.bak, mode 0600. The copy is written to a temporary file
-// in dir and then linked into place, so a snapshot is either complete or absent, and an existing
-// file is never overwritten.
+// in dir, synced, linked into place and the directory synced, so a snapshot is either complete or
+// absent, is durable before any migration runs, and an existing file is never overwritten.
 func writeSnapshot(ctx context.Context, db *sql.DB, dir, base string, version int, at time.Time) error {
 	seq, err := head(ctx, db)
 	if err != nil {
@@ -214,8 +214,28 @@ func writeSnapshot(ctx context.Context, db *sql.DB, dir, base string, version in
 	if err := os.Chmod(tmp, 0o600); err != nil {
 		return fmt.Errorf("eventstore: pre-migration snapshot: %w", err)
 	}
+	if err := syncPath(tmp); err != nil {
+		return fmt.Errorf("eventstore: pre-migration snapshot: %w", err)
+	}
 	if err := os.Link(tmp, dst); err != nil {
 		return fmt.Errorf("eventstore: pre-migration snapshot: %w", err)
 	}
+	if err := syncPath(dir); err != nil {
+		return fmt.Errorf("eventstore: pre-migration snapshot: %w", err)
+	}
 	return nil
+}
+
+// syncPath flushes a file's contents, or a directory's entries, to disk. On macOS Go's Sync issues
+// F_FULLFSYNC.
+func syncPath(p string) error {
+	f, err := os.Open(p)
+	if err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close() //nolint:errcheck // the sync error is what matters
+		return err
+	}
+	return f.Close()
 }
