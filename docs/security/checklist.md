@@ -2,9 +2,9 @@
 id: security-checklist
 title: Security checklist mapped to milestones
 status: active
-version: 3
+version: 4
 owner: ar4mirez
-requirements: [LUCY-EVT-005, LUCY-SEC-001, LUCY-SEC-002, LUCY-SEC-003, LUCY-SEC-004, LUCY-SEC-005, LUCY-SEC-006, LUCY-SEC-007, LUCY-SEC-008, LUCY-SEC-009, LUCY-SEC-010, LUCY-SEC-011, LUCY-SEC-012, LUCY-SEC-013]
+requirements: [LUCY-EVT-005, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-008, LUCY-VIEW-006, LUCY-SEC-001, LUCY-SEC-002, LUCY-SEC-003, LUCY-SEC-004, LUCY-SEC-005, LUCY-SEC-006, LUCY-SEC-007, LUCY-SEC-008, LUCY-SEC-009, LUCY-SEC-010, LUCY-SEC-011, LUCY-SEC-012, LUCY-SEC-013]
 ---
 
 # Security checklist mapped to milestones
@@ -82,3 +82,32 @@ changes as needing a decision, and every "later" becomes a backlog record.
 - **3.7, secrets:** events never carry secrets; secret-looking field names are refused at
   registration and at append, map keys included (LUCY-EVT-005,
   [database runbook](../runbooks/database.md)).
+
+## Applied in m0 slice 4 (the typed API and `lucy daemon`)
+
+- **1.1 and 4.2, nothing on the network:** the daemon's only listener is its unix socket. The HTTPS
+  transport is a seam that refuses to start (`daemon.Options.Remote`); no network listener exists
+  by default or by flag.
+- **1.2:** the socket is 0600 in a 0700 runtime dir that must be a real directory owned by the user;
+  a dir planted in a shared `/tmp` is refused, not used; only a stale socket is ever removed, never
+  another file (LUCY-SEC-001).
+- **2.4 and STRIDE 2-S, local authentication:** each connection's kernel peer credentials
+  (SO_PEERCRED on Linux, LOCAL_PEERCRED on macOS) must name the daemon's uid, or it is closed before
+  a byte is read; `TestPeerCredRefusesOtherUsers` drives a real refusal (LUCY-API-003).
+- **2.5 and 3.4, access control seam:** the caller rides on every request's context; an authorizer
+  checks the method's scope before params are decoded. Only the local owner holds scopes until the
+  policy engine (slice 5) adds org and task checks (LUCY-API-004).
+- **2.2 and 2.7, input:** strict JSON only: no unknown, duplicate or case-folded members, bounds on
+  every field, 64 KiB bodies, 32 levels of nesting, `application/json` only; `FuzzDecodeRequest`
+  fuzzes the decoder (LUCY-API-006).
+- **2.6 and STRIDE 2-D, resource limits:** header, read, write, idle and per-call timeouts; at most 64
+  open connections. Per-device rate limits come with remote devices (LUCY-SEC-006, m1).
+- **Information disclosure:** errors carry a fixed message per code; internal errors carry only a
+  correlation id, and a test checks handler errors and panics do not leak (LUCY-API-008).
+- **STRIDE 1-R, repudiation:** every mutating call is appended as an `api.command` event naming the
+  actor, pid and device before it runs, and does not run if the append fails (LUCY-API-005); the
+  hash chain over it is slice 6.
+- **Deferred, remote authentication:** mutual TLS or paired-device tokens (hashed, scoped,
+  revocable), loopback and tailnet binds and TLS land in m1 with remote control (LUCY-VIEW-006,
+  checklist 2.4); the passkey step-up for privileged remote actions in m3 (LUCY-CAP-003). Until then
+  the API cannot be reached from another machine.

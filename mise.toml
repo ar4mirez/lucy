@@ -18,6 +18,10 @@ run = [
 description = "Regenerate docs/requirements.md from the PRD tables"
 run = "go test ./internal/doccheck -run TestRequirementsIndex -update"
 
+[tasks.api-schema]
+description = "Regenerate internal/api/openrpc.json from the API's method table"
+run = "go test ./internal/api -run TestOpenRPCDocument -update"
+
 [tasks.build]
 description = "Build ./bin/lucy with a version stamp"
 run = "go build -ldflags \"-X main.version=${LUCY_VERSION:-dev}\" -o bin/lucy ./cmd/lucy"

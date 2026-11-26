@@ -1,0 +1,437 @@
+{
+  "openrpc": "1.3.2",
+  "info": {
+    "title": "lucy API",
+    "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "name": "local",
+      "url": "unix:$XDG_RUNTIME_DIR/lucy/lucy.sock/rpc/v1"
+    }
+  ],
+  "methods": [
+    {
+      "name": "rpc.discover",
+      "summary": "The API's OpenRPC document: every method, its params, result and errors.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "description": "An OpenRPC document (this one).",
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "read",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
+    },
+    {
+      "name": "hello",
+      "summary": "Negotiate the API version and learn the caller's identity, scopes and the methods it may call.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "client",
+          "description": "The calling surface, for example lucy-cli.",
+          "required": true,
+          "schema": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "client_version",
+          "description": "The calling surface's version.",
+          "required": false,
+          "schema": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        {
+          "name": "api_versions",
+          "description": "API major versions the client speaks.",
+          "required": true,
+          "schema": {
+            "items": {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "type": "array"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "api_version": {
+              "description": "The API version chosen: the highest both sides speak.",
+              "type": "integer"
+            },
+            "caller": {
+              "description": "Who the daemon thinks is calling.",
+              "properties": {
+                "actor": {
+                  "description": "The caller's name in the event log.",
+                  "type": "string"
+                },
+                "device": {
+                  "description": "local for the socket; a paired device's id remotely.",
+                  "type": "string"
+                },
+                "pid": {
+                  "description": "The peer's process id, when the OS reports it.",
+                  "type": "integer"
+                },
+                "scopes": {
+                  "description": "The scopes granted to this caller.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "transport": {
+                  "description": "unix, or https once remote control lands.",
+                  "type": "string"
+                },
+                "uid": {
+                  "description": "The peer's user id on the unix socket.",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "actor",
+                "transport",
+                "uid",
+                "device",
+                "scopes"
+              ],
+              "type": "object"
+            },
+            "methods": {
+              "description": "The methods this caller's scopes allow.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "server_version": {
+              "description": "The daemon's lucy version.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "api_version",
+            "server_version",
+            "caller",
+            "methods"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "read",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "hello"
+    },
+    {
+      "name": "health",
+      "summary": "Liveness: the daemon is up and its event store answers.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "status": {
+              "description": "ok when the daemon and its event store answer.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "read",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
+    },
+    {
+      "name": "status.get",
+      "summary": "The daemon's version, uptime and event log head.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "api_version": {
+              "description": "The API version served.",
+              "type": "integer"
+            },
+            "event_head": {
+              "description": "Sequence number of the last event in the log; 0 when empty.",
+              "type": "integer"
+            },
+            "pid": {
+              "description": "The daemon's process id.",
+              "type": "integer"
+            },
+            "refused_connections": {
+              "description": "Socket connections refused since start (another user, or no peer credentials).",
+              "type": "integer"
+            },
+            "server_version": {
+              "description": "The daemon's lucy version.",
+              "type": "string"
+            },
+            "started_at": {
+              "description": "When the daemon started, UTC.",
+              "format": "date-time",
+              "type": "string"
+            },
+            "uptime_seconds": {
+              "description": "Seconds since the daemon started.",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "server_version",
+            "api_version",
+            "pid",
+            "started_at",
+            "uptime_seconds",
+            "event_head",
+            "refused_connections"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "read",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
+    },
+    {
+      "name": "events.list",
+      "summary": "Events from the log after a sequence number, oldest first.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "after_seq",
+          "description": "Return events with a sequence number greater than this; 0 starts at the beginning.",
+          "required": false,
+          "schema": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        {
+          "name": "limit",
+          "description": "At most this many events; 0 means 100.",
+          "required": false,
+          "schema": {
+            "maximum": 500,
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "events": {
+              "description": "The events, oldest first.",
+              "items": {
+                "properties": {
+                  "actor": {
+                    "description": "Who caused it.",
+                    "type": "string"
+                  },
+                  "payload": {
+                    "description": "The typed payload as stored; events never carry secrets."
+                  },
+                  "seq": {
+                    "description": "Position in the whole log.",
+                    "type": "integer"
+                  },
+                  "stream": {
+                    "description": "The stream the event belongs to.",
+                    "type": "string"
+                  },
+                  "stream_version": {
+                    "description": "Position in its stream.",
+                    "type": "integer"
+                  },
+                  "time": {
+                    "description": "When it was appended, UTC.",
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "type": {
+                    "description": "Event type name.",
+                    "type": "string"
+                  },
+                  "type_version": {
+                    "description": "Version of the payload schema.",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "seq",
+                  "stream",
+                  "stream_version",
+                  "type",
+                  "type_version",
+                  "time",
+                  "actor",
+                  "payload"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "head": {
+              "description": "The log's head when the page was read.",
+              "type": "integer"
+            },
+            "more": {
+              "description": "Whether events after this page existed when it was read.",
+              "type": "boolean"
+            },
+            "next": {
+              "description": "Pass as after_seq to read the next page.",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "events",
+            "head",
+            "next",
+            "more"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "read",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
+    },
+    {
+      "name": "daemon.shutdown",
+      "summary": "Stop the daemon gracefully after answering.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "stopping": {
+              "description": "True: the daemon stops after this response.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "stopping"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "admin",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
+    }
+  ],
+  "components": {
+    "errors": {
+      "forbidden": {
+        "code": -32001,
+        "message": "forbidden"
+      },
+      "internal": {
+        "code": -32603,
+        "message": "internal error"
+      },
+      "invalid_params": {
+        "code": -32602,
+        "message": "invalid params"
+      },
+      "invalid_request": {
+        "code": -32600,
+        "message": "invalid request"
+      },
+      "method_not_found": {
+        "code": -32601,
+        "message": "method not found"
+      },
+      "parse_error": {
+        "code": -32700,
+        "message": "parse error"
+      },
+      "timeout": {
+        "code": -32005,
+        "message": "deadline exceeded"
+      },
+      "too_large": {
+        "code": -32003,
+        "message": "request too large"
+      },
+      "unavailable": {
+        "code": -32004,
+        "message": "daemon unavailable"
+      },
+      "unsupported_version": {
+        "code": -32002,
+        "message": "unsupported API version"
+      }
+    },
+    "schemas": {
+      "ErrorData": {
+        "properties": {
+          "field": {
+            "description": "The params field (or request member) at fault.",
+            "type": "string"
+          },
+          "help": {
+            "description": "What to change in the request.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Stable name of the error code, for example invalid_params.",
+            "type": "string"
+          },
+          "request_id": {
+            "description": "Correlation id for an internal error; the daemon's log has the details.",
+            "type": "string"
+          },
+          "supported": {
+            "description": "API versions the daemon serves (unsupported_version).",
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      }
+    }
+  }
+}

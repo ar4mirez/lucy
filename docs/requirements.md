@@ -13,7 +13,7 @@ generated: true
 Generated from the requirement tables in [docs/prd](prd/README.md). Do not edit by hand:
 run `mise run docs-index` after changing a PRD table. CI fails when this file is stale.
 
-132 requirements (m0: 51, m1: 54, m2: 13, m3: 8, m4: 6). Milestone briefs: [docs/milestones](milestones/README.md).
+134 requirements (m0: 53, m1: 54, m2: 13, m3: 8, m4: 6). Milestone briefs: [docs/milestones](milestones/README.md).
 
 ## [foundation](prd/foundation.md)
 
@@ -25,6 +25,8 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 | LUCY-API-004 | m0 | Every call checks the caller's scope and the object's org and task through the policy engine |
 | LUCY-API-005 | m0 | Every command becomes an audit entry naming the actor and device |
 | LUCY-API-006 | m0 | Requests are strict typed JSON: unknown fields rejected, sizes bounded, no native deserialization |
+| LUCY-API-007 | m0 | The API is versioned (major version in the path, negotiated by hello) and its schema is generated from one method table and committed |
+| LUCY-API-008 | m0 | API errors are typed: one fixed message per code, details only about the caller's input, internal error text never sent |
 | LUCY-EVT-001 | m0 | State lives in one pure-Go SQLite database (WAL) under the XDG data dir, never in a repo |
 | LUCY-EVT-002 | m0 | Typed events are appended in the same transaction as the state change they describe |
 | LUCY-EVT-003 | m0 | Consumers read past a cursor; an ack carries its generation and is refused if the generation changed |
