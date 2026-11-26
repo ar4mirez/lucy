@@ -17,7 +17,8 @@ import (
 // Status lives in the event store, never in config files (LUCY-SPEC-003): loading config records
 // one resource.status event per resource whose observed state changed, a resource.removed event
 // for each resource no longer in config, and a config.loaded summary. The resource_status
-// projection holds the current Conditions of every resource.
+// projection holds the current Conditions of every resource, and the problems of the latest load:
+// the refusals that name no resource of their own.
 
 // StatusStream is the event stream config status events are appended to.
 const StatusStream = "config"
@@ -279,22 +280,41 @@ func Statuses(ctx context.Context, store *eventstore.Store) ([]ResourceStatus, e
 	return out, rows.Err()
 }
 
+// LatestProblems returns the problems the latest load recorded, their conditions stamped, and how
+// many more it left out past MaxRecordedProblems.
+func LatestProblems(ctx context.Context, store *eventstore.Store) ([]Problem, int, error) {
+	var data string
+	var truncated int
+	err := store.QueryRowContext(ctx, `SELECT problems, truncated FROM config_problems WHERE id = 1`).Scan(&data, &truncated)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, 0, nil
+	case err != nil:
+		return nil, 0, fmt.Errorf("spec: read config problems: %w", err)
+	}
+	var out []Problem
+	if err := json.Unmarshal([]byte(data), &out); err != nil {
+		return nil, 0, fmt.Errorf("spec: config problems: %w", err)
+	}
+	return out, truncated, nil
+}
+
 // StatusProjector maintains the resource_status table from resource.status and resource.removed
-// events.
+// events, and the config_problems table from config.loaded events: one row, replaced by each load.
 type StatusProjector struct{}
 
 // Name implements eventstore.Projector.
 func (StatusProjector) Name() string { return "resource_status" }
 
 // Version implements eventstore.Projector.
-func (StatusProjector) Version() int { return 1 }
+func (StatusProjector) Version() int { return 2 }
 
 // Reset implements eventstore.Projector.
 func (StatusProjector) Reset(ctx context.Context, tx eventstore.Execer) error {
-	if _, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS resource_status`); err != nil {
-		return err
-	}
-	_, err := tx.ExecContext(ctx, `CREATE TABLE resource_status (
+	for _, q := range []string{
+		`DROP TABLE IF EXISTS resource_status`,
+		`DROP TABLE IF EXISTS config_problems`,
+		`CREATE TABLE resource_status (
 			namespace   TEXT NOT NULL,
 			kind        TEXT NOT NULL,
 			name        TEXT NOT NULL,
@@ -304,8 +324,36 @@ func (StatusProjector) Reset(ctx context.Context, tx eventstore.Execer) error {
 			conditions  TEXT NOT NULL,
 			seq         INTEGER NOT NULL,
 			PRIMARY KEY (namespace, kind, name)
-		) STRICT`)
-	return err
+		) STRICT`,
+		`CREATE TABLE config_problems (
+			id        INTEGER PRIMARY KEY CHECK (id = 1),
+			problems  TEXT NOT NULL,
+			truncated INTEGER NOT NULL,
+			seq       INTEGER NOT NULL
+		) STRICT`,
+	} {
+		if _, err := tx.ExecContext(ctx, q); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// stamp sets each condition's lastTransitionTime: kept from prev when the same type had the same
+// status, else the event's time.
+func stamp(conds, prev []Condition, at time.Time) []Condition {
+	t := at.UTC().Format(time.RFC3339)
+	out := make([]Condition, len(conds))
+	for i, c := range conds {
+		c.LastTransitionTime = t
+		for _, p := range prev {
+			if p.Type == c.Type && p.Status == c.Status && p.LastTransitionTime != "" {
+				c.LastTransitionTime = p.LastTransitionTime
+			}
+		}
+		out[i] = c
+	}
+	return out
 }
 
 // Apply implements eventstore.Projector.
@@ -328,18 +376,7 @@ func (StatusProjector) Apply(ctx context.Context, tx eventstore.Execer, e events
 				return err
 			}
 		}
-		stamp := e.Time.UTC().Format(time.RFC3339)
-		conds := make([]Condition, len(ev.Conditions))
-		for i, c := range ev.Conditions {
-			c.LastTransitionTime = stamp
-			for _, p := range prev {
-				if p.Type == c.Type && p.Status == c.Status && p.LastTransitionTime != "" {
-					c.LastTransitionTime = p.LastTransitionTime
-				}
-			}
-			conds[i] = c
-		}
-		data, err := json.Marshal(conds)
+		data, err := json.Marshal(stamp(ev.Conditions, prev, e.Time))
 		if err != nil {
 			return err
 		}
@@ -355,6 +392,41 @@ func (StatusProjector) Apply(ctx context.Context, tx eventstore.Execer, e events
 			return err
 		}
 		_, err := tx.ExecContext(ctx, `DELETE FROM resource_status WHERE namespace = ? AND kind = ? AND name = ?`, ev.Namespace, ev.Kind, ev.Name)
+		return err
+	case "config.loaded":
+		var ev LoadedEvent
+		if err := strictJSON(e.Payload, &ev); err != nil {
+			return err
+		}
+		var prevJSON string
+		err := tx.QueryRowContext(ctx, `SELECT problems FROM config_problems WHERE id = 1`).Scan(&prevJSON)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		var prev []Problem
+		if prevJSON != "" {
+			if err := json.Unmarshal([]byte(prevJSON), &prev); err != nil {
+				return err
+			}
+		}
+		problems := make([]Problem, len(ev.Problems))
+		for i, p := range ev.Problems {
+			var before []Condition
+			for _, q := range prev {
+				if q.Source == p.Source {
+					before = q.Conditions
+					break
+				}
+			}
+			problems[i] = Problem{Source: p.Source, Conditions: stamp(p.Conditions, before, e.Time)}
+		}
+		data, err := json.Marshal(problems)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO config_problems (id, problems, truncated, seq) VALUES (1, ?, ?, ?)
+			ON CONFLICT (id) DO UPDATE SET problems = excluded.problems, truncated = excluded.truncated, seq = excluded.seq`,
+			string(data), ev.Truncated, e.Seq)
 		return err
 	}
 	return nil

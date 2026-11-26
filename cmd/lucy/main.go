@@ -28,8 +28,7 @@ Usage:
   lucy events [--after <seq>] [--limit <n>]
   lucy config validate [<dir>]
   lucy config status
-  lucy audit verify [--file <chain.jsonl>]
-  lucy audit export [--after <seq>]
+  lucy audit verify
 
 Flags:
   -h, --help       show this help
@@ -42,7 +41,7 @@ Commands:
   status         show the running daemon's status, through its API
   events         list events from the daemon's log
   config         validate spec resources; show the daemon's view of them
-  audit          verify or export the hash-chained audit log
+  audit          verify the hash-chained audit log
 
 Run ` + "`lucy <command> --help`" + ` for a command's flags.
 

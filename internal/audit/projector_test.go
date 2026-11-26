@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -72,7 +73,7 @@ func TestProjectorChainsEveryEvent(t *testing.T) {
 	if rep.Entries != 3 || rep.Head == "" {
 		t.Fatalf("report %+v", rep)
 	}
-	stored, err := Entries(ctx, s, 0, 10)
+	stored, err := entries(ctx, s, 0, math.MaxInt64, 10)
 	if err != nil || len(stored) != 3 {
 		t.Fatalf("entries %v %v", stored, err)
 	}
@@ -180,6 +181,9 @@ func TestTamperedStoreFails(t *testing.T) {
 		}, 1},
 		"entry removed": {[]string{`DELETE FROM audit_entries WHERE seq = 2`}, 2},
 		"event removed": {[]string{`DELETE FROM events WHERE seq = 2`}, 2},
+		"entry added past the log": {[]string{
+			`INSERT INTO audit_entries (seq, id, hash, entry) SELECT 4, 'lucy-event-4', hash, entry FROM audit_entries WHERE seq = 3`,
+		}, 4},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -204,5 +208,43 @@ func TestTamperedStoreFails(t *testing.T) {
 				t.Fatalf("broken at event %d (%s), want %d", ve.Seq, ve.Reason, c.seq)
 			}
 		})
+	}
+}
+
+// TestVerifyWhileAppending verifies the chain while another goroutine appends: entries that
+// commit during a run belong to the next one and never read as a broken chain.
+func TestVerifyWhileAppending(t *testing.T) {
+	ctx := context.Background()
+	s := openStore(t, filepath.Join(t.TempDir(), "state", "lucy.db"))
+	defer s.Close()
+	seed(t, s)
+
+	const appends = 200
+	done := make(chan error, 1)
+	go func() {
+		for i := 0; i < appends; i++ {
+			if _, err := s.Append(ctx, "daemon", eventstore.AnyVersion, "daemon", note{"tick"}); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	for running := true; running; {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+			running = false
+		default:
+		}
+		if _, err := VerifyStore(ctx, s); err != nil {
+			t.Fatalf("VerifyStore during appends: %v", err)
+		}
+	}
+	rep, err := VerifyStore(ctx, s)
+	if err != nil || rep.Entries != 3+appends {
+		t.Fatalf("after appends %+v %v, want %d entries", rep, err, 3+appends)
 	}
 }

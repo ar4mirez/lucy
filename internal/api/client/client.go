@@ -185,10 +185,3 @@ func (c *Client) VerifyAudit(ctx context.Context) (api.AuditReport, error) {
 	err := c.Call(ctx, api.MethodAudit, nil, &r)
 	return r, err
 }
-
-// AuditEntries calls audit.entries.
-func (c *Client) AuditEntries(ctx context.Context, p api.EntriesParams) (api.EntriesPage, error) {
-	var r api.EntriesPage
-	err := c.Call(ctx, api.MethodEntries, p, &r)
-	return r, err
-}

@@ -109,8 +109,8 @@ Operations: [daemon runbook](docs/runbooks/daemon.md).
   whether it mutates, and its params and result types; `internal/api/openrpc.json` is generated
   from it, committed and served by `rpc.discover` (LUCY-API-007). Built so far: `hello`, `health`,
   `status.get`, `events.list` (pages the event log), `rpc.discover`, `daemon.shutdown`,
-  `policy.evaluate` and `policy.decisions` (section 5), and `resources.list`, `audit.verify` and
-  `audit.entries` (section 10).
+  `policy.evaluate` and `policy.decisions` (section 5), and `resources.list` and `audit.verify`
+  (section 10).
 - **Transport and identity.** `lucy daemon` listens on `$XDG_RUNTIME_DIR/lucy/lucy.sock` (0600 in a
   0700 dir, one daemon per dir by `flock`). Each connection's peer credentials (SO_PEERCRED on
   Linux, LOCAL_PEERCRED on macOS) must name the daemon's own uid, or it is closed unread; the
@@ -299,9 +299,11 @@ Built in `internal/spec`, `internal/jcs` and `internal/audit` ([D3b](docs/decisi
 - **Status.** Never read from or written to a file (LUCY-SPEC-003). The daemon records a `Valid`
   condition per resource as `resource.status` events (stream `config`), `resource.removed` when a
   resource leaves config and a `config.loaded` summary; the `resource_status` projection holds
-  current conditions, stamping `lastTransitionTime` from event time (LUCY-SPEC-007).
+  current conditions, stamping `lastTransitionTime` from event time, and the latest
+  `config.loaded` event's problems (refusals with no identity), which `resources.list` returns
+  (LUCY-SPEC-007).
 - **Audit chain.** The `audit` projector turns each event into a schemaVersion 2 entry, hashed as
   SHA-256 over its RFC 8785 form (`internal/jcs`) and linked to the previous entry's hash, in the
   event's own transaction; the table refuses UPDATE and DELETE. `audit.VerifyStore` rechecks
-  every hash and link and that every entry is exactly what its event maps to; `audit.VerifyJSONL`
-  verifies exported chains, including the spec's cross-SDK samples (LUCY-SPEC-009).
+  every hash and link and that every entry is exactly what its event maps to, up to the log's head
+  when it starts; `audit.VerifyJSONL` verifies the spec's cross-SDK sample chains (LUCY-SPEC-009).

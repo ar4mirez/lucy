@@ -15,7 +15,8 @@ import (
 
 const configUsage = `Usage:
   lucy config validate [<dir>]        validate the spec resources in a directory
-  lucy config status [--socket <path>] show the resources the running daemon loaded, with status
+  lucy config status [--socket <path>] show the resources the running daemon loaded, with status,
+                                       and the documents it refused that name no resource
 
 validate reads every .yaml, .yml and .json file under <dir> ($XDG_CONFIG_HOME/lucy/resources
 by default) the way the daemon does: each document must be an ai-sdlc.io/v1alpha1 or
@@ -124,10 +125,15 @@ func runConfigStatus(args []string, stdout, stderr io.Writer) int {
 	ctx, cancel := context.WithTimeout(context.Background(), client.DefaultTimeout)
 	defer cancel()
 	var all []api.ResourceInfo
+	var refused []api.RefusedInfo
+	var truncated int
 	for offset := 0; ; {
 		page, err := c.Resources(ctx, api.ResourcesParams{Offset: offset, Limit: 500})
 		if err != nil {
 			return callFailed(err, c, stderr)
+		}
+		if offset == 0 {
+			refused, truncated = page.Refused, page.RefusedTruncated
 		}
 		all = append(all, page.Resources...)
 		if !page.More {
@@ -135,7 +141,7 @@ func runConfigStatus(args []string, stdout, stderr io.Writer) int {
 		}
 		offset = page.Next
 	}
-	if len(all) == 0 {
+	if len(all) == 0 && len(refused) == 0 {
 		fmt.Fprint(stdout, "resources[0]: the daemon has loaded none\nhelp: add resources to the config directory and restart the daemon\n")
 		return 0
 	}
@@ -146,5 +152,18 @@ func runConfigStatus(args []string, stdout, stderr io.Writer) int {
 				cond.Type, cond.Status, cond.Reason, cond.LastTransitionTime)
 		}
 	}
+	if len(refused) == 0 {
+		return 0
+	}
+	fmt.Fprintf(stdout, "refused[%d]{source,type,status,reason,message,since}:\n", len(refused))
+	for _, r := range refused {
+		for _, cond := range r.Conditions {
+			fmt.Fprintf(stdout, "  %s,%s,%s,%s,%s,%s\n", csv(r.Source), cond.Type, cond.Status, cond.Reason, csv(cond.Message), cond.LastTransitionTime)
+		}
+	}
+	if truncated > 0 {
+		fmt.Fprintf(stdout, "refused_truncated: %d\n", truncated)
+	}
+	fmt.Fprint(stdout, "help: these name no resource, so they carry no status of their own; run `lucy config validate` for details, fix them and restart the daemon\n")
 	return 0
 }

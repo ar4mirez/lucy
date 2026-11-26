@@ -65,6 +65,14 @@ func TestDaemonAndClients(t *testing.T) {
 	db := filepath.Join(dir, "data", "lucy.db")
 	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config")) // no config.toml yet: the defaults
+	// One resource without a namespace: refused, and with no identity to carry status of its own.
+	resources := filepath.Join(dir, "config", "lucy", "resources")
+	if err := os.MkdirAll(resources, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(resources, "runway.yaml"), []byte("apiVersion: lucy/v1alpha1\nkind: Runway\nmetadata: { name: web }\nspec: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	signalContext = func() (context.Context, context.CancelFunc) { return ctx, cancel }
@@ -122,32 +130,16 @@ func TestDaemonAndClients(t *testing.T) {
 		t.Errorf("empty events: code %d stdout %q", code, out)
 	}
 	code, out, _ = lucy("config", "status", "--socket", sock)
-	if code != 0 || !strings.HasPrefix(out, "resources[0]: the daemon has loaded none\n") {
+	if code != 0 || strings.Contains(out, "loaded none") ||
+		!strings.HasPrefix(out, "resources[0]{namespace,kind,name,source,type,status,reason,since}:\nrefused[1]{source,type,status,reason,message,since}:\n  runway.yaml#1,Valid,False,MissingNamespace,") ||
+		!strings.Contains(out, "\nhelp: these name no resource") {
 		t.Errorf("config status: code %d stdout %q", code, out)
 	}
 
-	// The audit chain covers every event; an export verifies offline, and an edit to it fails.
+	// The audit chain covers every event.
 	code, out, _ = lucy("audit", "verify", "--socket", sock)
 	if code != 0 || !strings.HasPrefix(out, "audit: verified\nentries: 2\nhead: ") {
 		t.Errorf("audit verify: code %d stdout %q", code, out)
-	}
-	code, exported, _ := lucy("audit", "export", "--socket", sock)
-	if code != 0 || strings.Count(exported, "\n") != 2 {
-		t.Fatalf("audit export: code %d stdout %q", code, exported)
-	}
-	chain := filepath.Join(dir, "chain.jsonl")
-	if err := os.WriteFile(chain, []byte(exported), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	code, offline, _ := lucy("audit", "verify", "--file", chain)
-	if code != 0 || offline != out {
-		t.Errorf("audit verify --file: code %d stdout %q, want %q", code, offline, out)
-	}
-	if err := os.WriteFile(chain, []byte(strings.Replace(exported, `"actor":"daemon"`, `"actor":"someone"`, 1)), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if code, out, _ := lucy("audit", "verify", "--file", chain); code != 1 || !strings.HasPrefix(out, "audit: broken\nverified_entries: 0\nbroken_at_entry: 1\n") {
-		t.Errorf("tampered chain: code %d stdout %q", code, out)
 	}
 	code, _, errOut = lucy("events", "--socket", sock, "--limit", "501")
 	if code != 1 || !strings.Contains(errOut, "error: invalid params (invalid_params)") || !strings.Contains(errOut, "help: must be at most 500") {

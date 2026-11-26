@@ -195,9 +195,11 @@ type StoredEntry struct {
 	Entry json.RawMessage // canonical JSON, hash included
 }
 
-// Entries pages the stored chain: entries for events after afterSeq, at most limit of them.
-func Entries(ctx context.Context, store *eventstore.Store, afterSeq int64, limit int) ([]StoredEntry, error) {
-	rows, err := store.QueryContext(ctx, `SELECT seq, entry FROM audit_entries WHERE seq > ? ORDER BY seq LIMIT ?`, afterSeq, limit)
+// entries pages the stored chain: entries for events after afterSeq up to throughSeq, at most
+// limit of them.
+func entries(ctx context.Context, store *eventstore.Store, afterSeq, throughSeq int64, limit int) ([]StoredEntry, error) {
+	rows, err := store.QueryContext(ctx, `SELECT seq, entry FROM audit_entries WHERE seq > ? AND seq <= ? ORDER BY seq LIMIT ?`,
+		afterSeq, throughSeq, limit)
 	if err != nil {
 		return nil, fmt.Errorf("audit: read entries: %w", err)
 	}
@@ -220,7 +222,15 @@ const verifyBatch = 500
 // VerifyStore verifies lucy's own chain: every entry against the spec's rules (Verifier), every
 // event has exactly one entry, and every entry is exactly the one its event maps to, so a changed
 // event, a changed entry, a missing one or an extra one is reported with where it happened.
+//
+// It verifies the log up to its head when called. An event and its entry commit together, so
+// appends that land while it runs are left for the next run; an entry past that head is reported
+// only if no event has its sequence number.
 func VerifyStore(ctx context.Context, store *eventstore.Store) (Report, error) {
+	head, err := store.Head(ctx)
+	if err != nil {
+		return Report{}, err
+	}
 	var v Verifier
 	var after int64
 	prev := ""
@@ -229,11 +239,17 @@ func VerifyStore(ctx context.Context, store *eventstore.Store) (Report, error) {
 		if err != nil {
 			return Report{}, err
 		}
-		stored, err := Entries(ctx, store, after, verifyBatch)
+		for len(evs) > 0 && evs[len(evs)-1].Seq > head {
+			evs = evs[:len(evs)-1]
+		}
+		stored, err := entries(ctx, store, after, head, verifyBatch)
 		if err != nil {
 			return Report{}, err
 		}
 		if len(evs) == 0 && len(stored) == 0 {
+			if err := orphanAfter(ctx, store, head, v.n+1); err != nil {
+				return Report{}, err
+			}
 			return v.Report(), nil
 		}
 		for i := 0; i < len(evs) || i < len(stored); i++ {
@@ -265,4 +281,19 @@ func VerifyStore(ctx context.Context, store *eventstore.Store) (Report, error) {
 			after = evs[i].Seq
 		}
 	}
+}
+
+// orphanAfter reports an entry past head that no event has, in one statement so that appends
+// committing meanwhile are seen whole or not at all.
+func orphanAfter(ctx context.Context, store *eventstore.Store, head int64, index int) error {
+	var seq sql.NullInt64
+	err := store.QueryRowContext(ctx, `SELECT MIN(a.seq) FROM audit_entries a
+		WHERE a.seq > ? AND NOT EXISTS (SELECT 1 FROM events e WHERE e.seq = a.seq)`, head).Scan(&seq)
+	if err != nil {
+		return fmt.Errorf("audit: read entries: %w", err)
+	}
+	if seq.Valid {
+		return &VerifyError{Index: index, Seq: seq.Int64, Reason: "an audit entry for an event the log does not have"}
+	}
+	return nil
 }

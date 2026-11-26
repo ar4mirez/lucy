@@ -32,7 +32,6 @@ const (
 	MethodDecisions = "policy.decisions"
 	MethodResources = "resources.list"
 	MethodAudit     = "audit.verify"
-	MethodEntries   = "audit.entries"
 )
 
 var methods = []Method{
@@ -46,7 +45,6 @@ var methods = []Method{
 	{MethodDecisions, "Recorded policy decisions, oldest first.", "query", ScopeRead, false, typeOf[DecisionsParams](), typeOf[DecisionsPage]()},
 	{MethodResources, "The config resources the daemon loaded and their status, as conditions.", "query", ScopeRead, false, typeOf[ResourcesParams](), typeOf[ResourcesPage]()},
 	{MethodAudit, "Verify the audit hash chain against the event log.", "query", ScopeRead, false, typeOf[NoParams](), typeOf[AuditReport]()},
-	{MethodEntries, "Audit entries in the spec's wire format, oldest first.", "query", ScopeRead, false, typeOf[EntriesParams](), typeOf[EntriesPage]()},
 }
 
 // NewParams returns a pointer to a new, zero params value for the method, ready for DecodeParams.
@@ -204,11 +202,21 @@ type ResourcesParams struct {
 	Limit  int `json:"limit,omitempty" lucy:"min=0,max=500" doc:"At most this many resources; 0 means 100."`
 }
 
-// ResourcesPage is one page of resources, ordered by namespace, kind and name.
+// ResourcesPage is one page of resources, ordered by namespace, kind and name. The first page also
+// carries the latest load's refusals that name no resource of their own.
 type ResourcesPage struct {
-	Resources []ResourceInfo `json:"resources" doc:"The resources and their current status."`
-	Next      int            `json:"next" doc:"Pass as offset to read the next page."`
-	More      bool           `json:"more" doc:"Whether resources after this page existed when it was read."`
+	Resources        []ResourceInfo `json:"resources" doc:"The resources and their current status."`
+	Refused          []RefusedInfo  `json:"refused" doc:"Files and documents the latest load refused that name no resource: a parse error, a missing or invalid kind, name or namespace, or a duplicate. On the first page (offset 0) only; empty on the others."`
+	RefusedTruncated int            `json:"refused_truncated,omitempty" doc:"Refusals the latest load left out of refused, beyond the 32 it records."`
+	Next             int            `json:"next" doc:"Pass as offset to read the next page."`
+	More             bool           `json:"more" doc:"Whether resources after this page existed when it was read."`
+}
+
+// RefusedInfo is one refused file or document that has no identity to carry status.
+type RefusedInfo struct {
+	Source     string          `json:"source" doc:"The file it came from, relative to the config directory, and the document's position in it."`
+	Reason     string          `json:"reason" doc:"Why it was refused, the Valid condition's reason, for example MissingNamespace."`
+	Conditions []ConditionInfo `json:"conditions" doc:"Its status, as conditions."`
 }
 
 // ResourceInfo is one config resource and its observed state. The spec is in the config file;
@@ -239,17 +247,4 @@ type AuditReport struct {
 	Head        string `json:"head,omitempty" doc:"The last entry's hash, when verified."`
 	BrokenAtSeq int64  `json:"broken_at_seq,omitempty" doc:"The event whose entry failed, when broken."`
 	Reason      string `json:"reason,omitempty" doc:"Why the chain is broken, when it is."`
-}
-
-// EntriesParams pages through audit entries.
-type EntriesParams struct {
-	AfterSeq int64 `json:"after_seq,omitempty" lucy:"min=0" doc:"Return entries for events after this sequence number; 0 starts at the beginning."`
-	Limit    int   `json:"limit,omitempty" lucy:"min=0,max=500" doc:"At most this many entries; 0 means 100."`
-}
-
-// EntriesPage is one page of the audit chain.
-type EntriesPage struct {
-	Entries []json.RawMessage `json:"entries" doc:"Audit entries (spec section 12), each in RFC 8785 canonical form, oldest first."`
-	Next    int64             `json:"next" doc:"Pass as after_seq to read the next page."`
-	More    bool              `json:"more" doc:"Whether entries after this page existed when it was read."`
 }

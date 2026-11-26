@@ -21,8 +21,9 @@ const (
 )
 
 // Condition is one aspect of a resource's observed state, in the spec's shape (spec section 6). Its
-// JSON names are the spec's, so a condition reads the same in lucy's events, its API and the
-// spec's tooling.
+// JSON names are the spec's, so a condition reads the same in lucy's events, its projection and the
+// spec's tooling; the API renames lastTransitionTime to last_transition_time under its snake_case
+// convention.
 type Condition struct {
 	Type               string          `json:"type"`
 	Status             ConditionStatus `json:"status"`

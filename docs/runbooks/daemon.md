@@ -51,6 +51,10 @@ lucy config validate ~/.config/lucy/resources   # offline: each resource's Valid
 lucy config status                              # the daemon's view: resources and their conditions
 ```
 
+A document that names no resource (it does not parse, lacks a valid kind, name or namespace, or
+duplicates another) has no status of its own; `lucy config status` lists the latest load's under
+`refused`, with its file and document.
+
 Change config by editing the files and restarting the daemon. Recorded violation messages carry
 only the paths; `lucy config validate` shows the full messages.
 
@@ -61,8 +65,6 @@ chained by SHA-256 over RFC 8785 canonical JSON ([D11](../decisions/D11-spec-loa
 
 ```sh
 lucy audit verify                       # the daemon's chain, checked against its event log
-lucy audit export > chain.jsonl         # the chain as JSON Lines
-lucy audit verify --file chain.jsonl    # offline; also verifies chains other ai-sdlc SDKs wrote
 ```
 
 `audit: broken` names the first event whose entry fails and why: the event or its entry was changed

@@ -15,6 +15,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/api/client"
 	"github.com/ar4mirez/lucy/internal/eventstore"
+	"github.com/ar4mirez/lucy/internal/spec"
 )
 
 func shortTempDir(t *testing.T) string {
@@ -278,9 +279,19 @@ func TestDaemonLoadsConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The runway has no namespace, so it has no identity to carry status: only the airspace does.
+	// The runway has no namespace, so it has no identity to carry status: only the airspace does,
+	// and the runway's refusal is listed with its source.
 	if len(page.Resources) != 1 || page.Resources[0].Kind != "Airspace" || page.Resources[0].Conditions[0].Status != "True" {
 		t.Fatalf("resources %+v", page)
+	}
+	if len(page.Refused) != 1 || page.RefusedTruncated != 0 {
+		t.Fatalf("refused %+v", page.Refused)
+	}
+	ref := page.Refused[0]
+	if ref.Source != "runway.yaml#1" || ref.Reason != spec.ReasonMissingNamespace || len(ref.Conditions) != 1 ||
+		ref.Conditions[0].Type != spec.ConditionValid || ref.Conditions[0].Status != "False" ||
+		ref.Conditions[0].Reason != spec.ReasonMissingNamespace || ref.Conditions[0].Message == "" || ref.Conditions[0].LastTransitionTime == "" {
+		t.Fatalf("runway refusal %+v", ref)
 	}
 	rep, err := c.VerifyAudit(ctx)
 	if err != nil || !rep.Verified || rep.Entries < 3 {

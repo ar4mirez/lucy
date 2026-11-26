@@ -59,7 +59,7 @@ func TestConfigValidate(t *testing.T) {
 	if code, _, errOut := lucy("config", "validate"); code != 2 || !strings.Contains(errOut, filepath.Join("lucy", "resources")) {
 		t.Errorf("default dir: code %d stderr %q", code, errOut)
 	}
-	for _, args := range [][]string{{"config"}, {"config", "nope"}, {"config", "validate", "a", "b"}, {"audit"}, {"audit", "nope"}, {"audit", "verify", "x"}} {
+	for _, args := range [][]string{{"config"}, {"config", "nope"}, {"config", "validate", "a", "b"}, {"audit"}, {"audit", "nope"}, {"audit", "verify", "x"}, {"audit", "export"}, {"audit", "verify", "--file", "chain.jsonl"}} {
 		if code, _, _ := lucy(args...); code != 2 {
 			t.Errorf("%v: code %d, want 2", args, code)
 		}
@@ -68,13 +68,5 @@ func TestConfigValidate(t *testing.T) {
 		if code, out, _ := lucy(args...); code != 0 || !strings.HasPrefix(out, "Usage:") {
 			t.Errorf("%v: code %d stdout %q", args, code, out)
 		}
-	}
-}
-
-func TestAuditVerifySpecSamples(t *testing.T) {
-	sample := filepath.Join("..", "..", "internal", "audit", "testdata", "audit-chain", "samples", "python.jsonl")
-	code, out, _ := lucy("audit", "verify", "--file", sample)
-	if code != 0 || out != "audit: verified\nentries: 3\nhead: 7d3d0b145db346419b53a1263907a56a6bdf0c369775d5f6f018a8d25cae11a7\n" {
-		t.Fatalf("python sample: code %d stdout %q", code, out)
 	}
 }

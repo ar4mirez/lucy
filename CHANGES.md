@@ -24,9 +24,9 @@ Changes since the last release. When a version is cut, its section moves to
   symlinked config files are not followed.
 - `lucy daemon` loads `$XDG_CONFIG_HOME/lucy/resources` (or `--resources <dir>`) at start and
   records each resource's status in the event store, never in the files; `lucy config status` and
-  the `resources.list` API method show it.
+  the `resources.list` API method show it, along with the latest load's refusals that name no
+  resource (a parse error, a missing namespace or name, a duplicate).
 - Every event is now a hash-chained audit entry in the spec's wire format (RFC 8785 + SHA-256,
-  schemaVersion 2), passing the spec's cross-SDK fixture. `lucy audit verify` checks the daemon's
-  chain against its event log, `lucy audit verify --file` checks an exported chain, and
-  `lucy audit export` prints it; API methods `audit.verify` and `audit.entries`.
+  schemaVersion 2), passing the spec's cross-SDK fixture. `lucy audit verify` and the
+  `audit.verify` API method check the daemon's chain against its event log.
 - The event log now starts each daemon run with a `config.loaded` event.

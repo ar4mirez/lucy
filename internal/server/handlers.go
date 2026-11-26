@@ -27,7 +27,6 @@ func (s *Server) bindAll() map[string]handler {
 		api.MethodDecisions: bind(s.decisions),
 		api.MethodResources: bind(s.resources),
 		api.MethodAudit:     bind(s.verifyAudit),
-		api.MethodEntries:   bind(s.auditEntries),
 	}
 }
 
@@ -212,7 +211,21 @@ func (s *Server) resources(ctx context.Context, p *api.ResourcesParams) (api.Res
 	if err != nil {
 		return api.ResourcesPage{}, err
 	}
-	page := api.ResourcesPage{Resources: []api.ResourceInfo{}, Next: p.Offset}
+	page := api.ResourcesPage{Resources: []api.ResourceInfo{}, Refused: []api.RefusedInfo{}, Next: p.Offset}
+	if p.Offset == 0 {
+		problems, truncated, err := spec.LatestProblems(ctx, s.opts.Store)
+		if err != nil {
+			return api.ResourcesPage{}, err
+		}
+		for _, pr := range problems {
+			info := api.RefusedInfo{Source: pr.Source, Conditions: conditionInfos(pr.Conditions)}
+			if c, ok := (spec.Result{Conditions: pr.Conditions}).Condition(spec.ConditionValid); ok {
+				info.Reason = c.Reason
+			}
+			page.Refused = append(page.Refused, info)
+		}
+		page.RefusedTruncated = truncated
+	}
 	if p.Offset >= len(all) {
 		return page, nil
 	}
@@ -221,20 +234,24 @@ func (s *Server) resources(ctx context.Context, p *api.ResourcesParams) (api.Res
 		all, page.More = all[:limit], true
 	}
 	for _, r := range all {
-		info := api.ResourceInfo{
+		page.Resources = append(page.Resources, api.ResourceInfo{
 			APIVersion: r.APIVersion, Kind: r.Kind, Namespace: r.Namespace, Name: r.Name,
-			Source: r.Source, SpecSHA256: r.SpecSHA256, Conditions: []api.ConditionInfo{},
-		}
-		for _, c := range r.Conditions {
-			info.Conditions = append(info.Conditions, api.ConditionInfo{
-				Type: c.Type, Status: string(c.Status), Reason: c.Reason, Message: c.Message,
-				LastTransitionTime: c.LastTransitionTime,
-			})
-		}
-		page.Resources = append(page.Resources, info)
+			Source: r.Source, SpecSHA256: r.SpecSHA256, Conditions: conditionInfos(r.Conditions),
+		})
 	}
 	page.Next = p.Offset + len(page.Resources)
 	return page, nil
+}
+
+func conditionInfos(conds []spec.Condition) []api.ConditionInfo {
+	out := []api.ConditionInfo{}
+	for _, c := range conds {
+		out = append(out, api.ConditionInfo{
+			Type: c.Type, Status: string(c.Status), Reason: c.Reason, Message: c.Message,
+			LastTransitionTime: c.LastTransitionTime,
+		})
+	}
+	return out
 }
 
 // verifyAudit checks the audit chain against the event log. A broken chain is a result, not an
@@ -250,24 +267,4 @@ func (s *Server) verifyAudit(ctx context.Context, _ *api.NoParams) (api.AuditRep
 		return api.AuditReport{}, err
 	}
 	return api.AuditReport{Verified: true, Entries: rep.Entries, Head: rep.Head}, nil
-}
-
-func (s *Server) auditEntries(ctx context.Context, p *api.EntriesParams) (api.EntriesPage, error) {
-	limit := p.Limit
-	if limit == 0 {
-		limit = api.DefaultEventsLimit
-	}
-	got, err := audit.Entries(ctx, s.opts.Store, p.AfterSeq, limit+1)
-	if err != nil {
-		return api.EntriesPage{}, err
-	}
-	page := api.EntriesPage{Entries: []json.RawMessage{}, Next: p.AfterSeq}
-	if len(got) > limit {
-		got, page.More = got[:limit], true
-	}
-	for _, e := range got {
-		page.Entries = append(page.Entries, e.Entry)
-		page.Next = e.Seq
-	}
-	return page, nil
 }
