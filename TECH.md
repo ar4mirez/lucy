@@ -312,7 +312,7 @@ Built in `internal/spec`, `internal/jcs` and `internal/audit` ([D3b](docs/decisi
 
 ## 11. Flights and the simulation harness
 
-`internal/tower` flies a flight (Pilot session, pull request, Clearance, then Takeoff or
+`internal/tower` flies a flight (Pilot session, pull request, Clearance, then Takeoff, outside or
 grounded) through three seams: `Runtime` (Pilot sessions), `Forge` (pull requests; a merge names
 the cleared head) and `Clock`. It never sleeps; a driver calls `Step`. Each transition is a
 `task.*` event on `task/<org>/<id>` and state is their projection, so a new Tower on the store
