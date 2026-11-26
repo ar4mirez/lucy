@@ -1,0 +1,23 @@
+# Build output
+/bin/
+/dist/
+*.test
+*.out
+coverage.*
+
+# Local tooling and editors
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Agent harness local state (never committed)
+.claude/
+.no-mistakes/
+
+# Secrets: never commit these
+.env
+.env.*
+*.pem
+*.key
+*.p12

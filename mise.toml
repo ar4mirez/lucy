@@ -1,0 +1,23 @@
+# Toolchain for working on lucy. Install with `mise install`.
+[tools]
+go = "1.27.4"
+
+[env]
+# Shared build hosts: keep parallel compile jobs low.
+GOFLAGS = "-p=2"
+
+[tasks.check]
+description = "Format check, vet, race tests and doc rules (what CI runs)"
+run = [
+  "test -z \"$(gofmt -l .)\" || { gofmt -l .; echo 'gofmt: files above need formatting'; exit 1; }",
+  "go vet ./...",
+  "go test -race ./...",
+]
+
+[tasks.docs-index]
+description = "Regenerate docs/requirements.md from the PRD tables"
+run = "go test ./internal/doccheck -run TestRequirementsIndex -update"
+
+[tasks.build]
+description = "Build ./bin/lucy with a version stamp"
+run = "go build -ldflags \"-X main.version=${LUCY_VERSION:-dev}\" -o bin/lucy ./cmd/lucy"
