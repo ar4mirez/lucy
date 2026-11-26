@@ -57,6 +57,9 @@ type Options struct {
 	// Now is the clock stamped on events; time.Now when nil. Tests and the simulation harness
 	// pass a fake clock.
 	Now func() time.Time
+	// SnapshotDir receives the snapshot taken before a schema upgrade; StateDir when empty. It is
+	// created 0700 and checked like the database's directory.
+	SnapshotDir string
 }
 
 // Store is an open event store. It is safe for concurrent use.
@@ -67,6 +70,7 @@ type Store struct {
 	reg        *Registry
 	projectors []Projector
 	now        func() time.Time
+	snapDir    string // "" means StateDir
 
 	closeOnce sync.Once
 	closeErr  error
@@ -92,6 +96,26 @@ func DataDir() (string, error) {
 		return filepath.Join(home, "Library", "Application Support", "lucy"), nil
 	}
 	return filepath.Join(home, ".local", "share", "lucy"), nil
+}
+
+// StateDir returns lucy's state directory, which holds logs and database snapshots:
+// $XDG_STATE_HOME/lucy, else ~/.local/state/lucy on Linux and
+// ~/Library/Application Support/lucy/state on macOS.
+func StateDir() (string, error) {
+	if d := os.Getenv("XDG_STATE_HOME"); d != "" {
+		if !filepath.IsAbs(d) {
+			return "", fmt.Errorf("%w: XDG_STATE_HOME %q is not absolute", ErrInsecurePath, d)
+		}
+		return filepath.Join(d, "lucy"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, "Library", "Application Support", "lucy", "state"), nil
+	}
+	return filepath.Join(home, ".local", "state", "lucy"), nil
 }
 
 // DefaultPath returns the database path inside DataDir.
@@ -123,7 +147,7 @@ func Open(ctx context.Context, path string, opts Options) (*Store, error) {
 	if now == nil {
 		now = time.Now
 	}
-	s := &Store{path: abs, reg: opts.Registry, projectors: opts.Projectors, now: now}
+	s := &Store{path: abs, reg: opts.Registry, projectors: opts.Projectors, now: now, snapDir: opts.SnapshotDir}
 	if s.writer, err = sql.Open("sqlite", dsn(abs, false)); err != nil {
 		return nil, err
 	}
@@ -155,7 +179,28 @@ func (s *Store) initWriter(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return migrate(ctx, s.writer, s.path, ms, s.now)
+	return migrate(ctx, s.writer, ms, s.now, s.snapshot)
+}
+
+// snapshot is migrate's pre-upgrade hook: it copies the database at schema version into the
+// snapshot directory.
+func (s *Store) snapshot(ctx context.Context, db *sql.DB, version int) error {
+	dir := s.snapDir
+	if dir == "" {
+		d, err := StateDir()
+		if err != nil {
+			return fmt.Errorf("eventstore: pre-migration snapshot: %w", err)
+		}
+		dir = d
+	}
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	if err := prepareDir(dir); err != nil {
+		return err
+	}
+	return writeSnapshot(ctx, db, dir, filepath.Base(s.path), version, s.now())
 }
 
 // dsn builds the driver's connection string. Pragmas are per connection, so they ride on the DSN
@@ -188,15 +233,8 @@ func preparePath(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Dir(abs)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("eventstore: create %s: %w", dir, err)
-	}
-	if err := checkOwned(dir, true); err != nil {
+	if err := prepareDir(filepath.Dir(abs)); err != nil {
 		return "", err
-	}
-	if repo, ok := insideGitWorkTree(dir); ok {
-		return "", fmt.Errorf("%w: %s is inside the git work tree %s; state never lives in a repo", ErrInsecurePath, abs, repo)
 	}
 	f, err := os.OpenFile(abs, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
@@ -211,6 +249,21 @@ func preparePath(path string) (string, error) {
 		}
 	}
 	return abs, nil
+}
+
+// prepareDir creates dir 0700 if needed and refuses it if another user could read it or it sits
+// inside a git work tree.
+func prepareDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("eventstore: create %s: %w", dir, err)
+	}
+	if err := checkOwned(dir, true); err != nil {
+		return err
+	}
+	if repo, ok := insideGitWorkTree(dir); ok {
+		return fmt.Errorf("%w: %s is inside the git work tree %s; state never lives in a repo", ErrInsecurePath, dir, repo)
+	}
+	return nil
 }
 
 // checkOwned refuses a path that is a symlink (files only), is not owned by the current user, or

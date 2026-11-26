@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -136,9 +137,10 @@ func checkHistory(applied []appliedMigration, ms []migration) (int, error) {
 
 // migrate applies the pending migrations in ms to db, which must be the store's single-connection
 // writer pool opened with immediate transactions. Before upgrading a database that already has a
-// schema, it snapshots the file next to itself (<db>.pre-v<N>.bak) so a bad upgrade can be undone
-// by restoring the snapshot with the older lucy.
-func migrate(ctx context.Context, db *sql.DB, dbPath string, ms []migration, now func() time.Time) error {
+// schema it calls snap, when not nil, with the current version, so a bad upgrade can be undone by
+// restoring the snapshot with the older lucy.
+func migrate(ctx context.Context, db *sql.DB, ms []migration, now func() time.Time,
+	snap func(ctx context.Context, db *sql.DB, version int) error) error {
 	applied, err := appliedMigrations(ctx, db)
 	if err != nil {
 		return err
@@ -150,8 +152,8 @@ func migrate(ctx context.Context, db *sql.DB, dbPath string, ms []migration, now
 	if done == len(ms) {
 		return nil
 	}
-	if done > 0 && dbPath != "" {
-		if err := snapshot(ctx, db, fmt.Sprintf("%s.pre-v%d.bak", dbPath, done)); err != nil {
+	if done > 0 && snap != nil {
+		if err := snap(ctx, db, done); err != nil {
 			return err
 		}
 	}
@@ -170,7 +172,7 @@ func applyMigration(ctx context.Context, db *sql.DB, m migration, at time.Time) 
 	}
 	defer tx.Rollback() //nolint:errcheck // a no-op after Commit
 	// The body is an embedded migration file from this binary, not input.
-	if _, err := tx.ExecContext(ctx, m.body); err != nil { // sqlcheck:trusted embedded migration
+	if _, err := tx.ExecContext(ctx, m.body); err != nil {
 		return fmt.Errorf("eventstore: migration %04d_%s: %w", m.version, m.name, err)
 	}
 	if _, err := tx.ExecContext(ctx,
@@ -184,21 +186,35 @@ func applyMigration(ctx context.Context, db *sql.DB, m migration, at time.Time) 
 	return nil
 }
 
-// snapshot writes a consistent copy of the database to dst, created 0600. An existing snapshot for
-// the same version is kept: it is the oldest copy of that schema.
-func snapshot(ctx context.Context, db *sql.DB, dst string) error {
-	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, fs.ErrExist) {
-		return nil
-	}
+// snapshotTime is the UTC timestamp in a snapshot's name.
+const snapshotTime = "20060102T150405.000000000Z"
+
+// writeSnapshot writes a consistent copy of db, at schema version, into dir as
+// <base>.pre-v<version>.<UTC time>.seq<head>.bak, mode 0600. The copy is written to a temporary file
+// in dir and then linked into place, so a snapshot is either complete or absent, and an existing
+// file is never overwritten.
+func writeSnapshot(ctx context.Context, db *sql.DB, dir, base string, version int, at time.Time) error {
+	seq, err := head(ctx, db)
 	if err != nil {
 		return fmt.Errorf("eventstore: pre-migration snapshot: %w", err)
 	}
+	dst := filepath.Join(dir, fmt.Sprintf("%s.pre-v%d.%s.seq%d.bak", base, version, at.UTC().Format(snapshotTime), seq))
+	f, err := os.CreateTemp(dir, ".snapshot-*.tmp")
+	if err != nil {
+		return fmt.Errorf("eventstore: pre-migration snapshot: %w", err)
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp) //nolint:errcheck // best effort; gone already after a successful link
 	if err := f.Close(); err != nil {
 		return err
 	}
-	if _, err := db.ExecContext(ctx, `VACUUM INTO ?`, dst); err != nil {
-		os.Remove(dst) //nolint:errcheck // best effort; the error below is what matters
+	if _, err := db.ExecContext(ctx, `VACUUM INTO ?`, tmp); err != nil {
+		return fmt.Errorf("eventstore: pre-migration snapshot: %w", err)
+	}
+	if err := os.Chmod(tmp, 0o600); err != nil {
+		return fmt.Errorf("eventstore: pre-migration snapshot: %w", err)
+	}
+	if err := os.Link(tmp, dst); err != nil {
 		return fmt.Errorf("eventstore: pre-migration snapshot: %w", err)
 	}
 	return nil

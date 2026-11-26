@@ -19,8 +19,9 @@ machine where lucy runs. The code is `internal/eventstore`; the design is in
 | Item | Value |
 |---|---|
 | File | `$XDG_DATA_HOME/lucy/lucy.db`, else `~/.local/share/lucy/lucy.db` (Linux) or `~/Library/Application Support/lucy/lucy.db` (macOS) |
-| Modes | File 0600, directory 0700, both owned by the user. WAL and shared-memory files (`-wal`, `-shm`) take the file's mode |
-| Refused | Running as root; a looser mode or another owner; a symlinked file; a path inside a git work tree |
+| Snapshots | `$XDG_STATE_HOME/lucy/`, else `~/.local/state/lucy/` (Linux) or `~/Library/Application Support/lucy/state/` (macOS) |
+| Modes | Files 0600, directories 0700, all owned by the user. WAL and shared-memory files (`-wal`, `-shm`) take the file's mode |
+| Refused | Running as root; a looser mode or another owner; a symlinked file; a database or snapshot directory inside a git work tree |
 
 lucy never loosens or fixes a mode on its own: it refuses to open and names the `chmod` to run
 (LUCY-SEC-001).
@@ -46,6 +47,9 @@ lucy never loosens or fixes a mode on its own: it refuses to open and names the 
    `accesskey`, `sessionkey`, `signingkey`, `credential(s)`, `cookie` or `bearer`, or named
    `authorization`, `auth`, `pat` or `otp` (case, `_` and `-` ignored), is refused at registration
    and again at append, including map keys (LUCY-EVT-005). Store a reference (`secret_ref`) instead.
+   Every value reaches SQL as a bound parameter; `TestHostileInputIsData` round-trips stream,
+   actor, consumer and payload strings written to break out of SQL and checks the schema and log
+   are untouched.
    Name non-secret fields so they do not trip the rule: `token_count`, `fence`.
 3. Keep payloads small: at most 64 KiB of JSON. Logs, diffs and transcripts go elsewhere, with a
    reference in the event.
@@ -78,16 +82,25 @@ Editing an old migration fails `TestMigrationsLocked`; on a user's machine it fa
 
 ## Upgrading and rolling back
 
-Opening a database with pending migrations first writes a snapshot next to it,
-`lucy.db.pre-v<N>.bak` (0600), where `<N>` is the version before the upgrade, then applies each
-migration in its own transaction. To roll back a bad upgrade:
+Opening a database with pending migrations first writes a snapshot into the state dir,
+`lucy.db.pre-v<N>.<UTC time>.seq<S>.bak` (0600), where `<N>` is the schema version before the
+upgrade and `<S>` the last event's sequence number, then applies each migration in its own
+transaction. The snapshot is written to a temporary file and linked into place, so it is complete
+or absent; every upgrade gets a new file and none is ever overwritten. If the snapshot cannot be
+written, the upgrade does not run. To roll back a bad upgrade:
 
 1. Stop lucy.
 2. Move `lucy.db`, `lucy.db-wal` and `lucy.db-shm` aside (do not delete them).
-3. Copy `lucy.db.pre-v<N>.bak` to `lucy.db` and `chmod 600` it.
+3. Pick the newest `lucy.db.pre-v<N>.*.bak` for the version you are going back to (the highest
+   `seq<S>` holds the most events), copy it to `lucy.db` and `chmod 600` it.
 4. Install the older lucy: `lucy self-update --to <version>`.
 
-Events written after the snapshot are not in it; they are in the files moved aside.
+Events written after the snapshot are not in it; they are in the files moved aside. Upgrading again
+later takes a fresh snapshot of the restored database, so a second rollback loses nothing written
+since the first.
+
+Snapshots are kept: lucy deletes none of them. TODO: a retention policy (keep the newest per version,
+or by age) lands with `lucy backup`; until then remove old ones by hand.
 
 ## When lucy refuses to open the database
 

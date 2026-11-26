@@ -133,12 +133,19 @@ func tallyRows(t testing.TB, s *Store) map[string]int64 {
 	return out
 }
 
+// openTest opens a store at path (a new temp database when empty) whose pre-migration snapshots go
+// to a fresh temp dir, never the real state dir.
 func openTest(t testing.TB, path string, ps ...Projector) *Store {
+	t.Helper()
+	return openWithSnapshots(t, path, filepath.Join(t.TempDir(), "state"), ps...)
+}
+
+func openWithSnapshots(t testing.TB, path, snapDir string, ps ...Projector) *Store {
 	t.Helper()
 	if path == "" {
 		path = filepath.Join(t.TempDir(), "lucy", DefaultFile)
 	}
-	s, err := Open(context.Background(), path, Options{Registry: testRegistry(t), Projectors: ps, Now: newFakeClock().Now})
+	s, err := Open(context.Background(), path, Options{Registry: testRegistry(t), Projectors: ps, Now: newFakeClock().Now, SnapshotDir: snapDir})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -45,7 +45,7 @@ One Go binary ([D1](docs/decisions/D1-language-go.md)); every box is a mode of i
 |---|---|---|
 | Config | `$XDG_CONFIG_HOME/lucy/` | `config.toml`, per-org spec resources, instruction overlays |
 | Data | `$XDG_DATA_HOME/lucy/` | `lucy.db`, pools, materialized skills, pinned toolchain |
-| State | `$XDG_STATE_HOME/lucy/` | logs, daily database backups |
+| State | `$XDG_STATE_HOME/lucy/` | logs, pre-migration database snapshots, daily database backups |
 | Runtime | `$XDG_RUNTIME_DIR/lucy/` | daemon and runner sockets |
 
 - One SQLite database (pure Go, WAL), never a repo (LUCY-EVT-001). Files 0600, dirs 0700.
@@ -77,11 +77,13 @@ Built in `internal/eventstore`; operations in the [database runbook](docs/runboo
   before ack leaves work durable (LUCY-EVT-003). Acks can commit in the same transaction as the
   events the work produced.
 - **Migrations.** Numbered, checksummed SQL files applied forward-only, each in one transaction; a
-  newer or edited schema is refused; a snapshot is written before an upgrade; upgrades are tested
+  newer or edited schema is refused; a uniquely named snapshot is written to the state dir before
+  an upgrade, and never overwritten; upgrades are tested
   from every older version and from committed dumps (LUCY-EVT-004).
 - **Limits and secrets.** No secrets in events: secret-looking field names are refused at
   registration and at append; payloads are capped at 64 KiB, appends at 256 events; all SQL binds
-  values as parameters, enforced by a test (LUCY-EVT-005).
+  values as parameters, and a test round-trips SQL-breaking stream, actor, consumer and payload
+  strings and checks the schema and log are unchanged (LUCY-EVT-005).
 - **Durability.** WAL with `synchronous=FULL` (plus `fullfsync` on macOS); one writer connection
   with immediate transactions; read-only reader connections.
 - **Audit seam.** The hash-chained audit (LUCY-SPEC-009) lands in m0 slice 6 as a projector over

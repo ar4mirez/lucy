@@ -34,6 +34,6 @@ Changes since the last release. When a version is cut, its section moves to
   mode under the XDG data dir, an append-only log of typed, versioned events with per-stream
   optimistic concurrency, projections updated in the same transaction and rebuildable by replay,
   consumer cursors with generation-bound acks, and forward-only checksummed migrations with a
-  pre-upgrade snapshot. The file is 0600 in a 0700 dir and refused as root or inside a git repo;
-  events refuse secret-looking field names and payloads over 64 KiB. Runbook:
+  uniquely named pre-upgrade snapshot in the XDG state dir. The file is 0600 in a 0700 dir and
+  refused as root or inside a git repo; events refuse secret-looking field names and payloads over 64 KiB. Runbook:
   [database](docs/runbooks/database.md).

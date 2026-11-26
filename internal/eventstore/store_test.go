@@ -153,6 +153,26 @@ func TestDataDir(t *testing.T) {
 	}
 }
 
+func TestStateDir(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "/xdg/state")
+	if d, err := StateDir(); err != nil || d != filepath.FromSlash("/xdg/state/lucy") {
+		t.Fatalf("StateDir() = %q, %v", d, err)
+	}
+	t.Setenv("XDG_STATE_HOME", "relative/dir")
+	if _, err := StateDir(); !errors.Is(err, ErrInsecurePath) {
+		t.Fatalf("relative XDG_STATE_HOME: err = %v, want ErrInsecurePath", err)
+	}
+	t.Setenv("XDG_STATE_HOME", "")
+	t.Setenv("HOME", "/home/u")
+	want := "/home/u/.local/state/lucy"
+	if runtime.GOOS == "darwin" {
+		want = "/home/u/Library/Application Support/lucy/state"
+	}
+	if d, err := StateDir(); err != nil || d != want {
+		t.Fatalf("StateDir() = %q, %v; want %q", d, err, want)
+	}
+}
+
 func TestWALAndDurabilitySettings(t *testing.T) {
 	s := openTest(t, "")
 	ctx := context.Background()

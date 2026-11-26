@@ -40,7 +40,7 @@ func migrateRaw(t testing.TB, path string, n int) {
 	if _, err := db.Exec(`PRAGMA journal_mode = WAL`); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrate(context.Background(), db, "", ms[:n], fixedNow); err != nil {
+	if err := migrate(context.Background(), db, ms[:n], fixedNow, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
@@ -168,8 +168,8 @@ func TestFreshDatabaseIsAtLatest(t *testing.T) {
 			t.Fatalf("migration %d checksum %s, want %s", a.version, a.checksum, ms[i].checksum)
 		}
 	}
-	if _, err := os.Stat(s.Path() + ".pre-v0.bak"); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("a fresh database must not get a pre-migration snapshot")
+	if snaps := snapshots(t, s.snapDir); len(snaps) != 0 {
+		t.Fatalf("a fresh database must not get a pre-migration snapshot: %v", snaps)
 	}
 }
 
@@ -214,10 +214,18 @@ func TestUpgradeFromEveryVersion(t *testing.T) {
 			}
 			mustAppend(t, s, "task-1", 3, taskNoted{Note: "after upgrade"})
 
-			snap := fmt.Sprintf("%s.pre-v%d.bak", path, k)
+			if _, err := os.Stat(path + fmt.Sprintf(".pre-v%d.bak", k)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("a snapshot was written next to the database")
+			}
+			snaps := snapshots(t, s.snapDir)
+			if len(snaps) != 1 || !strings.HasPrefix(filepath.Base(snaps[0]), fmt.Sprintf("%s.pre-v%d.", DefaultFile, k)) ||
+				!strings.HasSuffix(snaps[0], ".seq3.bak") {
+				t.Fatalf("snapshots = %v, want one lucy.db.pre-v%d.<time>.seq3.bak", snaps, k)
+			}
+			snap := snaps[0]
 			fi, err := os.Stat(snap)
 			if err != nil {
-				t.Fatalf("pre-migration snapshot: %v", err)
+				t.Fatal(err)
 			}
 			if fi.Mode().Perm() != 0o600 {
 				t.Fatalf("snapshot mode = %04o, want 0600", fi.Mode().Perm())
@@ -361,7 +369,7 @@ func writeFixture(t *testing.T, fixture string, v int) {
 func dumpRows(t *testing.T, db *sql.DB, table string, b *strings.Builder) {
 	t.Helper()
 	// table comes from sqlite_master of a database this test built, never from input.
-	rows, err := db.Query(`SELECT * FROM "` + table + `" ORDER BY rowid`) // sqlcheck:trusted test fixture dump
+	rows, err := db.Query(`SELECT * FROM "` + table + `" ORDER BY rowid`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +466,7 @@ func TestFailedMigrationRollsBack(t *testing.T) {
 	ms, _ := loadMigrations()
 	broken := append([]migration{}, ms[:1]...)
 	broken = append(broken, migration{version: 2, name: "broken", body: "CREATE TABLE half (x INTEGER); SELECT * FROM missing_table;", checksum: "x"})
-	if err := migrate(context.Background(), db, path, broken, fixedNow); err == nil {
+	if err := migrate(context.Background(), db, broken, fixedNow, nil); err == nil {
 		t.Fatal("broken migration succeeded")
 	}
 	var n int
@@ -468,6 +476,110 @@ func TestFailedMigrationRollsBack(t *testing.T) {
 	applied, _ := appliedMigrations(context.Background(), db)
 	if len(applied) != 1 {
 		t.Fatalf("applied = %d, want 1", len(applied))
+	}
+}
+
+// snapshots lists the pre-migration snapshots in dir.
+func snapshots(t testing.TB, dir string) []string {
+	t.Helper()
+	got, err := filepath.Glob(filepath.Join(dir, "*.bak"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+// eventTitles reads the task.created titles in a database file, in log order.
+func eventTitles(t testing.TB, path string) []string {
+	t.Helper()
+	db := rawDB(t, path)
+	defer db.Close()
+	rows, err := db.Query(`SELECT json_extract(payload, '$.title') FROM events WHERE type = 'task.created' ORDER BY seq`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// TestSnapshotAfterRestoreIsNew follows the rollback runbook twice: upgrade (snapshot A), restore A
+// and keep writing with the older schema, upgrade again (snapshot B). B must be a new file holding
+// the events written after the restore; A must be left as it was.
+func TestSnapshotAfterRestoreIsNew(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "lucy")
+	snapDir := filepath.Join(t.TempDir(), "state")
+	path := filepath.Join(dir, DefaultFile)
+	insert := func(seq int, title string) {
+		db := rawDB(t, path)
+		if _, err := db.Exec(`INSERT INTO events (stream, stream_version, type, type_version, envelope_version, occurred_at, actor, payload)
+			VALUES ('task-1', ?, 'task.created', 1, 1, 0, 'old-lucy', json_object('title', ?, 'org', 'o'))`, seq, title); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO streams (id, version) VALUES ('task-1', ?) ON CONFLICT (id) DO UPDATE SET version = excluded.version`, seq); err != nil {
+			t.Fatal(err)
+		}
+		db.Close()
+	}
+	migrateRaw(t, path, 1)
+	insert(1, "before")
+
+	openWithSnapshots(t, path, snapDir).Close()
+	first := snapshots(t, snapDir)
+	if len(first) != 1 {
+		t.Fatalf("snapshots after first upgrade = %v", first)
+	}
+	a := first[0]
+
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Rename(path+suffix, path+suffix+".aside"); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+	}
+	copyFile(t, a, path)
+	insert(2, "after restore")
+
+	openWithSnapshots(t, path, snapDir).Close()
+	second := snapshots(t, snapDir)
+	if len(second) != 2 {
+		t.Fatalf("snapshots after second upgrade = %v, want 2", second)
+	}
+	b := second[0]
+	if b == a {
+		b = second[1]
+	}
+	if got := eventTitles(t, b); !reflect.DeepEqual(got, []string{"before", "after restore"}) {
+		t.Fatalf("snapshot B events = %q", got)
+	}
+	if got := eventTitles(t, a); !reflect.DeepEqual(got, []string{"before"}) {
+		t.Fatalf("snapshot A events = %q, want it unchanged", got)
+	}
+}
+
+func TestSnapshotDirIsChecked(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lucy", DefaultFile)
+	migrateRaw(t, path, 1)
+	snapDir := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(snapDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Open(context.Background(), path, Options{Registry: testRegistry(t), SnapshotDir: snapDir})
+	if !errors.Is(err, ErrInsecurePath) {
+		t.Fatalf("err = %v, want ErrInsecurePath for a 0755 snapshot dir", err)
+	}
+	applied, err := appliedMigrations(context.Background(), rawDB(t, path))
+	if err != nil || len(applied) != 1 {
+		t.Fatalf("applied = %d, %v; the upgrade must not run without its snapshot", len(applied), err)
 	}
 }
 
