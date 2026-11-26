@@ -15,7 +15,7 @@ requirements: [LUCY-REPO-005]
 ## Rotation, at every release
 
 1. Move the `## Unreleased` section of CHANGES.md into a new file `docs/changes/<version>.md`
-   (for example `docs/changes/v0.1.0.md`), retitled `# <version> (<release date>)`.
+   (for example `docs/changes/0.1.0.md`), retitled `# <version> (<release date>)`.
 2. Give the new file front matter (`id: changes-<version>`, `status: active`, `version: 1`, the
    requirement IDs the release delivered).
 3. Leave an empty `## Unreleased` section at the top of CHANGES.md.
@@ -25,4 +25,4 @@ The release runbook ([docs/runbooks/release.md](../runbooks/release.md)) runs th
 
 ## Versions
 
-None yet: the first release comes with m0's release slice.
+- [0.1.0](0.1.0.md) (2026-11-26)
