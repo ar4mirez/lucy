@@ -241,8 +241,10 @@ func Check(root string) []error {
 				fail(d.Path, "version %q must be a positive integer", v)
 			}
 		}
-		if o, ok := scalars["owner"]; ok && o == "" {
-			fail(d.Path, "owner must not be empty")
+		for _, k := range []string{"id", "title", "owner"} {
+			if v, ok := scalars[k]; ok && v == "" {
+				fail(d.Path, "%s must not be empty", k)
+			}
 		}
 		d.Requirements = lists["requirements"]
 		for _, r := range d.Requirements {
@@ -379,7 +381,7 @@ func checkLinks(root string, d *Doc) []error {
 			}
 			target, _, _ = strings.Cut(target, "#")
 			p := path.Join(path.Dir(d.Path), target)
-			if strings.HasPrefix(p, "../") {
+			if p == ".." || strings.HasPrefix(p, "../") {
 				errs = append(errs, fmt.Errorf("%s:%d: link %q leaves the repository", d.Path, i+1, m[1]))
 				continue
 			}

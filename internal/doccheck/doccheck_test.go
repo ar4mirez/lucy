@@ -143,6 +143,9 @@ func TestCheckFixtures(t *testing.T) {
 		{"undefined mention", map[string]string{"docs/x.md": fm + "LUCY-API-999\n"}, "no PRD table defines"},
 		{"undefined front matter id", map[string]string{"docs/x.md": strings.Replace(fm, "[]", "[LUCY-API-998]", 1)}, "no PRD table defines"},
 		{"broken link", map[string]string{"docs/x.md": fm + "[gone](nope.md)\n"}, "does not resolve"},
+		{"empty id", map[string]string{"docs/x.md": strings.Replace(fm, "id: extra", "id:", 1)}, "id must not be empty"},
+		{"empty title", map[string]string{"docs/x.md": strings.Replace(fm, "title: T", "title:", 1)}, "title must not be empty"},
+		{"link to parent of repo", map[string]string{"docs/x.md": fm + "[up](../..)\n"}, "leaves the repository"},
 		{"link leaves repo", map[string]string{"docs/x.md": fm + "[up](../../etc/passwd)\n"}, "leaves the repository"},
 		{"unscheduled", map[string]string{"docs/milestones/m1.md": strings.Replace(fm, "id: extra", "id: m1", 1)}, "not scheduled"},
 		{"wrong milestone", map[string]string{
