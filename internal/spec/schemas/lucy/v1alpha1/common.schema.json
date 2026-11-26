@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ar4mirez/lucy/blob/main/internal/spec/schemas/lucy/v1alpha1/common.schema.json",
+  "title": "lucy common definitions",
+  "description": "Shared definitions for lucy's own resource kinds (lucy/v1alpha1). Metadata is the ai-sdlc metadata object with namespace required: the namespace names the Airspace (org).",
+  "$defs": {
+    "apiVersion": {
+      "type": "string",
+      "const": "lucy/v1alpha1",
+      "description": "lucy's own API version. It never uses the ai-sdlc.io prefix (spec section 10.1)."
+    },
+    "metadata": {
+      "allOf": [{ "$ref": "https://ai-sdlc.io/schemas/v1alpha1/common.schema.json#/$defs/metadata" }],
+      "required": ["name", "namespace"]
+    },
+    "status": {
+      "type": "object",
+      "description": "Observed state. lucy records it in its database and never writes it into config files.",
+      "properties": {
+        "conditions": {
+          "type": "array",
+          "items": { "$ref": "https://ai-sdlc.io/schemas/v1alpha1/common.schema.json#/$defs/condition" }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

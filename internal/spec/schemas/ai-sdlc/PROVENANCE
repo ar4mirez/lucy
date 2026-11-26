@@ -1,0 +1,27 @@
+# Files vendored from the ai-sdlc specification into lucy. Do not edit them: change the pin, copy
+# them again from the new commit and update this file in the same change (LUCY-SPEC-004, D11).
+# A test (internal/spec, TestVendoredProvenance) fails when a listed file's SHA-256 differs, a
+# listed file is missing, or a file in a vendored directory is not listed.
+#
+# Each "file" line: SHA-256, path in this repository, path at the pinned commit. A "#L<a>-<b>"
+# suffix means the file is lines a to b of that source, copied verbatim (the spec's own examples).
+source https://github.com/ai-sdlc-framework/ai-sdlc
+commit b56cecaeef256644c3066fae2106af5c7eaa684a
+licence Apache-2.0
+file c80330be6ce376964825985f28c2c5da7f1a418194d35add012e1d700e7980a7 internal/spec/schemas/ai-sdlc/v1alpha1/adapter-binding.schema.json spec/schemas/adapter-binding.schema.json
+file 7beed5ad57118df7c782d46fb10979a0139b753c7919c00768aea68194916683 internal/spec/schemas/ai-sdlc/v1alpha1/agent-role.schema.json spec/schemas/agent-role.schema.json
+file ac8eb98fd11dcd6900fa94bf425701259cb2e1391c031d09628303959574f889 internal/spec/schemas/ai-sdlc/v1alpha1/audit-entry.json spec/schemas/v1alpha1/audit-entry.json
+file 06a6047bdc9598a34fb3d2ac86342295128d6ac04f39654e7db246ec585f3ee8 internal/spec/schemas/ai-sdlc/v1alpha1/autonomy-policy.schema.json spec/schemas/autonomy-policy.schema.json
+file b94ff9b6d42130fd7bda406ff7a35eb28e4a5366fc81d57e92f3facb3d57a5b2 internal/spec/schemas/ai-sdlc/v1alpha1/common.schema.json spec/schemas/common.schema.json
+file c101b73882f20f96a21ac03ced485177ed72f9c43a46db2257914084acc2fc9a internal/spec/schemas/ai-sdlc/v1alpha1/pipeline.schema.json spec/schemas/pipeline.schema.json
+file 5c2a9a0fcac32ff3487d40510e984db3178376452b8a069e3a0aeb702fa20bc9 internal/spec/schemas/ai-sdlc/v1alpha1/quality-gate.schema.json spec/schemas/quality-gate.schema.json
+file ca6d363cedee07a5a36d44091bb86de456a423f53ebc057e938dc6275329ec35 internal/audit/testdata/audit-chain/fixture.json conformance/audit-chain/fixture.json
+file 90eaadb85be8f7613b500ad12ab58b99426b6122933c573ad16ff2f98e859f15 internal/audit/testdata/audit-chain/samples/go.jsonl conformance/audit-chain/samples/go.jsonl
+file 27ad5947049139c04f10352db49caafa95a4b10ded9ef9dcc525468cfcb86cd5 internal/audit/testdata/audit-chain/samples/legacy-typescript.jsonl conformance/audit-chain/samples/legacy-typescript.jsonl
+file dd1bdf22602a93420e9d69dd2758324f1c73f9810aac5bc2ddc21b5abdc85d47 internal/audit/testdata/audit-chain/samples/python.jsonl conformance/audit-chain/samples/python.jsonl
+file 1dbf556c4e5c016991e6eee7a06a1f765a700b23dc7101c1b100103509d796a0 internal/audit/testdata/audit-chain/samples/typescript.jsonl conformance/audit-chain/samples/typescript.jsonl
+file cd7c87121925245eb24832cce79a3aa3431a6766a36ef2638db77dd994ecc688 internal/spec/testdata/examples/pipeline.yaml spec/spec.md#L293-369
+file 1761792d250ba1e0b7f0d52c07d0c18e29e0aa5b8b72e13b98dc3fb38a393bf2 internal/spec/testdata/examples/agent-role.yaml spec/spec.md#L453-490
+file 8f9df9f2c3f4d4b2111def197f0ff4b5f3d48475de7c4706b695860da6278493 internal/spec/testdata/examples/quality-gate.yaml spec/spec.md#L593-647
+file b8a62614c41a010dc68f533247884e7b05e1b95ee839364a5b577ee4c704dd68 internal/spec/testdata/examples/autonomy-policy.yaml spec/spec.md#L738-856
+file 43ae4a61540b2ce8ee62a1d63bebfa50f94d91069e27da9b765cb9d824a0135b internal/spec/testdata/examples/adapter-binding.yaml spec/spec.md#L897-918

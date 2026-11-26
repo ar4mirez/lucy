@@ -1,0 +1,38 @@
+apiVersion: ai-sdlc.io/v1alpha1
+kind: AgentRole
+metadata:
+  name: code-agent
+spec:
+  role: "Senior Software Engineer"
+  goal: "Implement features from specifications with clean, tested code"
+  backstory: "Expert in TypeScript and Python with focus on testable architecture"
+  tools: [code_editor, terminal, git_client, test_runner]
+  constraints:
+    maxFilesPerChange: 20
+    requireTests: true
+    allowedLanguages: [python, typescript]
+    blockedPaths: ["**/secrets/**", "**/.env*"]
+  handoffs:
+    - target: reviewer-agent
+      trigger: "implementation_complete"
+      contract:
+        schema: "handoff-schemas/impl-to-review-v1.json"
+        requiredFields: [prUrl, testResults, coverageReport, changeSummary]
+    - target: tester-agent
+      trigger: "implementation_complete"
+  skills:
+    - id: implement_feature
+      description: "Implements features from ticket specifications"
+      tags: [coding, implementation]
+      examples:
+        - input: "Implement user authentication with OAuth2"
+          output: "PR with auth module, tests, and documentation"
+  agentCard:
+    endpoint: "https://agents.internal/code-agent"
+    version: "1.0.0"
+    securitySchemes: [bearer_token]
+status:
+  autonomyLevel: 2
+  totalTasksCompleted: 142
+  approvalRate: 0.94
+  lastActive: "2026-02-07T09:45:00Z"

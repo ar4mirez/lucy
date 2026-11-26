@@ -34,7 +34,7 @@ and never writes back (LUCY-SPEC-003). `metadata.namespace` is the org.
 | `Org`, `Project`, `Account`, `Task`, `Session` | lucy's own group | lucy's model, with their own schemas (LUCY-SPEC-006) |
 | client-confirm route | lucy's own group | The client-confirm posture, which the spec schema cannot express |
 
-Example (illustrative, validated against the vendored schema once it lands):
+Example (a test checks it is valid config):
 
 ```yaml
 apiVersion: ai-sdlc.io/v1alpha1
@@ -44,9 +44,12 @@ spec:
   levels:
     - level: 2
       name: merge-on-green
+      permissions: { read: ["*"], write: [branch, pr, comment], execute: [test-suite] }
       guardrails: { requireApproval: security-critical-only, blockedPaths: ["**/.env*"] }
+      monitoring: real-time-notification
+  promotionCriteria: {}
   demotionTriggers:
-    - { trigger: red-merge-attempt, action: demote-to-0, cooldown: P4W }
+    - { trigger: red-merge-attempt, action: demote-to-0, cooldown: 4w }
 ```
 
 The spec is pinned to one commit and mapped through an internal model; moving to a newer spec is an
