@@ -2,17 +2,17 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 8
+version: 9
 owner: ar4mirez
-requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-001, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-009, LUCY-RUN-001, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007]
+requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-001, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-009, LUCY-SIM-001, LUCY-SIM-002, LUCY-RUN-001, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007]
 ---
 
 # lucy: technical specification
 
 Status: m0. The skeleton, the release pipeline, the event store (section 3), the first part of the
 API with `lucy daemon` (section 4), the policy engine (section 5), lucy's settings file (section
-2), and the spec model with the audit chain (section 10) exist; the rest below is the design the
-m0-m3 slices build.
+2), the spec model with the audit chain (section 10) and the flight state machine with its
+simulation harness (section 11) exist; the rest below is the design the m0-m3 slices build.
 
 ## 1. Shape
 
@@ -253,6 +253,8 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 | `internal/eventstore/` | The SQLite event store: event log, projections, consumers, migrations (section 3) |
 | `internal/pathguard/` | The path guard every delete passes (section 5) |
 | `internal/policy/` | The policy engine: request model, rules, rule-set hash, decision record (section 5) |
+| `internal/tower/` | The flight state machine and its seams: Pilot runtime, forge, clock (section 11) |
+| `internal/sim/` | The simulation harness: virtual clock, fake forge, fake Pilot runtime, fault hooks (section 11) |
 | `internal/selfupdate/` | `lucy self-update`, which updates lucy through mise |
 | `internal/workflowcheck/` | Test enforcing the GitHub Actions rules: SHA pins, permissions, release trigger |
 | `scripts/` | `verify-dist.sh`: checks a goreleaser `dist/` (assets, SBOMs, checksums) |
@@ -307,3 +309,13 @@ Built in `internal/spec`, `internal/jcs` and `internal/audit` ([D3b](docs/decisi
   event's own transaction; the table refuses UPDATE and DELETE. `audit.VerifyStore` rechecks
   every hash and link and that every entry is exactly what its event maps to, up to the log's head
   when it starts; `audit.VerifyJSONL` verifies the spec's cross-SDK sample chains (LUCY-SPEC-009).
+
+## 11. Flights and the simulation harness
+
+`internal/tower` flies a flight (Pilot session, pull request, Clearance, then Takeoff, outside or
+grounded) through three seams: `Runtime` (Pilot sessions), `Forge` (pull requests; a merge names
+the cleared head) and `Clock`. It never sleeps; a driver calls `Step`. Each transition is a
+`task.*` event on `task/<org>/<id>` and state is their projection, so a new Tower on the store
+resumes. A merge's `policy.decision` and `task.clearance` events share one transaction; an
+approval binds to the head and base shown. `internal/sim` fakes the seams on virtual time with one
+seeded generator; a test holds a seed to one log, restarts or not (LUCY-SIM-001, LUCY-SIM-002).
