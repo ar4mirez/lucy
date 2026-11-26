@@ -1,7 +1,7 @@
 package policy
 
 // This file is part of the rule set: its source is hashed into RuleSetSHA256, so any change here
-// is a new rule set version (see ruleset.go).
+// is a new rule set version (see engine.go).
 
 // trusted maps every known source to whether it is trusted. Trusted sources are the captain's own
 // words, the captain's config, lucy's deterministic code and task records made through the API.

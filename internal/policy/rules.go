@@ -1,7 +1,7 @@
 package policy
 
 // This file is the rule set: its source is hashed into RuleSetSHA256, so any change here is a new
-// rule set version (see ruleset.go). Rules run in the order of the table; the first rule with an
+// rule set version (see engine.go). Rules run in the order of the table; the first rule with an
 // opinion decides, and when none has one, default.deny does.
 
 import (

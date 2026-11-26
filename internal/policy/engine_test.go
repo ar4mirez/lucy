@@ -18,9 +18,9 @@ import (
 var update = flag.Bool("update", false, "record this rule set version's hash in testdata/ruleset.sum")
 
 // TestRuleSetVersioned locks the rule set: testdata/ruleset.sum holds one "version sha256" line per
-// rule set version ever released. Changing rules.go or trust.go changes the hash, which fails here
-// until RuleSetVersion is bumped and the new line recorded with -update. An old version's hash can
-// never be replaced.
+// rule set version ever released. Changing rules.go, trust.go, digest.go or engine.go changes the
+// hash, which fails here until RuleSetVersion is bumped and the new line recorded with -update. An
+// old version's hash can never be replaced.
 func TestRuleSetVersioned(t *testing.T) {
 	const path = "testdata/ruleset.sum"
 	known := map[int]string{}

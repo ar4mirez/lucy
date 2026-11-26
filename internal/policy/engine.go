@@ -10,19 +10,19 @@ import (
 	"github.com/ar4mirez/lucy/internal/pathguard"
 )
 
-// RuleSetVersion is the version of the rule set. Bump it whenever rules.go or trust.go change; the
-// committed testdata/ruleset.sum, checked by TestRuleSetVersioned, records the SHA-256 of every
-// version and refuses a changed rule set under an old version.
+// RuleSetVersion is the version of the rule set. Bump it whenever rules.go, trust.go, digest.go or
+// engine.go change; the committed testdata/ruleset.sum, checked by TestRuleSetVersioned, records
+// the SHA-256 of every version and refuses a changed rule set under an old version.
 const RuleSetVersion = 2
 
-//go:embed rules.go trust.go
+//go:embed rules.go trust.go digest.go engine.go
 var ruleSources embed.FS
 
 // ruleSetSHA256 is computed once from the embedded rule sources and the path guard's version.
 var ruleSetSHA256 = func() string {
 	h := sha256.New()
 	fmt.Fprintf(h, "lucy policy rule set\nversion %d\npathguard %d\n", RuleSetVersion, pathguard.Version)
-	for _, name := range []string{"rules.go", "trust.go"} {
+	for _, name := range []string{"rules.go", "trust.go", "digest.go", "engine.go"} {
 		data, err := ruleSources.ReadFile(name)
 		if err != nil {
 			panic("policy: rule source missing from the binary: " + name) // a build error

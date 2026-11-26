@@ -160,7 +160,8 @@ them data, not code.
   `git.captain`, and `default.deny`.
 - **Decision.** `allow`, `deny` or `require-captain`, with the rule, a reason, every approval it
   rested on (`approvals_used`, in the order the rules used them; empty unless allowed), whether any input was untrusted, and the rule set's version and SHA-256 (LUCY-POL-006). The hash
-  covers the embedded `rules.go` and `trust.go` and the path guard's version;
+  covers the embedded `rules.go`, `trust.go`, `digest.go` (the facts an approval binds to) and
+  `engine.go` (evaluation and `approvals_used`) and the path guard's version;
   `internal/policy/testdata/ruleset.sum` records each version's hash and a test refuses a changed
   rule set under an old version. `Evaluate` is pure; a panic, an unknown outcome or facts the
   daemon could not gather are a deny under `engine.error`.
