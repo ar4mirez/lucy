@@ -18,7 +18,8 @@ requirements: [LUCY-REL-002, LUCY-REL-003, LUCY-REL-004, LUCY-REL-008]
 `mise use -g github:ar4mirez/lucy@<version>` checks the archive against `checksums.txt` and verifies
 its GitHub attestation before installing ([mise settings](https://mise.jdx.dev/configuration/settings.html):
 `github.github_attestations` and `github.slsa`, both on by default). `lucy self-update` runs mise
-with both forced on.
+with both forced on, and needs mise 2026.10.19 or newer: the first release whose attestation and
+SLSA checks fail closed. With an older mise it refuses and installs nothing; run `mise self-update`.
 
 ## By hand
 

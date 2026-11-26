@@ -103,8 +103,10 @@ installs through mise from a pinned manifest and `lucy doctor` checks each row (
 | ai-memory | optional | mise, exact version and hash | off by default |
 
 Built in: GitHub API client, quota and usage data, SQLite, sigstore verification, policy engine,
-gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are kept minimal; the
-skeleton has none.
+gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are kept minimal. The only one
+is `gopkg.in/yaml.v3`, used only by tests: `internal/workflowcheck` parses the workflows so their
+permission and pinning rules, a security baseline (LUCY-REL, checklist area 5), do not pass or fail
+on formatting.
 
 ## 7. Repository layout
 
@@ -127,7 +129,6 @@ skeleton has none.
 - `mise run check` = gofmt check, `go vet`, `go test -race`, which includes the doc rules.
 - CI runs the same on `ubuntu-latest` and `macos-latest` (LUCY-REPO-007) with actions pinned by SHA,
   `permissions: contents: read`, no secrets and no persisted checkout credentials.
-- The version is stamped with `-ldflags "-X main.version=<v>"` (goreleaser also sets `main.commit` and
-  `main.date`).
+- The version is stamped with `-ldflags "-X main.version=<v>"`; goreleaser sets it.
 - CI also runs `goreleaser check` and a snapshot release build on every pull request; only the
   release workflow publishes, and only its job has write scopes and an OIDC token.

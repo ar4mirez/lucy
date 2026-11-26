@@ -12,13 +12,8 @@ import (
 	"github.com/ar4mirez/lucy/internal/selfupdate"
 )
 
-// Set at build time with -ldflags "-X main.version=<v> -X main.commit=<c> -X main.date=<d>";
-// goreleaser sets all three (.goreleaser.yaml).
-var (
-	version = "dev"
-	commit  = ""
-	date    = ""
-)
+// Set at build time with -ldflags "-X main.version=<v>"; goreleaser sets it (.goreleaser.yaml).
+var version = "dev"
 
 const usage = `lucy: a headless supervisor for autonomous coding agents.
 
@@ -54,7 +49,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, usage)
 		return 0
 	case "-v", "--version", "version":
-		fmt.Fprintln(stdout, versionLine())
+		fmt.Fprintln(stdout, "lucy "+version)
 		return 0
 	case "self-update":
 		return selfupdate.New(version).Run(args[1:], stdout, stderr)
@@ -62,16 +57,4 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "error: unknown command or flag %q\nhelp: run `lucy --help`\n", args[0])
 		return 2
 	}
-}
-
-// versionLine is what `lucy --version` prints: "lucy <version>", plus the commit and its date
-// when the build recorded them.
-func versionLine() string {
-	if commit == "" {
-		return "lucy " + version
-	}
-	if date == "" {
-		return fmt.Sprintf("lucy %s (%s)", version, commit)
-	}
-	return fmt.Sprintf("lucy %s (%s, %s)", version, commit, date)
 }

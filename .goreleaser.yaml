@@ -16,8 +16,6 @@ builds:
     ldflags:
       - -s -w
       - -X main.version={{ .Version }}
-      - -X main.commit={{ .ShortCommit }}
-      - -X main.date={{ .CommitDate }}
     # The commit's time, not the build's, so rebuilding a tag gives the same bytes.
     mod_timestamp: "{{ .CommitTimestamp }}"
     goos: [linux, darwin]

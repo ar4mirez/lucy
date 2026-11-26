@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -33,6 +34,13 @@ var verifyEnv = []string{
 	"MISE_SLSA=true",
 }
 
+// minMise is the oldest mise lucy installs through: the first release whose GitHub attestation and
+// SLSA checks fail closed (jdx/mise#14908). An older mise ignores the settings in verifyEnv.
+const minMise = "2026.10.19"
+
+// miseVersionRe matches the CalVer that `mise --version` prints first, e.g. "2026.11.12 linux-x64 (...)".
+var miseVersionRe = regexp.MustCompile(`^v?([0-9]+)\.([0-9]+)\.([0-9]+)(?:\s|$)`)
+
 // versionRe accepts a release version as lucy tags it, with or without a leading "v".
 var versionRe = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
 
@@ -42,7 +50,7 @@ const usage = `Usage:
   lucy self-update --check       report whether a newer release exists; change nothing
 
 lucy must have been installed by mise: mise use -g github:ar4mirez/lucy@latest
-mise verifies the release's GitHub attestation before it installs it.
+mise verifies the release's GitHub attestation before it installs it; lucy needs mise 2026.10.19 or newer.
 `
 
 // Updater runs self-update. The zero value is not usable; use New or set every field.
@@ -159,6 +167,10 @@ func (u Updater) check(mise string, stdout, stderr io.Writer) int {
 
 func (u Updater) update(mise, target string, stdout, stderr io.Writer) int {
 	spec := Tool + "@" + target
+	if err := u.requireMise(mise); err != nil {
+		fmt.Fprintf(stderr, "error: %v\nhelp: lucy %s is unchanged; upgrade mise with `mise self-update`, then run `lucy self-update` again\n", err, u.Version)
+		return 1
+	}
 	fmt.Fprintf(stdout, "lucy: running `mise use -g %s` (attestation checks on)\n", spec)
 	if err := u.mise(mise, stdout, stderr, "use", "-g", spec); err != nil {
 		fmt.Fprintf(stderr, "error: `mise use -g %s` failed: %v\nhelp: lucy %s is unchanged; see the mise output above\n", spec, err, u.Version)
@@ -171,6 +183,46 @@ func (u Updater) update(mise, target string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, "help: run `lucy --version` to confirm\n")
 	}
 	return 0
+}
+
+// requireMise returns an error unless mise is minMise or newer, so its verification is really on.
+func (u Updater) requireMise(mise string) error {
+	var out, errOut bytes.Buffer
+	if err := u.mise(mise, &out, &errOut, "--version"); err != nil {
+		return fmt.Errorf("`mise --version` failed: %v; lucy needs mise %s or newer to verify the release\n%s", err, minMise, errOut.String())
+	}
+	found := strings.TrimSpace(out.String())
+	got, ok := parseCalVer(found)
+	if !ok {
+		return fmt.Errorf("cannot read a version from `mise --version` (%q); lucy needs mise %s or newer to verify the release", found, minMise)
+	}
+	want, _ := parseCalVer(minMise)
+	for i := range got {
+		if got[i] != want[i] {
+			if got[i] < want[i] {
+				return fmt.Errorf("mise %d.%d.%d is older than %s, the first mise whose attestation checks fail closed", got[0], got[1], got[2], minMise)
+			}
+			break
+		}
+	}
+	return nil
+}
+
+// parseCalVer reads the leading year.month.patch version from mise's --version output.
+func parseCalVer(s string) ([3]int, bool) {
+	var v [3]int
+	m := miseVersionRe.FindStringSubmatch(s)
+	if m == nil {
+		return v, false
+	}
+	for i := range v {
+		n, err := strconv.Atoi(m[i+1])
+		if err != nil {
+			return v, false
+		}
+		v[i] = n
+	}
+	return v, true
 }
 
 // mise runs mise with args, its verification settings forced on.

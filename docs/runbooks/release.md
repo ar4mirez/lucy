@@ -58,7 +58,7 @@ read-only. Tool versions are pinned in the workflow (`GORELEASER_VERSION`, `COSI
 1. The workflow run is green and the release is published (not a draft).
 2. Verify it as a user would: [verify-release.md](verify-release.md).
 3. On Linux and on macOS: `mise use -g github:ar4mirez/lucy@<version>`, then `lucy --version` prints
-   `lucy <version> (<commit>, <date>)`.
+   `lucy <version>`.
 
 ## Before a tag: prove the config
 
@@ -80,5 +80,5 @@ scripts/verify-dist.sh dist "$(jq -r .version dist/metadata.json)"
 ## Roll back
 
 A user goes back with `lucy self-update --to <previous>`, which runs
-`mise use -g github:ar4mirez/lucy@<previous>`. A bad release stays published but is marked as such in
+`mise use -g github:ar4mirez/lucy@<previous>` (it needs mise 2026.10.19 or newer). A bad release stays published but is marked as such in
 its notes, and the next patch release supersedes it.

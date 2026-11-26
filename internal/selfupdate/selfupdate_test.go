@@ -14,6 +14,14 @@ import (
 // test can reach the network. It logs each call's arguments and the verification settings it saw.
 const fakeMise = `#!/bin/sh
 printf 'args=%s attest=%s slsa=%s\n' "$*" "$MISE_GITHUB_GITHUB_ATTESTATIONS" "$MISE_GITHUB_SLSA" >> "$FAKE_MISE_LOG"
+if [ "$1" = "--version" ]; then
+	if [ -n "$FAKE_MISE_VERSION_FAIL" ]; then
+		echo "mise: cannot start" >&2
+		exit 4
+	fi
+	echo "${FAKE_MISE_VERSION-2026.11.12 linux-x64 (2026-11-21)}"
+	exit 0
+fi
 if [ -n "$FAKE_MISE_FAIL" ]; then
 	echo "mise: something broke" >&2
 	exit 3
@@ -85,13 +93,13 @@ func TestRun(t *testing.T) {
 	}{
 		{
 			name:       "update to latest",
-			wantCalls:  []string{"args=use -g github:ar4mirez/lucy@latest attest=true slsa=true"},
+			wantCalls:  []string{"args=--version attest=true slsa=true", "args=use -g github:ar4mirez/lucy@latest attest=true slsa=true"},
 			wantStdout: "installed github:ar4mirez/lucy@latest through mise",
 		},
 		{
 			name:       "roll back with --to",
 			args:       []string{"--to", "v0.0.9"},
-			wantCalls:  []string{"args=use -g github:ar4mirez/lucy@0.0.9 attest=true slsa=true"},
+			wantCalls:  []string{"args=--version attest=true slsa=true", "args=use -g github:ar4mirez/lucy@0.0.9 attest=true slsa=true"},
 			wantStdout: "roll back with `lucy self-update --to 0.1.0`",
 		},
 		{
@@ -119,8 +127,49 @@ func TestRun(t *testing.T) {
 			name:       "mise fails",
 			env:        []string{"FAKE_MISE_FAIL=1"},
 			wantCode:   1,
-			wantCalls:  []string{"args=use -g github:ar4mirez/lucy@latest attest=true slsa=true"},
+			wantCalls:  []string{"args=--version attest=true slsa=true", "args=use -g github:ar4mirez/lucy@latest attest=true slsa=true"},
 			wantStderr: "mise: something broke",
+		},
+		{
+			name:       "minimum mise accepted",
+			env:        []string{"FAKE_MISE_VERSION=2026.10.19 macos-arm64 (2026-10-19)"},
+			wantCalls:  []string{"args=--version attest=true slsa=true", "args=use -g github:ar4mirez/lucy@latest attest=true slsa=true"},
+			wantStdout: "(attestation checks on)",
+		},
+		{
+			name:       "newer mise accepted",
+			env:        []string{"FAKE_MISE_VERSION=2027.1.0 linux-x64 (2027-01-02)"},
+			wantCalls:  []string{"args=--version attest=true slsa=true", "args=use -g github:ar4mirez/lucy@latest attest=true slsa=true"},
+			wantStdout: "installed github:ar4mirez/lucy@latest",
+		},
+		{
+			name:       "old mise refused",
+			env:        []string{"FAKE_MISE_VERSION=2026.10.18 linux-x64 (2026-10-18)"},
+			wantCode:   1,
+			wantCalls:  []string{"args=--version attest=true slsa=true"},
+			wantStderr: "mise 2026.10.18 is older than 2026.10.19",
+		},
+		{
+			name:       "old mise refused for --to",
+			args:       []string{"--to", "0.0.9"},
+			env:        []string{"FAKE_MISE_VERSION=2025.12.31"},
+			wantCode:   1,
+			wantCalls:  []string{"args=--version attest=true slsa=true"},
+			wantStderr: "`mise self-update`",
+		},
+		{
+			name:       "unparseable mise version refused",
+			env:        []string{"FAKE_MISE_VERSION=mise nightly"},
+			wantCode:   1,
+			wantCalls:  []string{"args=--version attest=true slsa=true"},
+			wantStderr: "cannot read a version",
+		},
+		{
+			name:       "mise --version fails",
+			env:        []string{"FAKE_MISE_VERSION_FAIL=1"},
+			wantCode:   1,
+			wantCalls:  []string{"args=--version attest=true slsa=true"},
+			wantStderr: "`mise --version` failed",
 		},
 		{name: "help", args: []string{"--help"}, wantStdout: "lucy self-update --to <ver>"},
 		{name: "bad version", args: []string{"--to", "latest; rm -rf"}, wantCode: 2, wantStderr: "is not a release version"},

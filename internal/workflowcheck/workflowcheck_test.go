@@ -1,89 +1,263 @@
 package workflowcheck
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 const workflowsDir = "../../.github/workflows"
 
-var (
-	usesLine   = regexp.MustCompile(`^\s*(?:-\s+)?uses:\s*(\S+)`)
-	pinnedUses = regexp.MustCompile(`^[\w.-]+/[\w./-]+@[0-9a-f]{40}$`)
-	writeScope = regexp.MustCompile(`^\s+([a-z-]+):\s*write\b`)
-)
+var pinnedUses = regexp.MustCompile(`^[\w.-]+/[\w.-]+(/[\w./-]+)?@[0-9a-f]{40}$`)
 
-func workflows(t *testing.T) map[string][]string {
-	t.Helper()
+// writeAllowed is the only job that may hold write scopes, and the scopes it may hold.
+var writeAllowed = struct {
+	workflow, job string
+	scopes        map[string]bool
+}{"release.yml", "release", map[string]bool{"contents": true, "id-token": true, "attestations": true}}
+
+type workflow struct {
+	On          yaml.Node      `yaml:"on"`
+	Permissions yaml.Node      `yaml:"permissions"`
+	Jobs        map[string]job `yaml:"jobs"`
+}
+
+type job struct {
+	Permissions yaml.Node `yaml:"permissions"`
+	Uses        string    `yaml:"uses"`
+	Steps       []struct {
+		Uses string `yaml:"uses"`
+	} `yaml:"steps"`
+}
+
+// permissions reads a permissions block, written as a map or as read-all/write-all ("*" is every
+// scope). set is false when the block is absent.
+func permissions(n yaml.Node) (scopes map[string]string, set bool, err error) {
+	switch n.Kind {
+	case 0:
+		return nil, false, nil
+	case yaml.ScalarNode:
+		switch n.Value {
+		case "read-all":
+			return map[string]string{"*": "read"}, true, nil
+		case "write-all":
+			return map[string]string{"*": "write"}, true, nil
+		}
+		return nil, true, fmt.Errorf("unknown permissions value %q", n.Value)
+	case yaml.MappingNode:
+		scopes = map[string]string{}
+		if err := n.Decode(&scopes); err != nil {
+			return nil, true, err
+		}
+		return scopes, true, nil
+	}
+	return nil, true, fmt.Errorf("permissions at line %d is neither a map nor a string", n.Line)
+}
+
+// check returns every rule the workflow named name breaks.
+func check(name string, src []byte) []string {
+	var wf workflow
+	if err := yaml.Unmarshal(src, &wf); err != nil {
+		return []string{fmt.Sprintf("%s: not valid YAML: %v", name, err)}
+	}
+	var problems []string
+	add := func(format string, args ...any) {
+		problems = append(problems, fmt.Sprintf(name+": "+format, args...))
+	}
+
+	top, set, err := permissions(wf.Permissions)
+	switch {
+	case err != nil:
+		add("top-level %v", err)
+	case !set || len(top) != 1 || top["contents"] != "read":
+		add("top-level permissions must be exactly {contents: read}, got %v", top)
+	}
+
+	ids := make([]string, 0, len(wf.Jobs))
+	for id := range wf.Jobs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		j := wf.Jobs[id]
+		uses := []string{}
+		if j.Uses != "" {
+			uses = append(uses, j.Uses)
+		}
+		for _, s := range j.Steps {
+			if s.Uses != "" {
+				uses = append(uses, s.Uses)
+			}
+		}
+		for _, u := range uses {
+			if !pinnedUses.MatchString(u) {
+				add("job %s: %s is not owner/repo[/path]@<full commit SHA>", id, u)
+			}
+		}
+
+		scopes, _, err := permissions(j.Permissions)
+		if err != nil {
+			add("job %s: %v", id, err)
+			continue
+		}
+		for scope, level := range scopes {
+			if level != "write" {
+				continue
+			}
+			if name != writeAllowed.workflow || id != writeAllowed.job || !writeAllowed.scopes[scope] {
+				add("job %s: %s: write is only allowed on %s's %s job (contents, id-token, attestations)",
+					id, scope, writeAllowed.workflow, writeAllowed.job)
+			}
+		}
+	}
+
+	if name == "release.yml" {
+		if err := releaseTrigger(wf.On); err != nil {
+			add("%v", err)
+		}
+	}
+	return problems
+}
+
+// releaseTrigger accepts only `on: push: tags: ["v*"]`, with no other events or filters.
+func releaseTrigger(on yaml.Node) error {
+	var events map[string]map[string]yaml.Node
+	if on.Kind != yaml.MappingNode || on.Decode(&events) != nil {
+		return fmt.Errorf("`on` must be a map holding only push")
+	}
+	push, ok := events["push"]
+	if len(events) != 1 || !ok {
+		return fmt.Errorf("the only trigger must be push, got %v", keys(events))
+	}
+	tagsNode, ok := push["tags"]
+	if len(push) != 1 || !ok {
+		return fmt.Errorf("push must filter on tags only, got %v", keys(push))
+	}
+	var tags []string
+	if err := tagsNode.Decode(&tags); err != nil || len(tags) != 1 || tags[0] != "v*" {
+		return fmt.Errorf(`push tags must be exactly ["v*"], got %v`, tags)
+	}
+	return nil
+}
+
+func keys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func TestRepositoryWorkflows(t *testing.T) {
 	paths, err := filepath.Glob(filepath.Join(workflowsDir, "*.yml"))
 	if err != nil || len(paths) == 0 {
 		t.Fatalf("no workflows found in %s: %v", workflowsDir, err)
 	}
-	out := map[string][]string{}
+	sawRelease := false
 	for _, p := range paths {
-		b, err := os.ReadFile(p)
+		src, err := os.ReadFile(p)
 		if err != nil {
 			t.Fatal(err)
 		}
-		out[filepath.Base(p)] = strings.Split(string(b), "\n")
-	}
-	return out
-}
-
-func TestActionsPinnedBySHA(t *testing.T) {
-	for name, lines := range workflows(t) {
-		for i, l := range lines {
-			if m := usesLine.FindStringSubmatch(l); m != nil && !pinnedUses.MatchString(m[1]) {
-				t.Errorf("%s:%d: %s is not pinned by a full commit SHA", name, i+1, m[1])
-			}
+		name := filepath.Base(p)
+		sawRelease = sawRelease || name == "release.yml"
+		for _, problem := range check(name, src) {
+			t.Error(problem)
 		}
+	}
+	if !sawRelease {
+		t.Error("release.yml is missing")
 	}
 }
 
-func TestDefaultPermissionsReadOnly(t *testing.T) {
-	for name, lines := range workflows(t) {
-		if !strings.Contains(strings.Join(lines, "\n"), "\npermissions:\n  contents: read\n") {
-			t.Errorf("%s: want top-level `permissions:` with only `contents: read`", name)
-		}
-	}
-}
+const sha = "3d3c42e5aac5ba805825da76410c181273ba90b1"
 
-// Write scopes exist only in release.yml's release job, and only these three.
-func TestWriteScopesOnlyOnRelease(t *testing.T) {
-	allowed := map[string]bool{"contents": true, "id-token": true, "attestations": true}
-	for name, lines := range workflows(t) {
-		job := ""
-		for i, l := range lines {
-			if strings.HasPrefix(l, "  ") && !strings.HasPrefix(l, "   ") && strings.HasSuffix(l, ":") {
-				job = strings.TrimSuffix(strings.TrimSpace(l), ":")
-			}
-			m := writeScope.FindStringSubmatch(l)
-			if m == nil {
-				continue
-			}
-			if name != "release.yml" || job != "release" || !allowed[m[1]] {
-				t.Errorf("%s:%d: `%s: write` is only allowed on release.yml's release job (contents, id-token, attestations)", name, i+1, m[1])
-			}
-		}
+func TestCheckIsFormatIndependent(t *testing.T) {
+	cases := []struct {
+		name, file, src string
+		want            string // empty: no problems
+	}{
+		{
+			name: "flow style and comments pass",
+			file: "release.yml",
+			src: `on: {push: {tags: ["v*"]}}
+permissions: {contents: read} # read-only
+jobs:
+    release:
+        permissions:
+            # needed to publish
+            contents: write
+            id-token: write
+        steps:
+            - uses: actions/checkout@` + sha + ` # v7
+            - uses: github/codeql-action/init@` + sha + `
+            - run: echo hi
+`,
+		},
+		{
+			name: "block style tags pass",
+			file: "release.yml",
+			src:  "on:\n  push:\n    tags:\n      - 'v*'\npermissions:\n  contents: read\njobs: {}\n",
+		},
+		{
+			name: "unpinned action fails",
+			file: "ci.yml",
+			src:  "on: pull_request\npermissions: {contents: read}\njobs:\n  check:\n    steps:\n      - uses: actions/checkout@v7\n",
+			want: "actions/checkout@v7 is not owner/repo",
+		},
+		{
+			name: "pull_request trigger on release fails",
+			file: "release.yml",
+			src:  "on:\n  push: {tags: [\"v*\"]}\n  pull_request:\npermissions: {contents: read}\njobs: {}\n",
+			want: "the only trigger must be push",
+		},
+		{
+			name: "branches filter on release fails",
+			file: "release.yml",
+			src:  "on:\n  push: {tags: [\"v*\"], branches: [main]}\npermissions: {contents: read}\njobs: {}\n",
+			want: "push must filter on tags only",
+		},
+		{
+			name: "id-token write on another job fails",
+			file: "release.yml",
+			src:  "on: {push: {tags: [\"v*\"]}}\npermissions: {contents: read}\njobs:\n  build:\n    permissions: {id-token: write}\n",
+			want: "job build: id-token: write is only allowed",
+		},
+		{
+			name: "write-all fails",
+			file: "release.yml",
+			src:  "on: {push: {tags: [\"v*\"]}}\npermissions: {contents: read}\njobs:\n  release:\n    permissions: write-all\n",
+			want: "job release: *: write is only allowed",
+		},
+		{
+			name: "read-all at top level fails",
+			file: "ci.yml",
+			src:  "on: pull_request\npermissions: read-all\njobs: {}\n",
+			want: "top-level permissions must be exactly {contents: read}",
+		},
+		{
+			name: "missing top-level permissions fails",
+			file: "ci.yml",
+			src:  "on: pull_request\njobs: {}\n",
+			want: "top-level permissions must be exactly {contents: read}",
+		},
 	}
-}
-
-func TestReleaseOnlyOnVersionTags(t *testing.T) {
-	lines := workflows(t)["release.yml"]
-	if lines == nil {
-		t.Fatal("release.yml is missing")
-	}
-	text := strings.Join(lines, "\n")
-	want := "\non:\n  push:\n    tags: [\"v*\"]\n\n"
-	if !strings.Contains(text, want) {
-		t.Errorf("release.yml: want the only trigger to be `on: push: tags: [\"v*\"]`")
-	}
-	for _, trigger := range []string{"pull_request", "workflow_dispatch", "branches:", "schedule:", "workflow_run"} {
-		if strings.Contains(text, trigger) {
-			t.Errorf("release.yml: unexpected trigger %q", trigger)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := strings.Join(check(tc.file, []byte(tc.src)), "\n")
+			if tc.want == "" && got != "" {
+				t.Errorf("want no problems, got:\n%s", got)
+			}
+			if tc.want != "" && !strings.Contains(got, tc.want) {
+				t.Errorf("want a problem containing %q, got:\n%s", tc.want, got)
+			}
+		})
 	}
 }

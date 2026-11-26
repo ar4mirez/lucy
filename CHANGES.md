@@ -29,5 +29,4 @@ Changes since the last release. When a version is cut, its section moves to
 - Install with `mise use -g github:ar4mirez/lucy@latest`.
 - `lucy self-update` updates lucy through mise (attestation checks forced on); `--to <version>` rolls
   back and `--check` reports whether a newer release exists.
-- `lucy --version` also prints the commit and its date in release builds.
 - Runbooks for cutting a release and for verifying one (`cosign verify-blob`, `gh attestation verify`).
