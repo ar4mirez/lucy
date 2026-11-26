@@ -108,6 +108,19 @@ func dir() (string, error) {
 	return filepath.Join(d, "lucy"), nil
 }
 
+// ResourcesDirName is the directory, inside lucy's config directory, that holds spec resources.
+const ResourcesDirName = "resources"
+
+// ResourcesDir returns the directory lucy loads spec resources from: resources inside lucy's
+// config directory. Files there hold spec only; status lives in lucy's database.
+func ResourcesDir() (string, error) {
+	d, err := dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(d, ResourcesDirName), nil
+}
+
 // defaultPath returns the settings file's path inside dir.
 func defaultPath() (string, error) {
 	d, err := dir()

@@ -87,7 +87,7 @@ func TestDaemonAndClients(t *testing.T) {
 	}
 
 	code, out, errOut := lucy("status", "--socket", sock)
-	for _, want := range []string{"daemon: running\n", "version: 7.7.7-test\n", "api_version: 1\n", "event_head: 1\n", "socket: " + sock + "\n", "caller: local/uid/", "you: Owner\n"} {
+	for _, want := range []string{"daemon: running\n", "version: 7.7.7-test\n", "api_version: 1\n", "event_head: 2\n", "socket: " + sock + "\n", "caller: local/uid/", "you: Owner\n"} {
 		if code != 0 || !strings.Contains(out, want) {
 			t.Errorf("status: code %d, want %q in %q (stderr %q)", code, want, out, errOut)
 		}
@@ -111,13 +111,43 @@ func TestDaemonAndClients(t *testing.T) {
 		t.Errorf("status with a bad config: code %d stdout %q stderr %q", code, out, errOut)
 	}
 
+	// Loading config (none here) is recorded before the daemon starts serving.
 	code, out, _ = lucy("events", "--socket", sock)
-	if code != 0 || !strings.HasPrefix(out, "events[1]{seq,stream,stream_version,type,type_version,time,actor}:\n  1,daemon,1,daemon.started,1,") {
+	if code != 0 || !strings.HasPrefix(out, "events[2]{seq,stream,stream_version,type,type_version,time,actor}:\n  1,config,1,config.loaded,1,") ||
+		!strings.Contains(out, "\n  2,daemon,1,daemon.started,1,") {
 		t.Errorf("events: code %d stdout %q", code, out)
 	}
-	code, out, _ = lucy("events", "--socket", sock, "--after", "1")
-	if code != 0 || out != "events[0]: none after seq 1 (head 1)\n" {
+	code, out, _ = lucy("events", "--socket", sock, "--after", "2")
+	if code != 0 || out != "events[0]: none after seq 2 (head 2)\n" {
 		t.Errorf("empty events: code %d stdout %q", code, out)
+	}
+	code, out, _ = lucy("config", "status", "--socket", sock)
+	if code != 0 || !strings.HasPrefix(out, "resources[0]: the daemon has loaded none\n") {
+		t.Errorf("config status: code %d stdout %q", code, out)
+	}
+
+	// The audit chain covers every event; an export verifies offline, and an edit to it fails.
+	code, out, _ = lucy("audit", "verify", "--socket", sock)
+	if code != 0 || !strings.HasPrefix(out, "audit: verified\nentries: 2\nhead: ") {
+		t.Errorf("audit verify: code %d stdout %q", code, out)
+	}
+	code, exported, _ := lucy("audit", "export", "--socket", sock)
+	if code != 0 || strings.Count(exported, "\n") != 2 {
+		t.Fatalf("audit export: code %d stdout %q", code, exported)
+	}
+	chain := filepath.Join(dir, "chain.jsonl")
+	if err := os.WriteFile(chain, []byte(exported), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, offline, _ := lucy("audit", "verify", "--file", chain)
+	if code != 0 || offline != out {
+		t.Errorf("audit verify --file: code %d stdout %q, want %q", code, offline, out)
+	}
+	if err := os.WriteFile(chain, []byte(strings.Replace(exported, `"actor":"daemon"`, `"actor":"someone"`, 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, _ := lucy("audit", "verify", "--file", chain); code != 1 || !strings.HasPrefix(out, "audit: broken\nverified_entries: 0\nbroken_at_entry: 1\n") {
+		t.Errorf("tampered chain: code %d stdout %q", code, out)
 	}
 	code, _, errOut = lucy("events", "--socket", sock, "--limit", "501")
 	if code != 1 || !strings.Contains(errOut, "error: invalid params (invalid_params)") || !strings.Contains(errOut, "help: must be at most 500") {

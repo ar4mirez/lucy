@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"os"
@@ -18,9 +19,12 @@ import (
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/api"
+	"github.com/ar4mirez/lucy/internal/audit"
+	"github.com/ar4mirez/lucy/internal/config"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/server"
+	"github.com/ar4mirez/lucy/internal/spec"
 )
 
 // DaemonStream is the event stream daemon lifecycle events are appended to.
@@ -53,16 +57,25 @@ func (Stopped) EventVersion() int { return 1 }
 
 // Registry returns the event registry the daemon opens the store with.
 func Registry() (*eventstore.Registry, error) {
-	return eventstore.NewRegistry(Started{}, Stopped{}, server.CommandEvent{}, policy.DecisionRecord{})
+	return eventstore.NewRegistry(append(spec.Payloads(), Started{}, Stopped{}, server.CommandEvent{}, policy.DecisionRecord{})...)
+}
+
+// Projectors returns the projections the daemon's store maintains: resource status and the
+// audit hash chain, which every event extends in its own append transaction.
+func Projectors() []eventstore.Projector {
+	return []eventstore.Projector{spec.StatusProjector{}, audit.Projector{}}
 }
 
 // Options configures Run.
 type Options struct {
-	SocketPath  string       // DefaultSocketPath when empty
-	DBPath      string       // eventstore.DefaultPath when empty
-	SnapshotDir string       // the store's pre-migration snapshot dir; its default when empty
-	Version     string       // lucy's version
-	Log         *slog.Logger // slog.Default when nil
+	SocketPath  string // DefaultSocketPath when empty
+	DBPath      string // eventstore.DefaultPath when empty
+	SnapshotDir string // the store's pre-migration snapshot dir; its default when empty
+	// ResourcesDir holds the spec resources the daemon loads at start; config.ResourcesDir when
+	// empty. A missing directory means no resources.
+	ResourcesDir string
+	Version      string       // lucy's version
+	Log          *slog.Logger // slog.Default when nil
 	// OnReady is called once the socket accepts connections.
 	OnReady func(socketPath string)
 }
@@ -103,6 +116,10 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	defer store.Close() //nolint:errcheck // reported through the log by the store's callers
+
+	if err := loadResources(ctx, store, opts.ResourcesDir, log); err != nil {
+		return err
+	}
 
 	if err := removeStaleSocket(sock); err != nil {
 		return err
@@ -180,7 +197,38 @@ func openStore(ctx context.Context, opts Options) (*eventstore.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return eventstore.Open(ctx, path, eventstore.Options{Registry: reg, SnapshotDir: opts.SnapshotDir})
+	return eventstore.Open(ctx, path, eventstore.Options{Registry: reg, Projectors: Projectors(), SnapshotDir: opts.SnapshotDir})
+}
+
+// loadResources loads the config directory through the same path as `lucy config validate`
+// (spec.LoadDir) and records each resource's status in the event store, never in the files
+// (LUCY-SPEC-003). Refused resources do not stop the daemon: they are recorded as Valid=False
+// and are not admitted. A directory that cannot be read at all is an error.
+func loadResources(ctx context.Context, store *eventstore.Store, dir string, log *slog.Logger) error {
+	if dir == "" {
+		var err error
+		if dir, err = config.ResourcesDir(); err != nil {
+			return err
+		}
+	}
+	set, err := spec.LoadDir(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		set = spec.Set{Dir: dir}
+	case err != nil:
+		return fmt.Errorf("daemon: %w", err)
+	}
+	sum, err := spec.Record(ctx, store, "daemon", set)
+	if err != nil {
+		return fmt.Errorf("daemon: record config status: %w", err)
+	}
+	level := slog.LevelInfo
+	if set.Invalid() > 0 {
+		level = slog.LevelWarn
+	}
+	log.Log(ctx, level, "config loaded", "dir", dir, "resources", len(set.Results), "refused", set.Invalid(),
+		"changed", sum.Changed, "removed", sum.Removed)
+	return nil
 }
 
 // listen creates the socket and makes it 0600. The runtime dir is 0700, so nobody else can reach

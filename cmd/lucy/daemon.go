@@ -17,13 +17,15 @@ import (
 )
 
 const daemonUsage = `Usage:
-  lucy daemon [--socket <path>] [--db <path>]   run the daemon in the foreground
-  lucy daemon stop [--socket <path>]            ask the running daemon to stop
+  lucy daemon [--socket <path>] [--db <path>] [--resources <dir>]   run the daemon in the foreground
+  lucy daemon stop [--socket <path>]                                ask the running daemon to stop
 
 The daemon serves lucy's API on a unix socket only ($XDG_RUNTIME_DIR/lucy/lucy.sock by
 default; 0600, in a 0700 directory, refusing other users). It opens the event store at
-$XDG_DATA_HOME/lucy/lucy.db unless --db names another file. Stop it with Ctrl-C, SIGTERM
-or ` + "`lucy daemon stop`" + `.
+$XDG_DATA_HOME/lucy/lucy.db unless --db names another file. At start it loads the spec
+resources in $XDG_CONFIG_HOME/lucy/resources (or --resources) the way ` + "`lucy config validate`" + `
+does and records their status in the event store; refused resources are recorded, not
+admitted. Stop it with Ctrl-C, SIGTERM or ` + "`lucy daemon stop`" + `.
 `
 
 // signalContext is swapped in tests.
@@ -41,13 +43,14 @@ func runDaemon(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(io.Discard)
 	sock := fs.String("socket", "", "")
 	db := fs.String("db", "", "")
+	resources := fs.String("resources", "", "")
 	if code, ok := parseFlags(fs, args, daemonUsage, "lucy daemon --help", stdout, stderr); !ok {
 		return code
 	}
 	ctx, cancel := signalContext()
 	defer cancel()
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	err := daemon.Run(ctx, daemon.Options{SocketPath: *sock, DBPath: *db, Version: version, Log: log})
+	err := daemon.Run(ctx, daemon.Options{SocketPath: *sock, DBPath: *db, ResourcesDir: *resources, Version: version, Log: log})
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		if errors.Is(err, daemon.ErrAlreadyRunning) {

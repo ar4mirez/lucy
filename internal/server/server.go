@@ -60,7 +60,7 @@ func (CommandEvent) EventVersion() int { return 1 }
 
 // Options configures a Server.
 type Options struct {
-	Store       *eventstore.Store // required; its registry must include CommandEvent and policy.DecisionRecord
+	Store       *eventstore.Store // required; registry: CommandEvent, policy.DecisionRecord, spec.Payloads; projectors: spec.StatusProjector, audit.Projector
 	Authorizer  Authorizer        // OwnerOnly for the current user when nil
 	Version     string            // lucy's version, reported by hello and status.get
 	Log         *slog.Logger      // slog.Default when nil

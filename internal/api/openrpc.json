@@ -687,6 +687,231 @@
       "x-lucy-scope": "read",
       "x-lucy-mutating": false,
       "x-lucy-group": "query"
+    },
+    {
+      "name": "resources.list",
+      "summary": "The config resources the daemon loaded and their status, as conditions.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "offset",
+          "description": "Skip this many resources; 0 starts at the beginning.",
+          "required": false,
+          "schema": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        {
+          "name": "limit",
+          "description": "At most this many resources; 0 means 100.",
+          "required": false,
+          "schema": {
+            "maximum": 500,
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "more": {
+              "description": "Whether resources after this page existed when it was read.",
+              "type": "boolean"
+            },
+            "next": {
+              "description": "Pass as offset to read the next page.",
+              "type": "integer"
+            },
+            "resources": {
+              "description": "The resources and their current status.",
+              "items": {
+                "properties": {
+                  "api_version": {
+                    "description": "The apiVersion the file declares.",
+                    "type": "string"
+                  },
+                  "conditions": {
+                    "description": "The resource's status, as conditions.",
+                    "items": {
+                      "properties": {
+                        "last_transition_time": {
+                          "description": "When the status last changed, RFC 3339 UTC.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "description": "What a person needs to know.",
+                          "type": "string"
+                        },
+                        "reason": {
+                          "description": "A machine-readable reason, for example SchemaViolation.",
+                          "type": "string"
+                        },
+                        "status": {
+                          "description": "True, False or Unknown.",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "The aspect, for example Valid.",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "kind": {
+                    "description": "The resource kind.",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "The resource's name, unique per namespace and kind.",
+                    "type": "string"
+                  },
+                  "namespace": {
+                    "description": "The airspace (org) the resource belongs to.",
+                    "type": "string"
+                  },
+                  "source": {
+                    "description": "The file it came from, relative to the config directory, and the document's position in it.",
+                    "type": "string"
+                  },
+                  "spec_sha256": {
+                    "description": "SHA-256 of the canonical spec, defaults applied; empty when the resource was refused.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "api_version",
+                  "kind",
+                  "namespace",
+                  "name",
+                  "source",
+                  "conditions"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "resources",
+            "next",
+            "more"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "read",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
+    },
+    {
+      "name": "audit.verify",
+      "summary": "Verify the audit hash chain against the event log.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "broken_at_seq": {
+              "description": "The event whose entry failed, when broken.",
+              "type": "integer"
+            },
+            "entries": {
+              "description": "Entries verified; when broken, the entries before the break.",
+              "type": "integer"
+            },
+            "head": {
+              "description": "The last entry's hash, when verified.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Why the chain is broken, when it is.",
+              "type": "string"
+            },
+            "verified": {
+              "description": "True when every entry hashes correctly, links to the one before it and matches its event.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verified",
+            "entries"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "read",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
+    },
+    {
+      "name": "audit.entries",
+      "summary": "Audit entries in the spec's wire format, oldest first.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "after_seq",
+          "description": "Return entries for events after this sequence number; 0 starts at the beginning.",
+          "required": false,
+          "schema": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        {
+          "name": "limit",
+          "description": "At most this many entries; 0 means 100.",
+          "required": false,
+          "schema": {
+            "maximum": 500,
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "entries": {
+              "description": "Audit entries (spec section 12), each in RFC 8785 canonical form, oldest first.",
+              "items": {
+                "description": "Any JSON value."
+              },
+              "type": "array"
+            },
+            "more": {
+              "description": "Whether entries after this page existed when it was read.",
+              "type": "boolean"
+            },
+            "next": {
+              "description": "Pass as after_seq to read the next page.",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "entries",
+            "next",
+            "more"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "read",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
     }
   ],
   "components": {
