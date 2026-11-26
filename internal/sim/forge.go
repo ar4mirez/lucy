@@ -50,6 +50,7 @@ type Forge struct {
 	rng    *rand.Rand
 	repos  map[string]*repo
 	merges []Merge
+	calls  int
 }
 
 type repo struct {
@@ -70,7 +71,8 @@ type pullRequest struct {
 	merged    bool
 	mergeSHA  string
 	loseReply bool
-	failMerge bool
+	failMerge int   // merges still to fail before they happen; -1 for every one
+	failErr   error // what they fail with
 }
 
 func newForge(clock *Clock, rng *rand.Rand) *Forge {
@@ -165,15 +167,19 @@ func (f *Forge) LoseMergeReply(name string, number int) error {
 	return err
 }
 
-// FailMerge is a fault: the next merge of the pull request fails with an error before it
-// happens, as when the forge answers 5xx or the connection drops on the way.
-func (f *Forge) FailMerge(name string, number int) error {
+// FailMerge is a fault: the next times merges of the pull request (every one when times is -1)
+// fail with mergeErr before they happen, as when the forge answers 5xx, or refuses with a 405
+// from branch protection or a 403 for a missing token scope.
+func (f *Forge) FailMerge(name string, number, times int, mergeErr error) error {
 	_, p, err := f.pr(name, number)
 	if err == nil {
-		p.failMerge = true
+		p.failMerge, p.failErr = times, mergeErr
 	}
 	return err
 }
+
+// MergeCalls returns how many times Merge was called.
+func (f *Forge) MergeCalls() int { return f.calls }
 
 // Merges returns every merge the forge performed, in order.
 func (f *Forge) Merges() []Merge { return append([]Merge(nil), f.merges...) }
@@ -232,15 +238,12 @@ func (f *Forge) PullRequest(_ context.Context, name string, number int) (tower.P
 	return out, nil
 }
 
-// errReplyLost is what a merge whose reply was lost returns; errMergeFailed is what a merge that
-// failed before it happened returns.
-var (
-	errReplyLost   = errors.New("forge: the connection closed before the merge's reply")
-	errMergeFailed = errors.New("forge: the merge failed: 502 bad gateway")
-)
+// errReplyLost is what a merge whose reply was lost returns.
+var errReplyLost = errors.New("forge: the connection closed before the merge's reply")
 
 // Merge implements tower.Forge: it merges only the head it is given, and only cleanly.
 func (f *Forge) Merge(_ context.Context, name string, number int, head string) (string, error) {
+	f.calls++
 	r, p, err := f.pr(name, number)
 	if err != nil {
 		return "", err
@@ -252,9 +255,11 @@ func (f *Forge) Merge(_ context.Context, name string, number int, head string) (
 		return "", tower.ErrHeadMoved
 	case p.conflict:
 		return "", tower.ErrConflict
-	case p.failMerge:
-		p.failMerge = false
-		return "", errMergeFailed
+	case p.failMerge != 0:
+		if p.failMerge > 0 {
+			p.failMerge--
+		}
+		return "", p.failErr
 	}
 	p.merged, p.mergeSHA = true, f.sha()
 	r.branches[p.base] = p.mergeSHA

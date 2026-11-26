@@ -61,6 +61,7 @@ const (
 	DefaultPatience     = 24 * time.Hour
 	DefaultMaxRestarts  = 1
 	maxTextBytes        = 1024 // a question or a reason kept in an event
+	maxMergeErrors      = 3    // consecutive errored merges of one clearance before the flight holds for the owner
 )
 
 // Config is what a Tower runs with. Store, Runtime, Forge and Clock are required; the store's
@@ -97,7 +98,7 @@ type Status struct {
 	Question   string // when asking
 	PR         int
 	Observed   PullRequest // the pull request's last recorded facts
-	Reason     string      // when grounded
+	Reason     string      // when grounded, or holding after its merges failed: the last merge error
 	Since      time.Time   // when the flight entered its state
 }
 
@@ -119,7 +120,9 @@ type flight struct {
 	approvals  []policy.Approval
 	cleared    string // the inputs the last clearance was decided on
 	decision   Cleared
-	unmerged   bool // the last event is a cleared decision whose merge did not reach the forge, or failed with an error
+	unmerged   bool      // the last event is a cleared decision whose merge did not reach the forge, or failed with an error
+	mergeErrs  int       // consecutive errored merges since the last clearance or observation
+	mergeAt    time.Time // when the last errored merge was recorded
 	reason     string
 }
 
@@ -377,10 +380,20 @@ func (t *Tower) watchPR(ctx context.Context, f *flight) error {
 	}
 	// A clearance whose merge never reached the forge (the daemon stopped in between) or failed
 	// with an error is merged again: the facts are unchanged, and Merge names the cleared head.
-	if f.unmerged && f.decision.HeadSHA == pr.HeadSHA {
+	// Each errored merge doubles the wait before the next; after maxMergeErrors the flight holds.
+	if f.unmerged && f.decision.HeadSHA == pr.HeadSHA && !t.cfg.Clock.Now().Before(f.retryAt(t.cfg.PollInterval)) {
 		return t.merge(ctx, f, f.decision)
 	}
 	return nil
+}
+
+// retryAt is the earliest time an errored merge may be tried again: poll, 2*poll, 4*poll, ...
+// after the last one, from recorded event times so a restart keeps the same schedule.
+func (f *flight) retryAt(poll time.Duration) time.Time {
+	if f.mergeErrs == 0 {
+		return time.Time{}
+	}
+	return f.mergeAt.Add(poll << (f.mergeErrs - 1))
 }
 
 // clearanceKey names the inputs a merge clearance is decided on: the observed facts and the
@@ -441,7 +454,7 @@ func (t *Tower) merge(ctx context.Context, f *flight, c Cleared) error {
 		case errors.Is(err, ErrHeadMoved):
 			reason = "head_moved"
 		}
-		return t.record(ctx, f, ActorDaemon, MergeFailed{PR: f.pr, HeadSHA: c.HeadSHA, Reason: reason})
+		return t.record(ctx, f, ActorDaemon, MergeFailed{PR: f.pr, HeadSHA: c.HeadSHA, Reason: reason, Detail: capText(err.Error())})
 	}
 	return t.record(ctx, f, ActorDaemon, Takeoff{PR: f.pr, HeadSHA: c.HeadSHA, MergeSHA: mergeSHA, DecisionSeq: c.DecisionSeq})
 }
@@ -550,6 +563,7 @@ func (f *flight) apply(e eventstore.Event, p eventstore.Payload) {
 		}
 	case PRObserved:
 		f.observed, f.observedAt = p.PullRequest, e.Time
+		f.mergeErrs, f.reason = 0, ""
 		enter(StateReview) // a holding clearance was for the old facts
 	case Approved:
 		f.approvals = append(f.approvals, p.Approval)
@@ -557,13 +571,25 @@ func (f *flight) apply(e eventstore.Event, p eventstore.Payload) {
 		f.decision = p
 		f.cleared = f.clearanceKey()
 		f.unmerged = p.Outcome == policy.Cleared
+		f.mergeErrs, f.reason = 0, ""
 		if p.Outcome == policy.Holding {
 			enter(StateHolding)
 		} else {
 			enter(StateReview)
 		}
 	case MergeFailed:
-		f.unmerged = p.Reason == mergeError
+		if p.Reason != mergeError {
+			f.mergeErrs = 0
+			enter(StateReview)
+			break
+		}
+		f.mergeErrs, f.mergeAt = f.mergeErrs+1, e.Time
+		if f.mergeErrs >= maxMergeErrors {
+			f.reason = p.Detail
+			enter(StateHolding)
+			break
+		}
+		f.unmerged = true
 		enter(StateReview)
 	case Takeoff:
 		enter(StateTakeoff)

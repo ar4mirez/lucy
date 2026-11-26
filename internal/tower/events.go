@@ -79,7 +79,8 @@ type Cleared struct {
 type MergeFailed struct {
 	PR      int    `json:"pr"`
 	HeadSHA string `json:"head_sha"`
-	Reason  string `json:"reason"` // conflict, head_moved or error
+	Reason  string `json:"reason"`           // conflict, head_moved or error
+	Detail  string `json:"detail,omitempty"` // the forge's error, untrusted text
 }
 
 // Takeoff records the merge.

@@ -415,7 +415,7 @@ func TestMergeErrorRetriedAfterRestart(t *testing.T) {
 		st := state(t, w, "f1")
 		if !armed && st.State == tower.StateReview && st.PR > 0 {
 			armed = true
-			return w.Forge.FailMerge("acme/web", st.PR)
+			return w.Forge.FailMerge("acme/web", st.PR, 1, errors.New("forge: 502 bad gateway"))
 		}
 		if !restarted && contains(types(t, w, "f1"), "merge_failed") {
 			restarted = true
@@ -431,6 +431,55 @@ func TestMergeErrorRetriedAfterRestart(t *testing.T) {
 	if m := w.Forge.Merges(); len(m) != 1 || m[0].HeadSHA != state(t, w, "f1").Observed.HeadSHA {
 		t.Fatalf("merges %+v", m)
 	}
+	checkInvariants(t, w)
+}
+
+// The forge refuses every merge for a reason the facts do not show. The Tower tries the cleared
+// head three times, backing off, then holds for the owner with the forge's error; patience does
+// not ground it, and a restart rebuilds the same hold.
+func TestMergeErrorHoldsAfterThreeTries(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t, 19)
+	dispatch(t, w, spec("f1", policy.PostureGreen))
+	const refusal = "forge: 405 base branch policy prohibits the merge"
+	armed := false
+	run(t, w, RunOptions{BeforeStep: func(_ context.Context, w *World, _ int) error {
+		if st := state(t, w, "f1"); !armed && st.State == tower.StateReview && st.PR > 0 {
+			armed = true
+			return w.Forge.FailMerge("acme/web", st.PR, -1, errors.New(refusal))
+		}
+		return nil
+	}})
+	wantState(t, w, "f1", tower.StateHolding, refusal)
+	failed := 0
+	for _, typ := range types(t, w, "f1") {
+		if typ == "merge_failed" {
+			failed++
+		}
+	}
+	if w.Forge.MergeCalls() != 3 || failed != 3 || len(w.Forge.Merges()) != 0 {
+		t.Fatalf("merge calls %d, merge_failed %d, merges %v", w.Forge.MergeCalls(), failed, w.Forge.Merges())
+	}
+	log, _ := w.Log(ctx)
+	var at []time.Time
+	for _, l := range log {
+		if l.Type == "task.merge_failed" {
+			at = append(at, l.Time)
+		}
+	}
+	if gap1, gap2 := at[1].Sub(at[0]), at[2].Sub(at[1]); gap1 < tower.DefaultPollInterval || gap2 < 2*tower.DefaultPollInterval {
+		t.Fatalf("retries after %s and %s", gap1, gap2)
+	}
+	if err := w.Restart(ctx); err != nil {
+		t.Fatal(err)
+	}
+	w.Clock.Advance(2 * tower.DefaultPatience)
+	run(t, w, RunOptions{})
+	wantState(t, w, "f1", tower.StateHolding, refusal)
+	if w.Forge.MergeCalls() != 3 {
+		t.Fatalf("merge calls %d after the hold", w.Forge.MergeCalls())
+	}
+	wantOutcomes(t, w, "cleared:merge.posture")
 	checkInvariants(t, w)
 }
 
