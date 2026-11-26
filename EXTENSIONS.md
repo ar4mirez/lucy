@@ -2,14 +2,15 @@
 id: extensions
 title: "lucy: configuration and extension specification"
 status: active
-version: 2
+version: 3
 owner: ar4mirez
-requirements: [LUCY-SPEC-001, LUCY-SPEC-003, LUCY-SPEC-005, LUCY-SPEC-006, LUCY-SPEC-016, LUCY-SBX-002, LUCY-VAL-010, LUCY-BRD-001]
+requirements: [LUCY-SPEC-001, LUCY-SPEC-002, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-006, LUCY-SPEC-016, LUCY-SBX-002, LUCY-VAL-010, LUCY-BRD-001]
 ---
 
 # lucy: configuration and extension specification
 
-Status: design. Only lucy's settings file, `config.toml` (section 3), is implemented so far.
+Status: design, partly built. lucy's settings file, `config.toml` (section 3), and loading and
+validating spec resources (section 2) are implemented; the provider seams are not yet.
 
 ## 1. Goals
 
@@ -21,8 +22,27 @@ Status: design. Only lucy's settings file, `config.toml` (section 3), is impleme
 ## 2. Configuration as spec resources
 
 Config uses the ai-sdlc resource envelope (`apiVersion`, `kind`, `metadata`, `spec`, `status`)
-(LUCY-SPEC-001). Files under `$XDG_CONFIG_HOME/lucy/` hold `spec`; lucy's database holds `status`
-and never writes back (LUCY-SPEC-003). `metadata.namespace` is the org.
+(LUCY-SPEC-001). Files under `$XDG_CONFIG_HOME/lucy/resources/` hold `spec`; lucy's database holds
+`status` and never writes back, so a file that carries `status` is refused (LUCY-SPEC-003).
+`metadata.namespace` is required and names the airspace (the org) (LUCY-SPEC-002). Every
+document is validated against its kind's JSON Schema (draft 2020-12): unknown fields are refused
+and defaults applied (LUCY-SPEC-004). `lucy config validate [<dir>]` runs the same checks as the
+daemon and prints each resource's `Valid` condition, with every violation:
+
+```text
+config: /home/ada/.config/lucy/resources
+resources[2]{source,kind,namespace,name,valid,reason}:
+  acme/airspace.yaml#1,Airspace,acme,acme,True,Admitted
+  acme/runway.yaml#1,Runway,acme,web,False,SchemaViolation
+conditions[1]{source,type,status,reason,message}:
+  acme/runway.yaml#1,Valid,False,SchemaViolation,/spec: additional properties 'colour' not allowed
+violations[1]{source,violation}:
+  acme/runway.yaml#1,/spec: additional properties 'colour' not allowed
+result: 1 of 2 refused
+```
+
+YAML is read strictly: anchors, aliases, merge keys and custom tags are refused, files are
+size-limited, and symlinks are not followed ([D11](docs/decisions/D11-spec-loading.md)).
 
 | Kind | apiVersion | Purpose |
 |---|---|---|
@@ -31,10 +51,11 @@ and never writes back (LUCY-SPEC-003). `metadata.namespace` is the org.
 | `QualityGate` | `ai-sdlc.io/v1alpha1` | Hard, soft and advisory gates; the owner is the only override |
 | `AutonomyPolicy` | `ai-sdlc.io/v1alpha1` | Merge postures as levels; demotion triggers |
 | `AdapterBinding` | `ai-sdlc.io/v1alpha1` | Provider seams (section 4) and the toolchain manifest |
-| `Org`, `Project`, `Account`, `Task`, `Session` | lucy's own group | lucy's model, with their own schemas (LUCY-SPEC-006) |
-| client-confirm route | lucy's own group | The client-confirm posture, which the spec schema cannot express |
+| `Airspace`, `Runway`, `Flight`, `Pilot` | `lucy/v1alpha1` | An org, a project, a task and a worker agent; schema stubs so far, filled in by later slices. An Airspace's namespace is its own name (LUCY-SPEC-006) |
+| `Account`, `Session` | `lucy/v1alpha1` | Planned: accounts and sessions, with their own schemas |
+| client-confirm route | `lucy/v1alpha1` | Planned: the client-confirm posture, which the spec schema cannot express |
 
-Example (illustrative, validated against the vendored schema once it lands):
+Example (a test checks it is valid config):
 
 ```yaml
 apiVersion: ai-sdlc.io/v1alpha1
@@ -44,13 +65,17 @@ spec:
   levels:
     - level: 2
       name: merge-on-green
+      permissions: { read: ["*"], write: [branch, pr, comment], execute: [test-suite] }
       guardrails: { requireApproval: security-critical-only, blockedPaths: ["**/.env*"] }
+      monitoring: real-time-notification
+  promotionCriteria: {}
   demotionTriggers:
-    - { trigger: red-merge-attempt, action: demote-to-0, cooldown: P4W }
+    - { trigger: red-merge-attempt, action: demote-to-0, cooldown: 4w }
 ```
 
 The spec is pinned to one commit and mapped through an internal model; moving to a newer spec is an
-explicit migration (LUCY-SPEC-005).
+explicit migration (LUCY-SPEC-005): until lucy ships one, a resource with another `ai-sdlc.io`
+version is refused with `UnsupportedAPIVersion`.
 
 ## 3. lucy's settings: config.toml
 

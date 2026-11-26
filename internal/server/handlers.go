@@ -3,12 +3,15 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"slices"
 
 	"github.com/ar4mirez/lucy/internal/api"
+	"github.com/ar4mirez/lucy/internal/audit"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/policy"
+	"github.com/ar4mirez/lucy/internal/spec"
 )
 
 // bindAll binds every API method to its implementation. New checks this matches the API table.
@@ -22,6 +25,8 @@ func (s *Server) bindAll() map[string]handler {
 		api.MethodShutdown:  bind(s.shutdown),
 		api.MethodEvaluate:  bind(s.evaluate),
 		api.MethodDecisions: bind(s.decisions),
+		api.MethodResources: bind(s.resources),
+		api.MethodAudit:     bind(s.verifyAudit),
 	}
 }
 
@@ -193,4 +198,73 @@ func decisionInfo(e eventstore.Event, r policy.DecisionRecord) api.PolicyDecisio
 		Role: string(r.Actor.Role), Kind: string(r.Kind), Org: r.Target.Org,
 		Project: r.Target.Project, Resource: r.Target.Resource,
 	}
+}
+
+// resources returns the loaded config resources with their status from the event store's
+// resource_status projection: config holds the spec, the store holds the status (LUCY-SPEC-003).
+func (s *Server) resources(ctx context.Context, p *api.ResourcesParams) (api.ResourcesPage, error) {
+	limit := p.Limit
+	if limit == 0 {
+		limit = api.DefaultEventsLimit
+	}
+	all, err := spec.Statuses(ctx, s.opts.Store)
+	if err != nil {
+		return api.ResourcesPage{}, err
+	}
+	page := api.ResourcesPage{Resources: []api.ResourceInfo{}, Refused: []api.RefusedInfo{}, Next: p.Offset}
+	if p.Offset == 0 {
+		problems, truncated, err := spec.LatestProblems(ctx, s.opts.Store)
+		if err != nil {
+			return api.ResourcesPage{}, err
+		}
+		for _, pr := range problems {
+			info := api.RefusedInfo{Source: pr.Source, Conditions: conditionInfos(pr.Conditions)}
+			if c, ok := (spec.Result{Conditions: pr.Conditions}).Condition(spec.ConditionValid); ok {
+				info.Reason = c.Reason
+			}
+			page.Refused = append(page.Refused, info)
+		}
+		page.RefusedTruncated = truncated
+	}
+	if p.Offset >= len(all) {
+		return page, nil
+	}
+	all = all[p.Offset:]
+	if len(all) > limit {
+		all, page.More = all[:limit], true
+	}
+	for _, r := range all {
+		page.Resources = append(page.Resources, api.ResourceInfo{
+			APIVersion: r.APIVersion, Kind: r.Kind, Namespace: r.Namespace, Name: r.Name,
+			Source: r.Source, SpecSHA256: r.SpecSHA256, Conditions: conditionInfos(r.Conditions),
+		})
+	}
+	page.Next = p.Offset + len(page.Resources)
+	return page, nil
+}
+
+func conditionInfos(conds []spec.Condition) []api.ConditionInfo {
+	out := []api.ConditionInfo{}
+	for _, c := range conds {
+		out = append(out, api.ConditionInfo{
+			Type: c.Type, Status: string(c.Status), Reason: c.Reason, Message: c.Message,
+			LastTransitionTime: c.LastTransitionTime,
+		})
+	}
+	return out
+}
+
+// verifyAudit checks the audit chain against the event log. A broken chain is a result, not an
+// error: the caller needs to know where it broke.
+func (s *Server) verifyAudit(ctx context.Context, _ *api.NoParams) (api.AuditReport, error) {
+	rep, err := audit.VerifyStore(ctx, s.opts.Store)
+	var ve *audit.VerifyError
+	switch {
+	case errors.As(err, &ve):
+		s.opts.Log.Warn("audit chain broken", "seq", ve.Seq, "reason", ve.Reason)
+		return api.AuditReport{Entries: ve.Index - 1, BrokenAtSeq: ve.Seq, Reason: ve.Reason}, nil
+	case err != nil:
+		return api.AuditReport{}, err
+	}
+	return api.AuditReport{Verified: true, Entries: rep.Entries, Head: rep.Head}, nil
 }

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ar4mirez/lucy/blob/main/internal/spec/schemas/lucy/v1alpha1/flight.schema.json",
+  "title": "lucy Flight",
+  "description": "A task: a goal, a delivery path, an autonomy level and an acceptance test. Stub: later slices add fields.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "$ref": "common.schema.json#/$defs/apiVersion" },
+    "kind": { "type": "string", "const": "Flight" },
+    "metadata": { "$ref": "common.schema.json#/$defs/metadata" },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "shape": { "type": "string", "enum": ["ship", "research"], "description": "ship lands a change; research returns knowledge and ships nothing." },
+        "goal": { "type": "string", "maxLength": 4096, "description": "What the flight is for." }
+      },
+      "additionalProperties": false
+    },
+    "status": { "$ref": "common.schema.json#/$defs/status" }
+  },
+  "additionalProperties": false
+}

@@ -30,6 +30,8 @@ const (
 	MethodShutdown  = "daemon.shutdown"
 	MethodEvaluate  = "policy.evaluate"
 	MethodDecisions = "policy.decisions"
+	MethodResources = "resources.list"
+	MethodAudit     = "audit.verify"
 )
 
 var methods = []Method{
@@ -41,6 +43,8 @@ var methods = []Method{
 	{MethodShutdown, "Stop the daemon gracefully after answering.", "command", ScopeAdmin, true, typeOf[NoParams](), typeOf[ShutdownResult]()},
 	{MethodEvaluate, "Ask the policy engine to decide an action; the decision is recorded before it is returned.", "command", ScopeDecide, true, typeOf[EvaluateParams](), typeOf[PolicyDecision]()},
 	{MethodDecisions, "Recorded policy decisions, oldest first.", "query", ScopeRead, false, typeOf[DecisionsParams](), typeOf[DecisionsPage]()},
+	{MethodResources, "The config resources the daemon loaded and their status, as conditions.", "query", ScopeRead, false, typeOf[ResourcesParams](), typeOf[ResourcesPage]()},
+	{MethodAudit, "Verify the audit hash chain against the event log.", "query", ScopeRead, false, typeOf[NoParams](), typeOf[AuditReport]()},
 }
 
 // NewParams returns a pointer to a new, zero params value for the method, ready for DecodeParams.
@@ -190,4 +194,57 @@ type DecisionsPage struct {
 	Decisions []PolicyDecision `json:"decisions" doc:"The decisions, oldest first."`
 	Next      int64            `json:"next" doc:"Pass as after to read the next page."`
 	More      bool             `json:"more" doc:"Whether decisions after this page existed when it was read."`
+}
+
+// ResourcesParams pages through the loaded resources.
+type ResourcesParams struct {
+	Offset int `json:"offset,omitempty" lucy:"min=0" doc:"Skip this many resources; 0 starts at the beginning."`
+	Limit  int `json:"limit,omitempty" lucy:"min=0,max=500" doc:"At most this many resources; 0 means 100."`
+}
+
+// ResourcesPage is one page of resources, ordered by namespace, kind and name. The first page also
+// carries the latest load's refusals that name no resource of their own.
+type ResourcesPage struct {
+	Resources        []ResourceInfo `json:"resources" doc:"The resources and their current status."`
+	Refused          []RefusedInfo  `json:"refused" doc:"Files and documents the latest load refused that name no resource: a parse error, a missing or invalid kind, name or namespace, or a duplicate. On the first page (offset 0) only; empty on the others."`
+	RefusedTruncated int            `json:"refused_truncated,omitempty" doc:"Refusals the latest load left out of refused, beyond the 32 it records."`
+	Next             int            `json:"next" doc:"Pass as offset to read the next page."`
+	More             bool           `json:"more" doc:"Whether resources after this page existed when it was read."`
+}
+
+// RefusedInfo is one refused file or document that has no identity to carry status.
+type RefusedInfo struct {
+	Source     string          `json:"source" doc:"The file it came from, relative to the config directory, and the document's position in it."`
+	Reason     string          `json:"reason" doc:"Why it was refused, the Valid condition's reason, for example MissingNamespace."`
+	Conditions []ConditionInfo `json:"conditions" doc:"Its status, as conditions."`
+}
+
+// ResourceInfo is one config resource and its observed state. The spec is in the config file;
+// the status is lucy's, recorded in its event store.
+type ResourceInfo struct {
+	APIVersion string          `json:"api_version" doc:"The apiVersion the file declares."`
+	Kind       string          `json:"kind" doc:"The resource kind."`
+	Namespace  string          `json:"namespace" doc:"The airspace (org) the resource belongs to."`
+	Name       string          `json:"name" doc:"The resource's name, unique per namespace and kind."`
+	Source     string          `json:"source" doc:"The file it came from, relative to the config directory, and the document's position in it."`
+	SpecSHA256 string          `json:"spec_sha256,omitempty" doc:"SHA-256 of the canonical spec, defaults applied; empty when the resource was refused."`
+	Conditions []ConditionInfo `json:"conditions" doc:"The resource's status, as conditions."`
+}
+
+// ConditionInfo is one aspect of a resource's observed state (spec section 6).
+type ConditionInfo struct {
+	Type               string `json:"type" doc:"The aspect, for example Valid."`
+	Status             string `json:"status" doc:"True, False or Unknown."`
+	Reason             string `json:"reason,omitempty" doc:"A machine-readable reason, for example SchemaViolation."`
+	Message            string `json:"message,omitempty" doc:"What a person needs to know."`
+	LastTransitionTime string `json:"last_transition_time,omitempty" doc:"When the status last changed, RFC 3339 UTC."`
+}
+
+// AuditReport answers audit.verify.
+type AuditReport struct {
+	Verified    bool   `json:"verified" doc:"True when every entry hashes correctly, links to the one before it and matches its event."`
+	Entries     int    `json:"entries" doc:"Entries verified; when broken, the entries before the break."`
+	Head        string `json:"head,omitempty" doc:"The last entry's hash, when verified."`
+	BrokenAtSeq int64  `json:"broken_at_seq,omitempty" doc:"The event whose entry failed, when broken."`
+	Reason      string `json:"reason,omitempty" doc:"Why the chain is broken, when it is."`
 }

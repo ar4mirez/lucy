@@ -2,7 +2,7 @@
 id: security-checklist
 title: Security checklist mapped to milestones
 status: active
-version: 7
+version: 8
 owner: ar4mirez
 requirements: [LUCY-EVT-005, LUCY-POL-001, LUCY-POL-004, LUCY-POL-006, LUCY-POL-007, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-008, LUCY-VIEW-006, LUCY-SEC-001, LUCY-SEC-002, LUCY-SEC-003, LUCY-SEC-004, LUCY-SEC-005, LUCY-SEC-006, LUCY-SEC-007, LUCY-SEC-008, LUCY-SEC-009, LUCY-SEC-010, LUCY-SEC-011, LUCY-SEC-012, LUCY-SEC-013]
 ---
@@ -45,7 +45,7 @@ changes as needing a decision, and every "later" becomes a backlog record.
 | 4.2 | Firewalls, basic WAF | berth's default-deny egress; loopback and tailnet binds; no WAF while nothing is public | m1 | LUCY-SBX-001 |
 | 4.3 | Shared-storage security | Per-org data dirs, encrypted per-org backups, offboard and erase | m2 | LUCY-SEC-011, LUCY-CRED-006 |
 | 4.4 | Container and Kubernetes security | Hardening is berth's; lucy checks image version and the no-secret rule | m1 | LUCY-CRED-005, LUCY-SEC-013 |
-| 4.5 | IaC and policy as code | Spec resources; AutonomyPolicy and QualityGate as validated policy | m0 | LUCY-SPEC-010 |
+| 4.5 | IaC and policy as code | Spec resources; AutonomyPolicy and QualityGate as validated policy | m0-m1 | LUCY-SPEC-004, LUCY-SPEC-010 |
 | 4.6 | Vulnerability management, patching | Vulnerability and dependency scans in CI; Dependabot; pinned toolchain; release SBOMs | m0 | LUCY-SEC-002, LUCY-REPO-008, LUCY-REL-008 |
 | 4.7 | Endpoint hardening | `lucy preflight --check` host baseline | m1 | LUCY-SEC-007 |
 | 4.8 | Secure configuration baselines | `lucy preflight` applies and `--check` checks a baseline profile | m1 | LUCY-OPS-001, LUCY-OPS-002 |
@@ -134,3 +134,20 @@ changes as needing a decision, and every "later" becomes a backlog record.
   local socket counts as the owner for `policy.evaluate`. This authorizes nothing by itself in
   m0: no executor acts on decisions yet, and `policy.evaluate` never creates approvals. Step-up
   authentication for privileged owner actions lands in m3 (LUCY-OWN-003).
+
+## Applied in m0 slice 6 (the spec model and audit chain)
+
+- **2.2 and 2.7, config is untrusted input:** spec resources are validated against embedded draft
+  2020-12 schemas with unknown fields refused and formats asserted (LUCY-SPEC-004). YAML is read as
+  a node tree that refuses anchors, aliases and merge keys, so no alias bomb can expand, and custom
+  and binary tags; files are capped at 1 MiB, 64 documents and 100,000 nodes, a tree at 1,024
+  files, 16 MiB and 8 levels; symlinks inside the config directory are not followed; `FuzzDecode` fuzzes the decoder.
+- **Supply chain:** no schema is fetched at run time; the vendored schemas are pinned to one spec
+  commit with their SHA-256s, and a test fails when one changes without its provenance entry.
+- **3.7, secrets:** recorded status keeps only the paths of schema violations, since a violation
+  message can quote a value from the file.
+- **1.4 and STRIDE 1-R, 2-T, tamper evidence:** every event, including every `api.command` and
+  `policy.decision`, is a hash-chained audit entry (RFC 8785 + SHA-256) written in its append
+  transaction; `lucy audit verify` detects a changed, missing or extra event or entry
+  (LUCY-SPEC-009). The chain lives in the same database, so it does not resist a full rewrite;
+  anchoring its head outside the database comes with signed flight logs (LUCY-VAL-007, m1).

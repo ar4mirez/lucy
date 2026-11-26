@@ -17,8 +17,8 @@
 // is on disk. The file is 0600 in a 0700 directory owned by the user, never inside a git work tree,
 // and lucy refuses to open it as root (LUCY-SEC-001).
 //
-// The audit hash chain (LUCY-SPEC-009) is not part of this package: it lands with the spec model as
-// a projector over the events this package writes.
+// The audit hash chain (LUCY-SPEC-009) is not part of this package: internal/audit is a projector
+// over the events this package writes.
 package eventstore
 
 import (

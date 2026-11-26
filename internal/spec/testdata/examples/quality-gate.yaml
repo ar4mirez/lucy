@@ -1,0 +1,55 @@
+apiVersion: ai-sdlc.io/v1alpha1
+kind: QualityGate
+metadata:
+  name: ai-code-standards
+spec:
+  scope:
+    repositories: ["org/service-*"]
+    authorTypes: ["ai-agent"]
+  gates:
+    - name: test-coverage
+      enforcement: soft-mandatory
+      rule:
+        metric: line-coverage
+        operator: ">="
+        threshold: 80
+      override:
+        requiredRole: engineering-manager
+        requiresJustification: true
+    - name: security-scan
+      enforcement: hard-mandatory
+      rule:
+        tool: semgrep
+        maxSeverity: medium
+        rulesets: ["owasp-top-10"]
+    - name: human-review
+      enforcement: hard-mandatory
+      rule:
+        minimumReviewers: 2
+        aiAuthorRequiresExtraReviewer: true
+    - name: documentation
+      enforcement: advisory
+      rule:
+        changedFilesRequireDocUpdate: true
+    - name: provenance
+      enforcement: hard-mandatory
+      rule:
+        requireAttribution: true
+        requireHumanReview: true
+  evaluation:
+    pipeline: pre-merge
+    timeout: 300s
+    retryPolicy:
+      maxRetries: 3
+      backoff: exponential
+status:
+  compliant: false
+  conditions:
+    - type: TestCoverage
+      status: "False"
+      reason: "3 PRs below threshold"
+      lastEvaluated: "2026-02-07T09:30:00Z"
+    - type: SecurityScan
+      status: "True"
+    - type: HumanReview
+      status: "True"

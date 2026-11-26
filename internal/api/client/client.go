@@ -171,3 +171,17 @@ func (c *Client) Decisions(ctx context.Context, p api.DecisionsParams) (api.Deci
 	err := c.Call(ctx, api.MethodDecisions, p, &page)
 	return page, err
 }
+
+// Resources calls resources.list.
+func (c *Client) Resources(ctx context.Context, p api.ResourcesParams) (api.ResourcesPage, error) {
+	var r api.ResourcesPage
+	err := c.Call(ctx, api.MethodResources, p, &r)
+	return r, err
+}
+
+// VerifyAudit calls audit.verify.
+func (c *Client) VerifyAudit(ctx context.Context) (api.AuditReport, error) {
+	var r api.AuditReport
+	err := c.Call(ctx, api.MethodAudit, nil, &r)
+	return r, err
+}

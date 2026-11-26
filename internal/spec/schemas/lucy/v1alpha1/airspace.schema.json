@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ar4mirez/lucy/blob/main/internal/spec/schemas/lucy/v1alpha1/airspace.schema.json",
+  "title": "lucy Airspace",
+  "description": "An org: one hard-isolated sandbox with its own credentials, postures and runways. Its name and namespace are the org's name. Stub: later slices add fields.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "$ref": "common.schema.json#/$defs/apiVersion" },
+    "kind": { "type": "string", "const": "Airspace" },
+    "metadata": { "$ref": "common.schema.json#/$defs/metadata" },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string", "maxLength": 128, "description": "How surfaces show the airspace." }
+      },
+      "additionalProperties": false
+    },
+    "status": { "$ref": "common.schema.json#/$defs/status" }
+  },
+  "additionalProperties": false
+}

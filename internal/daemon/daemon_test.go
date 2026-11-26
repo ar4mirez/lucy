@@ -12,8 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/api/client"
 	"github.com/ar4mirez/lucy/internal/eventstore"
+	"github.com/ar4mirez/lucy/internal/spec"
 )
 
 func shortTempDir(t *testing.T) string {
@@ -37,11 +39,12 @@ type running struct {
 
 func opts(dir string) Options {
 	return Options{
-		SocketPath:  filepath.Join(dir, "run", SocketFile),
-		DBPath:      filepath.Join(dir, "data", "lucy.db"),
-		SnapshotDir: filepath.Join(dir, "state"),
-		Version:     "9.9.9-test",
-		Log:         slog.New(slog.DiscardHandler),
+		SocketPath:   filepath.Join(dir, "run", SocketFile),
+		DBPath:       filepath.Join(dir, "data", "lucy.db"),
+		SnapshotDir:  filepath.Join(dir, "state"),
+		ResourcesDir: filepath.Join(dir, "resources"), // missing: no resources
+		Version:      "9.9.9-test",
+		Log:          slog.New(slog.DiscardHandler),
 	}
 }
 
@@ -136,7 +139,7 @@ func TestRunServesThenStopsThroughTheAPI(t *testing.T) {
 
 	// The log holds the lifecycle and the recorded command, in order.
 	reg, _ := Registry()
-	store, err := eventstore.Open(ctx, r.db, eventstore.Options{Registry: reg, SnapshotDir: o.SnapshotDir})
+	store, err := eventstore.Open(ctx, r.db, eventstore.Options{Registry: reg, Projectors: Projectors(), SnapshotDir: o.SnapshotDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,10 +152,10 @@ func TestRunServesThenStopsThroughTheAPI(t *testing.T) {
 	for _, e := range evs {
 		types = append(types, e.Type)
 	}
-	if got := strings.Join(types, ","); got != "daemon.started,api.command,daemon.stopped" {
+	if got := strings.Join(types, ","); got != "config.loaded,daemon.started,api.command,daemon.stopped" {
 		t.Errorf("events = %s", got)
 	}
-	stopped, err := eventstore.DecodeAs[Stopped](reg, evs[2])
+	stopped, err := eventstore.DecodeAs[Stopped](reg, evs[3])
 	if err != nil || stopped.Reason != "api" {
 		t.Errorf("daemon.stopped = %+v, %v", stopped, err)
 	}
@@ -248,5 +251,68 @@ func TestRuntimeDir(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", "")
 	if d, err := RuntimeDir(); err != nil || !strings.HasPrefix(filepath.Base(d), "lucy-") {
 		t.Errorf("fallback RuntimeDir = %q, %v", d, err)
+	}
+}
+
+// TestDaemonLoadsConfig checks the daemon admits config through the spec loader, records status
+// in the store (not in the files), and chains every event into the audit log.
+func TestDaemonLoadsConfig(t *testing.T) {
+	dir := shortTempDir(t)
+	o := opts(dir)
+	if err := os.MkdirAll(o.ResourcesDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"airspace.yaml": "apiVersion: lucy/v1alpha1\nkind: Airspace\nmetadata: { name: acme, namespace: acme }\nspec: {}\n",
+		"runway.yaml":   "apiVersion: lucy/v1alpha1\nkind: Runway\nmetadata: { name: web }\nspec: {}\n",
+	}
+	for name, doc := range files {
+		if err := os.WriteFile(filepath.Join(o.ResourcesDir, name), []byte(doc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := startDaemon(t, o)
+	c := client.New(r.sock, "test", "0")
+	defer c.Close()
+	ctx := context.Background()
+	page, err := c.Resources(ctx, api.ResourcesParams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The runway has no namespace, so it has no identity to carry status: only the airspace does,
+	// and the runway's refusal is listed with its source.
+	if len(page.Resources) != 1 || page.Resources[0].Kind != "Airspace" || page.Resources[0].Conditions[0].Status != "True" {
+		t.Fatalf("resources %+v", page)
+	}
+	if len(page.Refused) != 1 || page.RefusedTruncated != 0 {
+		t.Fatalf("refused %+v", page.Refused)
+	}
+	ref := page.Refused[0]
+	if ref.Source != "runway.yaml#1" || ref.Reason != spec.ReasonMissingNamespace || len(ref.Conditions) != 1 ||
+		ref.Conditions[0].Type != spec.ConditionValid || ref.Conditions[0].Status != "False" ||
+		ref.Conditions[0].Reason != spec.ReasonMissingNamespace || ref.Conditions[0].Message == "" || ref.Conditions[0].LastTransitionTime == "" {
+		t.Fatalf("runway refusal %+v", ref)
+	}
+	rep, err := c.VerifyAudit(ctx)
+	if err != nil || !rep.Verified || rep.Entries < 3 {
+		t.Fatalf("audit %+v %v", rep, err)
+	}
+	for name, doc := range files {
+		got, err := os.ReadFile(filepath.Join(o.ResourcesDir, name))
+		if err != nil || string(got) != doc {
+			t.Fatalf("%s changed: %q %v", name, got, err)
+		}
+	}
+}
+
+func TestDaemonRefusesUnreadableConfig(t *testing.T) {
+	dir := shortTempDir(t)
+	o := opts(dir)
+	o.ResourcesDir = filepath.Join(dir, "resources.yaml")
+	if err := os.WriteFile(o.ResourcesDir, []byte("a: 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("Run = %v, want a refusal", err)
 	}
 }

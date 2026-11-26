@@ -65,6 +65,14 @@ func TestDaemonAndClients(t *testing.T) {
 	db := filepath.Join(dir, "data", "lucy.db")
 	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config")) // no config.toml yet: the defaults
+	// One resource without a namespace: refused, and with no identity to carry status of its own.
+	resources := filepath.Join(dir, "config", "lucy", "resources")
+	if err := os.MkdirAll(resources, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(resources, "runway.yaml"), []byte("apiVersion: lucy/v1alpha1\nkind: Runway\nmetadata: { name: web }\nspec: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	signalContext = func() (context.Context, context.CancelFunc) { return ctx, cancel }
@@ -87,7 +95,7 @@ func TestDaemonAndClients(t *testing.T) {
 	}
 
 	code, out, errOut := lucy("status", "--socket", sock)
-	for _, want := range []string{"daemon: running\n", "version: 7.7.7-test\n", "api_version: 1\n", "event_head: 1\n", "socket: " + sock + "\n", "caller: local/uid/", "you: Owner\n"} {
+	for _, want := range []string{"daemon: running\n", "version: 7.7.7-test\n", "api_version: 1\n", "event_head: 2\n", "socket: " + sock + "\n", "caller: local/uid/", "you: Owner\n"} {
 		if code != 0 || !strings.Contains(out, want) {
 			t.Errorf("status: code %d, want %q in %q (stderr %q)", code, want, out, errOut)
 		}
@@ -111,13 +119,27 @@ func TestDaemonAndClients(t *testing.T) {
 		t.Errorf("status with a bad config: code %d stdout %q stderr %q", code, out, errOut)
 	}
 
+	// Loading config (none here) is recorded before the daemon starts serving.
 	code, out, _ = lucy("events", "--socket", sock)
-	if code != 0 || !strings.HasPrefix(out, "events[1]{seq,stream,stream_version,type,type_version,time,actor}:\n  1,daemon,1,daemon.started,1,") {
+	if code != 0 || !strings.HasPrefix(out, "events[2]{seq,stream,stream_version,type,type_version,time,actor}:\n  1,config,1,config.loaded,1,") ||
+		!strings.Contains(out, "\n  2,daemon,1,daemon.started,1,") {
 		t.Errorf("events: code %d stdout %q", code, out)
 	}
-	code, out, _ = lucy("events", "--socket", sock, "--after", "1")
-	if code != 0 || out != "events[0]: none after seq 1 (head 1)\n" {
+	code, out, _ = lucy("events", "--socket", sock, "--after", "2")
+	if code != 0 || out != "events[0]: none after seq 2 (head 2)\n" {
 		t.Errorf("empty events: code %d stdout %q", code, out)
+	}
+	code, out, _ = lucy("config", "status", "--socket", sock)
+	if code != 0 || strings.Contains(out, "loaded none") ||
+		!strings.HasPrefix(out, "resources[0]{namespace,kind,name,source,type,status,reason,since}:\nrefused[1]{source,type,status,reason,message,since}:\n  runway.yaml#1,Valid,False,MissingNamespace,") ||
+		!strings.Contains(out, "\nhelp: these name no resource") {
+		t.Errorf("config status: code %d stdout %q", code, out)
+	}
+
+	// The audit chain covers every event.
+	code, out, _ = lucy("audit", "verify", "--socket", sock)
+	if code != 0 || !strings.HasPrefix(out, "audit: verified\nentries: 2\nhead: ") {
+		t.Errorf("audit verify: code %d stdout %q", code, out)
 	}
 	code, _, errOut = lucy("events", "--socket", sock, "--limit", "501")
 	if code != 1 || !strings.Contains(errOut, "error: invalid params (invalid_params)") || !strings.Contains(errOut, "help: must be at most 500") {
