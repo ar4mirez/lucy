@@ -35,5 +35,5 @@ Changes since the last release. When a version is cut, its section moves to
   optimistic concurrency, projections updated in the same transaction and rebuildable by replay,
   consumer cursors with generation-bound acks, and forward-only checksummed migrations with a
   uniquely named pre-upgrade snapshot in the XDG state dir. The file is 0600 in a 0700 dir and
-  refused as root or inside a git repo; events refuse secret-looking field names and payloads over 64 KiB. Runbook:
-  [database](docs/runbooks/database.md).
+  refused as root or inside a git repo; events refuse secret-looking field names and payloads over
+  64 KiB. Runbook: [database](docs/runbooks/database.md).
