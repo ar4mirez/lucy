@@ -25,6 +25,12 @@ import (
 // path alongside the old one; additive changes (new methods, new optional result fields) keep it.
 const Version = 1
 
+// SchemaRevision is the minor part of the OpenRPC document's version (Version.SchemaRevision.0). It is
+// bumped whenever the schema changes within a major version: by additive changes once a release
+// serves v1 (ADR D10), and until then also by renamed values. Revision 1 renamed the policy
+// outcomes to cleared, denied and holding, and the human role and input source to owner.
+const SchemaRevision = 1
+
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"
 
@@ -39,7 +45,7 @@ const (
 	MaxJSONDepth    = 32       // nesting depth of a request
 )
 
-// Scope is a permission a caller holds. Every method needs one (design report 9d.2).
+// Scope is a permission a caller holds. Every method needs one (LUCY-API-004).
 type Scope string
 
 // Scopes. The local owner holds all of them; paired devices (m1) hold a subset.

@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "servers": [
     {
@@ -401,7 +401,7 @@
         },
         {
           "name": "inputs",
-          "description": "What the request is based on, each with its source. The caller's own request is added as a captain input.",
+          "description": "What the request is based on, each with its source. The caller's own request is added as an owner input.",
           "required": false,
           "schema": {
             "items": {
@@ -413,7 +413,7 @@
                   "type": "string"
                 },
                 "source": {
-                  "description": "captain, config, daemon, task, agent, tool_output, repo_content, issue, pr_body, pr_comment, web or email.",
+                  "description": "owner, config, daemon, task, agent, tool_output, repo_content, issue, pr_body, pr_comment, web or email.",
                   "maxLength": 32,
                   "minLength": 1,
                   "type": "string"
@@ -443,7 +443,7 @@
               "type": "string"
             },
             "approvals_used": {
-              "description": "The approval decisions an allow rested on, in the order the rules used them (a fixed-list captain approval before a relayed client confirmation); empty for a deny or require-captain.",
+              "description": "The approval decisions a clearance rested on, in the order the rules used them (a fixed-list owner approval before a relayed client confirmation); empty when denied or holding.",
               "items": {
                 "type": "string"
               },
@@ -466,7 +466,7 @@
               "type": "string"
             },
             "outcome": {
-              "description": "allow, deny or require-captain.",
+              "description": "cleared, denied or holding (waiting on the owner).",
               "type": "string"
             },
             "project": {
@@ -474,7 +474,7 @@
               "type": "string"
             },
             "reason": {
-              "description": "Why, in one line.",
+              "description": "Why, in one line. {owner} stands for the owner; render it with the configured display title.",
               "type": "string"
             },
             "resource": {
@@ -578,7 +578,7 @@
                     "type": "string"
                   },
                   "approvals_used": {
-                    "description": "The approval decisions an allow rested on, in the order the rules used them (a fixed-list captain approval before a relayed client confirmation); empty for a deny or require-captain.",
+                    "description": "The approval decisions a clearance rested on, in the order the rules used them (a fixed-list owner approval before a relayed client confirmation); empty when denied or holding.",
                     "items": {
                       "type": "string"
                     },
@@ -601,7 +601,7 @@
                     "type": "string"
                   },
                   "outcome": {
-                    "description": "allow, deny or require-captain.",
+                    "description": "cleared, denied or holding (waiting on the owner).",
                     "type": "string"
                   },
                   "project": {
@@ -609,7 +609,7 @@
                     "type": "string"
                   },
                   "reason": {
-                    "description": "Why, in one line.",
+                    "description": "Why, in one line. {owner} stands for the owner; render it with the configured display title.",
                     "type": "string"
                   },
                   "resource": {

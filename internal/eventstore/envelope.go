@@ -44,7 +44,7 @@ type Event struct {
 	TypeVersion     int             // version of the payload schema
 	EnvelopeVersion int             // version of this envelope
 	Time            time.Time       // when the store appended it, UTC
-	Actor           string          // who caused it, for example "captain" or "org/ar4mirez/supervisor"
+	Actor           string          // who caused it, for example "owner" or "org/ar4mirez/supervisor"
 	Payload         json.RawMessage // the payload as stored
 }
 

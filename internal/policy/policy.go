@@ -4,14 +4,14 @@
 //
 // The engine is pure and side-effect free: Evaluate reads only its arguments, never the clock,
 // the filesystem, the network or any global state, and it returns the same Decision for the same
-// input. The daemon gathers the facts a decision needs (the merge posture, check results, captain
+// input. The daemon gathers the facts a decision needs (the merge posture, check results, owner
 // approvals, symlink-resolved paths) from trusted sources and records every decision as an event
 // before anything acts on it (LUCY-POL-002, LUCY-POL-003).
 //
 // The rules (rules.go) are evaluated in a fixed order and the first one with an opinion decides.
-// The default is deny. A decision is allow, deny or require-captain, and always names the rule that
-// made it, a reason, and the rule set's version and SHA-256, so every decision can be traced to the
-// exact rules that produced it (LUCY-POL-006). Any evaluation error, including a panic, is a deny.
+// The default is to deny. A decision (a clearance) is cleared, denied or holding, and always names
+// the rule that made it, a reason, and the rule set's version and SHA-256, so every decision can be traced to the
+// exact rules that produced it (LUCY-POL-006). Any evaluation error, including a panic, is denied.
 //
 // Outside text never raises privileges (LUCY-POL-004): every input to a request carries the source
 // it came from, the engine (not the requester) decides whether that source is trusted, and a
@@ -29,11 +29,11 @@ type Role string
 
 // Roles.
 const (
-	RoleCaptain    Role = "captain"    // the human who decides; not bound to one org
+	RoleOwner      Role = "owner"      // the human who decides; not bound to one org
 	RoleDaemon     Role = "daemon"     // lucy's own deterministic code (pool GC, cleanup)
 	RoleSupervisor Role = "supervisor" // an org's supervisor session
 	RoleWorker     Role = "worker"     // a ship worker in one worktree
-	RoleScout      Role = "scout"      // research only; ships nothing
+	RoleResearcher Role = "researcher" // research only; ships nothing
 	RoleReviewer   Role = "reviewer"   // an independent reviewer
 	RoleGateway    Role = "gateway"    // an org's credential gateway process
 )
@@ -59,8 +59,8 @@ type Source string
 
 // Sources. trust.go says which are trusted.
 const (
-	SourceCaptain     Source = "captain"      // the captain's own words, through the API
-	SourceConfig      Source = "config"       // the captain's spec resources on disk
+	SourceOwner       Source = "owner"        // the owner's own words, through the API
+	SourceConfig      Source = "config"       // the owner's spec resources on disk
 	SourceDaemon      Source = "daemon"       // lucy's own deterministic code
 	SourceTask        Source = "task"         // a task record made through the API
 	SourceAgent       Source = "agent"        // a model's own output
@@ -77,7 +77,7 @@ const (
 type Actor struct {
 	ID   string `json:"id"`            // the actor's name in the event log
 	Role Role   `json:"role"`          // set by the daemon from the authenticated caller
-	Org  string `json:"org,omitempty"` // the actor's org; empty for the captain and the daemon
+	Org  string `json:"org,omitempty"` // the actor's org; empty for the owner and the daemon
 }
 
 // Target is what an action is on.
@@ -105,11 +105,11 @@ type Request struct {
 // Posture is a project's merge posture (LUCY-POL-005, AGENTIC.md section 4).
 type Posture string
 
-// Postures. The empty posture is the default, captain.
+// Postures. The empty posture is the default, owner.
 const (
-	PostureCaptain Posture = "captain" // merges only on the captain's explicit word
-	PostureGreen   Posture = "green"   // green PRs merge, except anything on the fixed list
-	PostureClient  Posture = "client"  // merges only after the client confirms and the captain relays it
+	PostureOwner  Posture = "owner"  // merges only on the owner's explicit word
+	PostureGreen  Posture = "green"  // green PRs merge, except anything on the fixed list
+	PostureClient Posture = "client" // merges only after the client confirms and the owner relays it
 )
 
 // CheckState summarizes a pull request's required checks, read from the forge's API.
@@ -122,7 +122,7 @@ const (
 	ChecksPending CheckState = "pending"
 )
 
-// Exception is a category on the fixed list that always needs the captain (AGENTIC.md section 4).
+// Exception is a category on the fixed list that always needs the owner (AGENTIC.md section 4).
 type Exception string
 
 // Fixed-list categories.
@@ -143,8 +143,8 @@ type ApprovalBy string
 
 // Approval kinds.
 const (
-	ByCaptain          ApprovalBy = "captain"            // the captain approved this action
-	ByClientViaCaptain ApprovalBy = "client_via_captain" // the captain relayed the client's confirmation
+	ByOwner          ApprovalBy = "owner"            // the owner approved this action
+	ByClientViaOwner ApprovalBy = "client_via_owner" // the owner relayed the client's confirmation
 )
 
 // Approval is a decision record made through the API that approves one exact action under the
@@ -183,20 +183,20 @@ type Outcome string
 
 // Outcomes.
 const (
-	Allow          Outcome = "allow"
-	Deny           Outcome = "deny"
-	RequireCaptain Outcome = "require-captain" // allowed only once the captain approves this exact action
+	Cleared Outcome = "cleared" // the action may go ahead
+	Denied  Outcome = "denied"  // the action must not happen
+	Holding Outcome = "holding" // waiting on the owner: cleared only once the owner approves this exact action
 )
 
 // Decision is the engine's answer.
 type Decision struct {
 	Outcome        Outcome  `json:"outcome"`
 	Rule           string   `json:"rule"`   // the rule that decided
-	Reason         string   `json:"reason"` // why, in one line
+	Reason         string   `json:"reason"` // why, in one line; {owner} stands for the owner, rendered with the display title
 	RuleSetVersion int      `json:"ruleset_version"`
 	RuleSetSHA256  string   `json:"ruleset_sha256"`
 	ActionSHA256   string   `json:"action_sha256"`            // ActionDigest(request)
 	FactsSHA256    string   `json:"facts_sha256"`             // FactsDigest(request kind, facts)
 	Tainted        bool     `json:"tainted"`                  // some input came from an untrusted source
-	ApprovalsUsed  []string `json:"approvals_used,omitempty"` // the approval decisions an allow rested on, in the order the rules used them
+	ApprovalsUsed  []string `json:"approvals_used,omitempty"` // the approval decisions a clearance rested on, in the order the rules used them
 }

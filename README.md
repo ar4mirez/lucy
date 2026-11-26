@@ -2,7 +2,7 @@
 id: readme
 title: lucy
 status: active
-version: 4
+version: 5
 owner: ar4mirez
 requirements: [LUCY-REPO-001, LUCY-REPO-006]
 ---
@@ -21,7 +21,7 @@ deterministic policy decides what actually happens.
 event store, the first part of the typed API with `lucy daemon` and the design docs; the binary
 prints its version and help, updates itself, and runs a daemon that `lucy status` and `lucy events`
 talk to over a local socket. Nothing here runs agents yet. See the
-[m0 brief](docs/milestones/m0.md) for what lands next and [PRODUCT.md](PRODUCT.md) for the plan.
+[m0 plan](docs/milestones/m0.md) for what lands next and [PRODUCT.md](PRODUCT.md) for the plan.
 
 ## Install
 
@@ -44,7 +44,7 @@ To build from source: `mise install && mise run build`, then `./bin/lucy --versi
 lucy will not:
 
 - emulate a terminal: herdr, tmux, `lucy attach` or a browser widget display sessions;
-- serve a team: it serves one captain, so there is no SSO or multi-user tenancy;
+- serve a team: it serves one owner, so there is no SSO or multi-user tenancy;
 - let a model authorize anything privileged: merges, destructive operations, credential use and
   cross-org access are decided by deterministic policy;
 - absorb worker tools such as gh-axi or Lavish, or the berth sandbox: they stay separate, managed
@@ -59,6 +59,7 @@ lucy will not:
 | [PRODUCT.md](PRODUCT.md) | What lucy is, who it serves, goals and the milestone plan |
 | [TECH.md](TECH.md) | Architecture, state layout, dependencies, repository layout |
 | [AGENTIC.md](AGENTIC.md) | How agents work in and with lucy, and the documentation rules |
+| [GLOSSARY.md](GLOSSARY.md) | lucy's terms (Owner, Tower, Flight, Clearance, ...) and the configurable owner title |
 | [EXTENSIONS.md](EXTENSIONS.md) | Provider seams, config resources and extension points |
 | [SECURITY.md](SECURITY.md) | Reporting vulnerabilities, and the security model |
 | [AGENTS.md](AGENTS.md) | Instructions for coding agents working in this repository |
@@ -67,7 +68,7 @@ lucy will not:
 
 ## Acknowledgements
 
-lucy is a from-scratch rewrite that takes the learnings of tools it replaces. It is informed by:
+lucy is a from-scratch rewrite that takes the learnings of the tools it replaces. It is informed by:
 
 - [firstmate](https://github.com/kunchenguid/firstmate), [treehouse](https://github.com/kunchenguid/treehouse)
   and [no-mistakes](https://github.com/kunchenguid/no-mistakes) by Kun Chen (MIT): the supervision

@@ -11,11 +11,11 @@ import (
 )
 
 var (
-	captain    = Actor{ID: "captain", Role: RoleCaptain}
+	owner      = Actor{ID: "owner", Role: RoleOwner}
 	daemon     = Actor{ID: "daemon", Role: RoleDaemon}
 	supervisor = Actor{ID: "org/acme/supervisor", Role: RoleSupervisor, Org: "acme"}
 	worker     = Actor{ID: "org/acme/worker/7", Role: RoleWorker, Org: "acme"}
-	scout      = Actor{ID: "org/acme/scout/2", Role: RoleScout, Org: "acme"}
+	researcher = Actor{ID: "org/acme/researcher/2", Role: RoleResearcher, Org: "acme"}
 	reviewer   = Actor{ID: "org/acme/reviewer/1", Role: RoleReviewer, Org: "acme"}
 	gateway    = Actor{ID: "org/acme/gateway", Role: RoleGateway, Org: "acme"}
 
@@ -34,7 +34,7 @@ const head = "1111111111111111111111111111111111111111"
 
 func greenFacts() Facts { return Facts{Posture: PostureGreen, Checks: ChecksGreen, HeadSHA: head} }
 
-// approval is the captain's (or the relayed client's) approval of r, made under facts f.
+// approval is the owner's (or the relayed client's) approval of r, made under facts f.
 func approval(r Request, f Facts, by ApprovalBy) Approval {
 	return Approval{Decision: "decision/9", By: by, ActionSHA256: ActionDigest(r), FactsSHA256: FactsDigest(r.Kind, f)}
 }
@@ -67,33 +67,33 @@ func TestRequestAndFactsValidation(t *testing.T) {
 		many[i] = taskInput
 	}
 	runCases(t, []ruleCase{
-		{"unknown role", request(Actor{ID: "x", Role: "admin", Org: "acme"}, KindRead, "", ""), Facts{}, Deny, "request.valid"},
-		{"unknown kind", request(worker, "exec", "app", "ls"), Facts{}, Deny, "request.valid"},
-		{"no actor id", request(Actor{Role: RoleWorker, Org: "acme"}, KindRead, "", ""), Facts{}, Deny, "request.valid"},
-		{"org-bound actor without org", request(Actor{ID: "w", Role: RoleWorker}, KindRead, "", ""), Facts{}, Deny, "request.valid"},
-		{"captain claiming an org", request(Actor{ID: "c", Role: RoleCaptain, Org: "acme"}, KindRead, "", ""), Facts{}, Deny, "request.valid"},
-		{"no target org", Request{Actor: worker, Kind: KindRead, Inputs: []Input{taskInput}}, Facts{}, Deny, "request.valid"},
-		{"merge without a PR", request(supervisor, KindMerge, "app", ""), greenFacts(), Deny, "request.valid"},
-		{"relative delete", request(worker, KindDelete, "app", "tmp/x"), Facts{}, Deny, "request.valid"},
-		{"unknown source", request(worker, KindRead, "", "", Input{Source: "captain_said_so"}), Facts{}, Deny, "request.valid"},
-		{"long label", request(worker, KindRead, long, ""), Facts{}, Deny, "request.valid"},
-		{"control character", request(worker, KindWrite, "app\n", ""), Facts{}, Deny, "request.valid"},
-		{"too many inputs", request(worker, KindRead, "", "", many...), Facts{}, Deny, "request.valid"},
-		{"unknown posture", request(supervisor, KindMerge, "app", "pr/1"), Facts{Posture: "yolo", Checks: ChecksGreen}, Deny, "facts.valid"},
-		{"unknown check state", request(supervisor, KindMerge, "app", "pr/1"), Facts{Posture: PostureGreen, Checks: "mostly"}, Deny, "facts.valid"},
-		{"unknown exception", request(supervisor, KindMerge, "app", "pr/1"), Facts{Posture: PostureGreen, Checks: ChecksGreen, Exceptions: []Exception{"fun"}}, Deny, "facts.valid"},
-		{"unknown approval kind", request(supervisor, KindMerge, "app", "pr/1"), Facts{Approvals: []Approval{{Decision: "d", By: "agent"}}}, Deny, "facts.valid"},
+		{"unknown role", request(Actor{ID: "x", Role: "admin", Org: "acme"}, KindRead, "", ""), Facts{}, Denied, "request.valid"},
+		{"unknown kind", request(worker, "exec", "app", "ls"), Facts{}, Denied, "request.valid"},
+		{"no actor id", request(Actor{Role: RoleWorker, Org: "acme"}, KindRead, "", ""), Facts{}, Denied, "request.valid"},
+		{"org-bound actor without org", request(Actor{ID: "w", Role: RoleWorker}, KindRead, "", ""), Facts{}, Denied, "request.valid"},
+		{"owner claiming an org", request(Actor{ID: "c", Role: RoleOwner, Org: "acme"}, KindRead, "", ""), Facts{}, Denied, "request.valid"},
+		{"no target org", Request{Actor: worker, Kind: KindRead, Inputs: []Input{taskInput}}, Facts{}, Denied, "request.valid"},
+		{"merge without a PR", request(supervisor, KindMerge, "app", ""), greenFacts(), Denied, "request.valid"},
+		{"relative delete", request(worker, KindDelete, "app", "tmp/x"), Facts{}, Denied, "request.valid"},
+		{"unknown source", request(worker, KindRead, "", "", Input{Source: "owner_said_so"}), Facts{}, Denied, "request.valid"},
+		{"long label", request(worker, KindRead, long, ""), Facts{}, Denied, "request.valid"},
+		{"control character", request(worker, KindWrite, "app\n", ""), Facts{}, Denied, "request.valid"},
+		{"too many inputs", request(worker, KindRead, "", "", many...), Facts{}, Denied, "request.valid"},
+		{"unknown posture", request(supervisor, KindMerge, "app", "pr/1"), Facts{Posture: "yolo", Checks: ChecksGreen}, Denied, "facts.valid"},
+		{"unknown check state", request(supervisor, KindMerge, "app", "pr/1"), Facts{Posture: PostureGreen, Checks: "mostly"}, Denied, "facts.valid"},
+		{"unknown exception", request(supervisor, KindMerge, "app", "pr/1"), Facts{Posture: PostureGreen, Checks: ChecksGreen, Exceptions: []Exception{"fun"}}, Denied, "facts.valid"},
+		{"unknown approval kind", request(supervisor, KindMerge, "app", "pr/1"), Facts{Approvals: []Approval{{Decision: "d", By: "agent"}}}, Denied, "facts.valid"},
 	})
 }
 
 func TestOrgIsolation(t *testing.T) {
 	other := Request{Actor: worker, Kind: KindRead, Target: Target{Org: "globex"}, Inputs: []Input{taskInput}}
 	runCases(t, []ruleCase{
-		{"worker reads another org", other, Facts{}, Deny, "org.isolation"},
-		{"supervisor merges in another org", Request{Actor: supervisor, Kind: KindMerge, Target: Target{Org: "globex", Project: "app", Resource: "pr/1"}, Inputs: []Input{taskInput}}, greenFacts(), Deny, "org.isolation"},
-		{"gateway uses another org's credential", Request{Actor: gateway, Kind: KindCredentialUse, Target: Target{Org: "globex", Resource: "github"}, Inputs: []Input{taskInput}}, Facts{}, Deny, "org.isolation"},
-		{"worker reads its own org", request(worker, KindRead, "app", ""), Facts{}, Allow, "read.in-org"},
-		{"captain reads any org", Request{Actor: captain, Kind: KindRead, Target: Target{Org: "globex"}}, Facts{}, Allow, "read.in-org"},
+		{"worker reads another org", other, Facts{}, Denied, "org.isolation"},
+		{"supervisor merges in another org", Request{Actor: supervisor, Kind: KindMerge, Target: Target{Org: "globex", Project: "app", Resource: "pr/1"}, Inputs: []Input{taskInput}}, greenFacts(), Denied, "org.isolation"},
+		{"gateway uses another org's credential", Request{Actor: gateway, Kind: KindCredentialUse, Target: Target{Org: "globex", Resource: "github"}, Inputs: []Input{taskInput}}, Facts{}, Denied, "org.isolation"},
+		{"worker reads its own org", request(worker, KindRead, "app", ""), Facts{}, Cleared, "read.in-org"},
+		{"owner reads any org", Request{Actor: owner, Kind: KindRead, Target: Target{Org: "globex"}}, Facts{}, Cleared, "read.in-org"},
 	})
 }
 
@@ -101,17 +101,17 @@ func TestTaint(t *testing.T) {
 	merge := func(inputs ...Input) Request { return request(supervisor, KindMerge, "app", "pr/3", inputs...) }
 	untrusted := []Input{issueInput, {Source: SourcePRComment, Ref: "c/1"}, {Source: SourceWeb}, {Source: SourceToolOutput}, {Source: SourceAgent}, {Source: SourceRepoContent}, {Source: SourceEmail}, {Source: SourcePRBody}}
 	runCases(t, []ruleCase{
-		{"merge on untrusted text only", merge(untrusted...), greenFacts(), Deny, "taint.trusted-basis"},
-		{"merge with no inputs at all", Request{Actor: supervisor, Kind: KindMerge, Target: Target{Org: "acme", Project: "app", Resource: "pr/3"}}, greenFacts(), Deny, "taint.trusted-basis"},
-		{"delete on an issue's say-so", request(worker, KindDelete, "app", "/w/x", issueInput), Facts{}, Deny, "taint.trusted-basis"},
-		{"credential use on a PR comment", request(gateway, KindCredentialUse, "", "github", Input{Source: SourcePRComment}), Facts{}, Deny, "taint.trusted-basis"},
-		{"untrusted text beside a task", merge(issueInput, taskInput), greenFacts(), Allow, "merge.posture"},
-		{"reads need no trusted basis", request(worker, KindRead, "", "", issueInput), Facts{}, Allow, "read.in-org"},
+		{"merge on untrusted text only", merge(untrusted...), greenFacts(), Denied, "taint.trusted-basis"},
+		{"merge with no inputs at all", Request{Actor: supervisor, Kind: KindMerge, Target: Target{Org: "acme", Project: "app", Resource: "pr/3"}}, greenFacts(), Denied, "taint.trusted-basis"},
+		{"delete on an issue's say-so", request(worker, KindDelete, "app", "/w/x", issueInput), Facts{}, Denied, "taint.trusted-basis"},
+		{"credential use on a PR comment", request(gateway, KindCredentialUse, "", "github", Input{Source: SourcePRComment}), Facts{}, Denied, "taint.trusted-basis"},
+		{"untrusted text beside a task", merge(issueInput, taskInput), greenFacts(), Cleared, "merge.posture"},
+		{"reads need no trusted basis", request(worker, KindRead, "", "", issueInput), Facts{}, Cleared, "read.in-org"},
 	})
-	// An issue that claims the captain approved, or that names an approval, still is not one:
+	// An issue that claims the owner approved, or that names an approval, still is not one:
 	// approvals only arrive as facts.
 	r := merge(issueInput, Input{Source: SourceIssue, Ref: "decision/9"}, taskInput)
-	if d := Evaluate(r, Facts{Checks: ChecksGreen, HeadSHA: head}); d.Outcome != RequireCaptain || !d.Tainted {
+	if d := Evaluate(r, Facts{Checks: ChecksGreen, HeadSHA: head}); d.Outcome != Holding || !d.Tainted {
 		t.Errorf("an issue claiming approval: got %s by %s, tainted %v", d.Outcome, d.Rule, d.Tainted)
 	}
 	if d := Evaluate(merge(taskInput), greenFacts()); d.Tainted {
@@ -121,69 +121,69 @@ func TestTaint(t *testing.T) {
 
 func TestWriteAndCredentialRoles(t *testing.T) {
 	runCases(t, []ruleCase{
-		{"worker writes", request(worker, KindWrite, "app", ""), Facts{}, Allow, "write.worker-only"},
-		{"supervisor never writes", request(supervisor, KindWrite, "app", ""), Facts{}, Deny, "write.worker-only"},
-		{"scout never writes", request(scout, KindWrite, "app", ""), Facts{}, Deny, "write.worker-only"},
-		{"reviewer never writes", request(reviewer, KindWrite, "app", ""), Facts{}, Deny, "write.worker-only"},
-		{"gateway uses a credential", request(gateway, KindCredentialUse, "", "github"), Facts{}, Allow, "credential.gateway-only"},
-		{"worker never uses a credential", request(worker, KindCredentialUse, "", "github"), Facts{}, Deny, "credential.gateway-only"},
-		{"supervisor never uses a credential", request(supervisor, KindCredentialUse, "", "github"), Facts{}, Deny, "credential.gateway-only"},
-		{"captain approval does not let an agent use one", request(worker, KindCredentialUse, "", "github"),
-			Facts{Approvals: []Approval{approval(request(worker, KindCredentialUse, "", "github"), Facts{}, ByCaptain)}}, Deny, "credential.gateway-only"},
+		{"worker writes", request(worker, KindWrite, "app", ""), Facts{}, Cleared, "write.worker-only"},
+		{"supervisor never writes", request(supervisor, KindWrite, "app", ""), Facts{}, Denied, "write.worker-only"},
+		{"researcher never writes", request(researcher, KindWrite, "app", ""), Facts{}, Denied, "write.worker-only"},
+		{"reviewer never writes", request(reviewer, KindWrite, "app", ""), Facts{}, Denied, "write.worker-only"},
+		{"gateway uses a credential", request(gateway, KindCredentialUse, "", "github"), Facts{}, Cleared, "credential.gateway-only"},
+		{"worker never uses a credential", request(worker, KindCredentialUse, "", "github"), Facts{}, Denied, "credential.gateway-only"},
+		{"supervisor never uses a credential", request(supervisor, KindCredentialUse, "", "github"), Facts{}, Denied, "credential.gateway-only"},
+		{"owner approval does not let an agent use one", request(worker, KindCredentialUse, "", "github"),
+			Facts{Approvals: []Approval{approval(request(worker, KindCredentialUse, "", "github"), Facts{}, ByOwner)}}, Denied, "credential.gateway-only"},
 	})
 }
 
 func TestMerge(t *testing.T) {
 	r := request(supervisor, KindMerge, "app", "pr/3")
-	ok := approval(r, greenFacts(), ByCaptain)
-	relay := approval(r, greenFacts(), ByClientViaCaptain)
-	other := approval(request(supervisor, KindMerge, "app", "pr/4"), greenFacts(), ByCaptain)
+	ok := approval(r, greenFacts(), ByOwner)
+	relay := approval(r, greenFacts(), ByClientViaOwner)
+	other := approval(request(supervisor, KindMerge, "app", "pr/4"), greenFacts(), ByOwner)
 	with := func(f Facts, mut func(*Facts)) Facts { mut(&f); return f }
 	runCases(t, []ruleCase{
-		{"worker never merges", request(worker, KindMerge, "app", "pr/3"), greenFacts(), Deny, "merge.role"},
-		{"scout never merges", request(scout, KindMerge, "app", "pr/3"), greenFacts(), Deny, "merge.role"},
-		{"reviewer never merges", request(reviewer, KindMerge, "app", "pr/3"), greenFacts(), Deny, "merge.role"},
-		{"red checks", r, with(greenFacts(), func(f *Facts) { f.Checks = ChecksRed }), Deny, "merge.checks-green"},
-		{"pending checks", r, with(greenFacts(), func(f *Facts) { f.Checks = ChecksPending }), Deny, "merge.checks-green"},
-		{"unknown checks", r, Facts{Posture: PostureGreen, HeadSHA: head}, Deny, "merge.checks-green"},
-		{"red even with the captain's approval", r, Facts{Posture: PostureCaptain, Checks: ChecksRed, HeadSHA: head, Approvals: []Approval{ok}}, Deny, "merge.checks-green"},
-		{"a required check unreported", r, with(greenFacts(), func(f *Facts) { f.RequiredUnreported = true }), Deny, "merge.checks-green"},
-		{"unintended closing refs", r, with(greenFacts(), func(f *Facts) { f.UnintendedClosing = true }), Deny, "merge.closing-refs"},
-		{"fixed list under green", r, with(greenFacts(), func(f *Facts) { f.Exceptions = []Exception{ExceptionSecurity} }), RequireCaptain, "merge.fixed-list"},
+		{"worker never merges", request(worker, KindMerge, "app", "pr/3"), greenFacts(), Denied, "merge.role"},
+		{"researcher never merges", request(researcher, KindMerge, "app", "pr/3"), greenFacts(), Denied, "merge.role"},
+		{"reviewer never merges", request(reviewer, KindMerge, "app", "pr/3"), greenFacts(), Denied, "merge.role"},
+		{"red checks", r, with(greenFacts(), func(f *Facts) { f.Checks = ChecksRed }), Denied, "merge.checks-green"},
+		{"pending checks", r, with(greenFacts(), func(f *Facts) { f.Checks = ChecksPending }), Denied, "merge.checks-green"},
+		{"unknown checks", r, Facts{Posture: PostureGreen, HeadSHA: head}, Denied, "merge.checks-green"},
+		{"red even with the owner's approval", r, Facts{Posture: PostureOwner, Checks: ChecksRed, HeadSHA: head, Approvals: []Approval{ok}}, Denied, "merge.checks-green"},
+		{"a required check unreported", r, with(greenFacts(), func(f *Facts) { f.RequiredUnreported = true }), Denied, "merge.checks-green"},
+		{"unintended closing refs", r, with(greenFacts(), func(f *Facts) { f.UnintendedClosing = true }), Denied, "merge.closing-refs"},
+		{"fixed list under green", r, with(greenFacts(), func(f *Facts) { f.Exceptions = []Exception{ExceptionSecurity} }), Holding, "merge.fixed-list"},
 		{"fixed list approved", r, with(greenFacts(), func(f *Facts) {
 			f.Exceptions, f.Approvals = []Exception{ExceptionDataMigration}, []Approval{ok}
-		}), Allow, "merge.posture"},
-		{"fixed list approved, captain posture", r, Facts{Posture: PostureCaptain, Checks: ChecksGreen, HeadSHA: head,
-			Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{ok}}, Allow, "merge.posture"},
-		{"fixed list, client posture: the captain's approval alone is not enough", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head,
-			Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{ok}}, RequireCaptain, "merge.posture"},
+		}), Cleared, "merge.posture"},
+		{"fixed list approved, owner posture", r, Facts{Posture: PostureOwner, Checks: ChecksGreen, HeadSHA: head,
+			Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{ok}}, Cleared, "merge.posture"},
+		{"fixed list, client posture: the owner's approval alone is not enough", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head,
+			Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{ok}}, Holding, "merge.posture"},
 		{"fixed list, client posture: the relay alone is not enough", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head,
-			Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{relay}}, RequireCaptain, "merge.fixed-list"},
+			Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{relay}}, Holding, "merge.fixed-list"},
 		{"fixed list, client posture: both", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head,
-			Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{ok, relay}}, Allow, "merge.posture"},
-		{"head commit unknown", r, Facts{Posture: PostureGreen, Checks: ChecksGreen}, Deny, "merge.head-known"},
-		{"a new push invalidates the captain's approval", r, Facts{Posture: PostureCaptain, Checks: ChecksGreen,
-			HeadSHA: "2222222222222222222222222222222222222222", Approvals: []Approval{ok}}, Deny, "merge.posture"},
+			Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{ok, relay}}, Cleared, "merge.posture"},
+		{"head commit unknown", r, Facts{Posture: PostureGreen, Checks: ChecksGreen}, Denied, "merge.head-known"},
+		{"a new push invalidates the owner's approval", r, Facts{Posture: PostureOwner, Checks: ChecksGreen,
+			HeadSHA: "2222222222222222222222222222222222222222", Approvals: []Approval{ok}}, Denied, "merge.posture"},
 		{"a new push invalidates a fixed-list approval", r, Facts{Posture: PostureGreen, Checks: ChecksGreen,
-			HeadSHA: "2222222222222222222222222222222222222222", Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{ok}}, Deny, "merge.fixed-list"},
+			HeadSHA: "2222222222222222222222222222222222222222", Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{ok}}, Denied, "merge.fixed-list"},
 		{"a moved base invalidates the relay", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head, BaseSHA: "3333",
-			Approvals: []Approval{relay}}, Deny, "merge.posture"},
+			Approvals: []Approval{relay}}, Denied, "merge.posture"},
 		{"fixed list: a client relay is not enough", r, with(greenFacts(), func(f *Facts) {
 			f.Exceptions, f.Approvals = []Exception{ExceptionBilling}, []Approval{relay}
-		}), RequireCaptain, "merge.fixed-list"},
-		{"green posture merges", r, greenFacts(), Allow, "merge.posture"},
-		{"default posture is captain", r, Facts{Checks: ChecksGreen, HeadSHA: head}, RequireCaptain, "merge.posture"},
-		{"captain posture", r, Facts{Posture: PostureCaptain, Checks: ChecksGreen, HeadSHA: head}, RequireCaptain, "merge.posture"},
-		{"captain posture approved", r, Facts{Posture: PostureCaptain, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{ok}}, Allow, "merge.posture"},
-		{"approval for another PR", r, Facts{Posture: PostureCaptain, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{other}}, RequireCaptain, "merge.posture"},
-		{"approval without a decision id", r, Facts{Posture: PostureCaptain, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{{By: ByCaptain, ActionSHA256: ActionDigest(r)}}}, RequireCaptain, "merge.posture"},
-		{"client posture", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head}, RequireCaptain, "merge.posture"},
-		{"client posture: captain approval is not the client's", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{ok}}, RequireCaptain, "merge.posture"},
-		{"client posture relayed", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{relay}}, Allow, "merge.posture"},
-		{"the daemon merges under green", request(daemon, KindMerge, "app", "pr/3"), greenFacts(), Allow, "merge.posture"},
+		}), Holding, "merge.fixed-list"},
+		{"green posture merges", r, greenFacts(), Cleared, "merge.posture"},
+		{"default posture is owner", r, Facts{Checks: ChecksGreen, HeadSHA: head}, Holding, "merge.posture"},
+		{"owner posture", r, Facts{Posture: PostureOwner, Checks: ChecksGreen, HeadSHA: head}, Holding, "merge.posture"},
+		{"owner posture approved", r, Facts{Posture: PostureOwner, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{ok}}, Cleared, "merge.posture"},
+		{"approval for another PR", r, Facts{Posture: PostureOwner, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{other}}, Holding, "merge.posture"},
+		{"approval without a decision id", r, Facts{Posture: PostureOwner, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{{By: ByOwner, ActionSHA256: ActionDigest(r)}}}, Holding, "merge.posture"},
+		{"client posture", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head}, Holding, "merge.posture"},
+		{"client posture: owner approval is not the client's", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{ok}}, Holding, "merge.posture"},
+		{"client posture relayed", r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{relay}}, Cleared, "merge.posture"},
+		{"the daemon merges under green", request(daemon, KindMerge, "app", "pr/3"), greenFacts(), Cleared, "merge.posture"},
 	})
-	// A stale approval is denied with the reason, not silently escalated.
-	moved := Facts{Posture: PostureCaptain, Checks: ChecksGreen, HeadSHA: "2222222222222222222222222222222222222222", Approvals: []Approval{ok}}
+	// A stale approval is denied with the reason, not silently held.
+	moved := Facts{Posture: PostureOwner, Checks: ChecksGreen, HeadSHA: "2222222222222222222222222222222222222222", Approvals: []Approval{ok}}
 	if d := Evaluate(r, moved); !strings.Contains(d.Reason, "the approval was for different facts") || len(d.ApprovalsUsed) != 0 {
 		t.Errorf("stale approval: %+v", d)
 	}
@@ -192,29 +192,29 @@ func TestMerge(t *testing.T) {
 	if d := Evaluate(r, fixed); !reflect.DeepEqual(d.ApprovalsUsed, []string{ok.Decision}) {
 		t.Errorf("fixed-list approvals used = %q, want [%q]", d.ApprovalsUsed, ok.Decision)
 	}
-	// A client-posture fixed-list merge records both approvals, the captain's first.
+	// A client-posture fixed-list merge records both approvals, the owner's first.
 	capt, rel := ok, relay
 	capt.Decision, rel.Decision = "d/1", "d/2"
 	both := Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head, Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{rel, capt}}
-	if d := Evaluate(r, both); d.Outcome != Allow || !reflect.DeepEqual(d.ApprovalsUsed, []string{"d/1", "d/2"}) {
+	if d := Evaluate(r, both); d.Outcome != Cleared || !reflect.DeepEqual(d.ApprovalsUsed, []string{"d/1", "d/2"}) {
 		t.Errorf("client fixed-list merge: %s, approvals used %q", d.Outcome, d.ApprovalsUsed)
 	}
-	// The captain posture's one approval, used by both rules, is recorded once.
-	captFixed := Facts{Posture: PostureCaptain, Checks: ChecksGreen, HeadSHA: head, Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{capt}}
-	if d := Evaluate(r, captFixed); d.Outcome != Allow || !reflect.DeepEqual(d.ApprovalsUsed, []string{"d/1"}) {
-		t.Errorf("captain fixed-list merge: %s, approvals used %q", d.Outcome, d.ApprovalsUsed)
+	// The owner posture's one approval, used by both rules, is recorded once.
+	captFixed := Facts{Posture: PostureOwner, Checks: ChecksGreen, HeadSHA: head, Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{capt}}
+	if d := Evaluate(r, captFixed); d.Outcome != Cleared || !reflect.DeepEqual(d.ApprovalsUsed, []string{"d/1"}) {
+		t.Errorf("owner fixed-list merge: %s, approvals used %q", d.Outcome, d.ApprovalsUsed)
 	}
-	// An escalation records none, even when an earlier rule accepted an approval.
-	if d := Evaluate(r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head, Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{capt}}); d.Outcome != RequireCaptain || len(d.ApprovalsUsed) != 0 {
-		t.Errorf("escalation: %s, approvals used %q", d.Outcome, d.ApprovalsUsed)
+	// A hold records none, even when an earlier rule accepted an approval.
+	if d := Evaluate(r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head, Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{capt}}); d.Outcome != Holding || len(d.ApprovalsUsed) != 0 {
+		t.Errorf("hold: %s, approvals used %q", d.Outcome, d.ApprovalsUsed)
 	}
 	// The approval used is recorded on the decision.
 	if d := Evaluate(r, Facts{Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{other, ok}}); !reflect.DeepEqual(d.ApprovalsUsed, []string{ok.Decision}) {
 		t.Errorf("approvals used = %q, want [%q]", d.ApprovalsUsed, ok.Decision)
 	}
-	// An approval binds to the actor too: the captain approving the supervisor's merge does not
+	// An approval binds to the actor too: the owner approving the supervisor's merge does not
 	// approve the daemon's.
-	if d := Evaluate(request(daemon, KindMerge, "app", "pr/3"), Facts{Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{ok}}); d.Outcome != RequireCaptain {
+	if d := Evaluate(request(daemon, KindMerge, "app", "pr/3"), Facts{Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{ok}}); d.Outcome != Holding {
 		t.Errorf("another actor reused an approval: %s by %s", d.Outcome, d.Rule)
 	}
 }
@@ -224,28 +224,28 @@ func TestDestructiveGit(t *testing.T) {
 	for _, k := range gitDestructive {
 		r := request(worker, k, "app", "feature/x")
 		runCases(t, []ruleCase{
-			{string(k) + " by a worker", r, facts, RequireCaptain, "git.captain"},
-			{string(k) + " approved", r, Facts{DefaultBranch: "main", Approvals: []Approval{approval(r, facts, ByCaptain)}}, Allow, "git.captain"},
-			{string(k) + " approved under another default branch", r, Facts{DefaultBranch: "trunk", Approvals: []Approval{approval(r, facts, ByCaptain)}}, Deny, "git.captain"},
-			{string(k) + " of the default branch", request(worker, k, "app", "main"), facts, Deny, "git.default-branch"},
-			{string(k) + " of refs/heads/main", request(worker, k, "app", "refs/heads/main"), facts, Deny, "git.default-branch"},
+			{string(k) + " by a worker", r, facts, Holding, "git.owner"},
+			{string(k) + " approved", r, Facts{DefaultBranch: "main", Approvals: []Approval{approval(r, facts, ByOwner)}}, Cleared, "git.owner"},
+			{string(k) + " approved under another default branch", r, Facts{DefaultBranch: "trunk", Approvals: []Approval{approval(r, facts, ByOwner)}}, Denied, "git.owner"},
+			{string(k) + " of the default branch", request(worker, k, "app", "main"), facts, Denied, "git.default-branch"},
+			{string(k) + " of refs/heads/main", request(worker, k, "app", "refs/heads/main"), facts, Denied, "git.default-branch"},
 			{string(k) + " of the default branch, approved", request(worker, k, "app", "main"),
-				Facts{DefaultBranch: "main", Approvals: []Approval{approval(request(worker, k, "app", "main"), facts, ByCaptain)}}, Deny, "git.default-branch"},
-			{string(k) + " with the default branch unknown", r, Facts{}, Deny, "git.default-branch"},
-			{string(k) + " of Main", request(worker, k, "app", "Main"), facts, Deny, "git.default-branch"},
-			{string(k) + " of refs/heads/MAIN", request(worker, k, "app", "refs/heads/MAIN"), facts, Deny, "git.default-branch"},
-			{string(k) + " of heads/main", request(worker, k, "app", "heads/main"), facts, Deny, "request.valid"},
-			{string(k) + " of refs/heads//main", request(worker, k, "app", "refs/heads//main"), facts, Deny, "request.valid"},
-			{string(k) + " of +main", request(worker, k, "app", "+main"), facts, Deny, "request.valid"},
-			{string(k) + " of HEAD:main", request(worker, k, "app", "HEAD:main"), facts, Deny, "request.valid"},
-			{string(k) + " of x:refs/heads/main", request(worker, k, "app", "x:refs/heads/main"), facts, Deny, "request.valid"},
-			{string(k) + " of main with a trailing space", request(worker, k, "app", "main "), facts, Deny, "request.valid"},
-			{string(k) + " of an option", request(worker, k, "app", "-f"), facts, Deny, "request.valid"},
-			{string(k) + " of refs/tags/v1", request(worker, k, "app", "refs/tags/v1"), facts, Deny, "request.valid"},
-			{string(k) + " of a dot-dot name", request(worker, k, "app", "feature/../main"), facts, Deny, "request.valid"},
-			{string(k) + " by a supervisor", request(supervisor, k, "app", "feature/x"), facts, Deny, "destructive.role"},
-			{string(k) + " by a scout", request(scout, k, "app", "feature/x"), facts, Deny, "destructive.role"},
-			{string(k) + " by the gateway", request(gateway, k, "app", "feature/x"), facts, Deny, "destructive.role"},
+				Facts{DefaultBranch: "main", Approvals: []Approval{approval(request(worker, k, "app", "main"), facts, ByOwner)}}, Denied, "git.default-branch"},
+			{string(k) + " with the default branch unknown", r, Facts{}, Denied, "git.default-branch"},
+			{string(k) + " of Main", request(worker, k, "app", "Main"), facts, Denied, "git.default-branch"},
+			{string(k) + " of refs/heads/MAIN", request(worker, k, "app", "refs/heads/MAIN"), facts, Denied, "git.default-branch"},
+			{string(k) + " of heads/main", request(worker, k, "app", "heads/main"), facts, Denied, "request.valid"},
+			{string(k) + " of refs/heads//main", request(worker, k, "app", "refs/heads//main"), facts, Denied, "request.valid"},
+			{string(k) + " of +main", request(worker, k, "app", "+main"), facts, Denied, "request.valid"},
+			{string(k) + " of HEAD:main", request(worker, k, "app", "HEAD:main"), facts, Denied, "request.valid"},
+			{string(k) + " of x:refs/heads/main", request(worker, k, "app", "x:refs/heads/main"), facts, Denied, "request.valid"},
+			{string(k) + " of main with a trailing space", request(worker, k, "app", "main "), facts, Denied, "request.valid"},
+			{string(k) + " of an option", request(worker, k, "app", "-f"), facts, Denied, "request.valid"},
+			{string(k) + " of refs/tags/v1", request(worker, k, "app", "refs/tags/v1"), facts, Denied, "request.valid"},
+			{string(k) + " of a dot-dot name", request(worker, k, "app", "feature/../main"), facts, Denied, "request.valid"},
+			{string(k) + " by a supervisor", request(supervisor, k, "app", "feature/x"), facts, Denied, "destructive.role"},
+			{string(k) + " by a researcher", request(researcher, k, "app", "feature/x"), facts, Denied, "destructive.role"},
+			{string(k) + " by the gateway", request(gateway, k, "app", "feature/x"), facts, Denied, "destructive.role"},
 		})
 	}
 }
@@ -287,32 +287,32 @@ func TestDelete(t *testing.T) {
 	inProj := filepath.Join(proj, "build")
 	viaLink := filepath.Join(proj, "h")
 	del := func(a Actor, p string) Request { return request(a, KindDelete, "app", p) }
-	approved := func(r Request, f Facts) Facts { f.Approvals = []Approval{approval(r, f, ByCaptain)}; return f }
+	approved := func(r Request, f Facts) Facts { f.Approvals = []Approval{approval(r, f, ByOwner)}; return f }
 	runCases(t, []ruleCase{
-		{"worker deletes in scratch", del(worker, inScratch), facts(inScratch), Allow, "delete.scratch"},
-		{"daemon deletes in scratch", del(daemon, inScratch), facts(inScratch), Allow, "delete.scratch"},
-		{"worker deletes in the project", del(worker, inProj), facts(inProj), RequireCaptain, "delete.project"},
-		{"approved project delete", del(worker, inProj), approved(del(worker, inProj), facts(inProj)), Allow, "delete.project"},
+		{"worker deletes in scratch", del(worker, inScratch), facts(inScratch), Cleared, "delete.scratch"},
+		{"daemon deletes in scratch", del(daemon, inScratch), facts(inScratch), Cleared, "delete.scratch"},
+		{"worker deletes in the project", del(worker, inProj), facts(inProj), Holding, "delete.project"},
+		{"approved project delete", del(worker, inProj), approved(del(worker, inProj), facts(inProj)), Cleared, "delete.project"},
 		{"a changed resolved path invalidates the approval", del(worker, inProj), func() Facts {
 			f := facts(filepath.Join(proj, "other"))
 			f.ResolvedPath = filepath.Join(proj, "other")
 			f.Approvals = approved(del(worker, inProj), facts(inProj)).Approvals
 			return f
-		}(), Deny, "delete.project"},
-		{"the root /", del(worker, "/"), Facts{Home: home, ResolvedPath: "/"}, Deny, "delete.path-guard"},
-		{"home", del(worker, home), facts(home), Deny, "delete.path-guard"},
-		{"a link to home", del(worker, viaLink), facts(viaLink), Deny, "delete.path-guard"},
-		{"a link to home, approved", del(worker, viaLink), approved(del(worker, viaLink), facts(viaLink)), Deny, "delete.path-guard"},
-		{"a link to home, trailing slash", del(worker, viaLink+"/"), facts(viaLink + "/"), Deny, "delete.path-guard"},
-		{"the project root itself", del(worker, proj), facts(proj), Deny, "delete.path-guard"},
-		{"the scratch root itself", del(worker, scratch), facts(scratch), Deny, "delete.path-guard"},
-		{"dot-dot out of the project", del(worker, proj+"/build/../.."), facts(proj + "/build/../.."), Deny, "delete.path-guard"},
-		{"unresolved path", del(worker, inScratch), Facts{Home: home}, Deny, "delete.path-guard"},
-		{"no roots declared", del(worker, inScratch), Facts{Home: home, ResolvedPath: inScratch}, Deny, "delete.path-guard"},
-		{"no home known", del(worker, inScratch), Facts{Roots: facts(inScratch).Roots, ResolvedPath: inScratch}, Deny, "delete.path-guard"},
-		{"the resolved path decides the root", del(worker, inProj), facts(inScratch), Allow, "delete.scratch"},
-		{"supervisor deletes", del(supervisor, inScratch), facts(inScratch), Deny, "destructive.role"},
-		{"scout deletes", del(scout, inScratch), facts(inScratch), Deny, "destructive.role"},
+		}(), Denied, "delete.project"},
+		{"the root /", del(worker, "/"), Facts{Home: home, ResolvedPath: "/"}, Denied, "delete.path-guard"},
+		{"home", del(worker, home), facts(home), Denied, "delete.path-guard"},
+		{"a link to home", del(worker, viaLink), facts(viaLink), Denied, "delete.path-guard"},
+		{"a link to home, approved", del(worker, viaLink), approved(del(worker, viaLink), facts(viaLink)), Denied, "delete.path-guard"},
+		{"a link to home, trailing slash", del(worker, viaLink+"/"), facts(viaLink + "/"), Denied, "delete.path-guard"},
+		{"the project root itself", del(worker, proj), facts(proj), Denied, "delete.path-guard"},
+		{"the scratch root itself", del(worker, scratch), facts(scratch), Denied, "delete.path-guard"},
+		{"dot-dot out of the project", del(worker, proj+"/build/../.."), facts(proj + "/build/../.."), Denied, "delete.path-guard"},
+		{"unresolved path", del(worker, inScratch), Facts{Home: home}, Denied, "delete.path-guard"},
+		{"no roots declared", del(worker, inScratch), Facts{Home: home, ResolvedPath: inScratch}, Denied, "delete.path-guard"},
+		{"no home known", del(worker, inScratch), Facts{Roots: facts(inScratch).Roots, ResolvedPath: inScratch}, Denied, "delete.path-guard"},
+		{"the resolved path decides the root", del(worker, inProj), facts(inScratch), Cleared, "delete.scratch"},
+		{"supervisor deletes", del(supervisor, inScratch), facts(inScratch), Denied, "destructive.role"},
+		{"researcher deletes", del(researcher, inScratch), facts(inScratch), Denied, "destructive.role"},
 	})
 }
 
@@ -322,7 +322,7 @@ func TestDefaultDeny(t *testing.T) {
 	if last.ID != "default.deny" {
 		t.Fatalf("the last rule is %q, want default.deny", last.ID)
 	}
-	if v, ok := last.eval(&evalCtx{}); !ok || v.outcome != Deny {
+	if v, ok := last.eval(&evalCtx{}); !ok || v.outcome != Denied {
 		t.Fatal("default.deny does not deny")
 	}
 }
@@ -334,5 +334,47 @@ func TestRuleIDsUnique(t *testing.T) {
 			t.Errorf("rule %q is duplicated or undocumented", r.ID)
 		}
 		seen[r.ID] = true
+	}
+}
+
+// namesOwnerByID reports whether s calls the human "owner" in prose rather than {owner}; "the owner
+// posture" names the posture, not the person.
+func namesOwnerByID(s string) bool {
+	s = strings.NewReplacer("{owner}", "", "owner posture", "").Replace(s)
+	return strings.Contains(s, "owner")
+}
+
+// Reasons and summaries that name the human say {owner}, so a surface can render the configured
+// display title in its place.
+func TestReasonsNameTheOwnerByPlaceholder(t *testing.T) {
+	for _, r := range CurrentRuleSet().Rules {
+		if namesOwnerByID(r.Summary) {
+			t.Errorf("rule %s summary names the owner by role id: %q", r.ID, r.Summary)
+		}
+	}
+	f := Facts{Posture: PostureOwner, Checks: ChecksGreen, HeadSHA: head, DefaultBranch: "main"}
+	merge := request(daemon, KindMerge, "app", "pr/12")
+	client := Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head}
+	cases := map[string]struct {
+		req   Request
+		facts Facts
+		want  string
+	}{
+		"owner posture holds":   {merge, f, "the owner posture merges only on the word of the {owner}"},
+		"owner posture cleared": {merge, Facts{Posture: PostureOwner, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{approval(merge, f, ByOwner)}}, "the {owner} approved this merge"},
+		"client posture holds":  {merge, client, "the client posture merges only after the {owner} relays the client's confirmation"},
+		"the owner writes":      {request(owner, KindWrite, "app", ""), Facts{}, "the {owner} never writes to a project"},
+		"the owner uses a key":  {request(owner, KindCredentialUse, "", "deploy-key"), Facts{}, "the {owner} may not use credentials; only the gateway does"},
+		"an owner in an org":    {request(Actor{ID: "owner", Role: RoleOwner, Org: "acme"}, KindRead, "", ""), Facts{}, "invalid request: the {owner} belongs to no org"},
+		"a worker merges":       {request(worker, KindMerge, "app", "pr/12"), f, "a worker never merges"},
+	}
+	for name, c := range cases {
+		d := Evaluate(c.req, c.facts)
+		if d.Reason != c.want {
+			t.Errorf("%s: reason %q, want %q", name, d.Reason, c.want)
+		}
+		if namesOwnerByID(d.Reason) {
+			t.Errorf("%s: reason names the owner by role id: %q", name, d.Reason)
+		}
 	}
 }

@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 3
+version: 4
 owner: ar4mirez
 requirements: [LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003]
 ---
@@ -28,7 +28,7 @@ API method. **Needs:** lucy installed; for changes, the repository and `mise ins
 
 ```sh
 lucy daemon                 # foreground; logs to stderr; Ctrl-C or SIGTERM stops it
-lucy status                 # version, API version, uptime, event head, refused connections
+lucy status                 # version, API version, uptime, event head, refused connections, you:
 lucy events --after 0       # the log, oldest first; --limit up to 500
 lucy daemon stop            # graceful stop through the API (recorded as an api.command event)
 ```
@@ -40,10 +40,10 @@ or `error`); every mutating call as `api.command`, appended before the call runs
 
 The daemon decides privileged actions through its policy engine and records every decision as a
 `policy.decision` event in the `policy` stream before returning it. `policy.evaluate` asks for a
-decision as the caller (on the socket, the captain); `policy.decisions` pages the recorded ones,
-each naming its outcome (`allow`, `deny`, `require-captain`), rule, reason and rule set version and
+decision as the caller (on the socket, the owner); `policy.decisions` pages the recorded ones,
+each naming its outcome (`cleared`, `denied`, or `holding` when it waits on the owner), rule, reason and rule set version and
 SHA-256. Facts (posture, checks, approvals, declared roots) come only from the daemon; until the spec
-model and the forge pollers supply them, merges and deletes are denied or escalated.
+model and the forge pollers supply them, merges and deletes are denied or holding.
 
 A decision with rule `engine.error` means the engine failed safe: the facts could not be gathered or
 a rule failed. The daemon's log has the cause. A changed rule set is a new `ruleset_version`; compare

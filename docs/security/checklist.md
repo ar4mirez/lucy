@@ -2,16 +2,16 @@
 id: security-checklist
 title: Security checklist mapped to milestones
 status: active
-version: 6
+version: 7
 owner: ar4mirez
 requirements: [LUCY-EVT-005, LUCY-POL-001, LUCY-POL-004, LUCY-POL-006, LUCY-POL-007, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-008, LUCY-VIEW-006, LUCY-SEC-001, LUCY-SEC-002, LUCY-SEC-003, LUCY-SEC-004, LUCY-SEC-005, LUCY-SEC-006, LUCY-SEC-007, LUCY-SEC-008, LUCY-SEC-009, LUCY-SEC-010, LUCY-SEC-011, LUCY-SEC-012, LUCY-SEC-013]
 ---
 
 # Security checklist mapped to milestones
 
-The captain's security checklist has 38 items in five areas, applied not all at once but whenever
+The owner's security checklist has 38 items in five areas, applied not all at once but whenever
 an item makes sense. Each item has an owner in lucy and a milestone.
-**Totals: 10 in m0, 22 in m1, 4 in m2, 1 in m3, 1 later** (SSO: lucy serves one captain).
+**Totals: 10 in m0, 22 in m1, 4 in m2, 1 in m3, 1 later** (SSO: lucy serves one owner).
 
 lucy applies the checklist to the work it runs as well: the readiness check asks the relevant
 questions for security-touching tasks, review applies it as a lens, policy treats security-sensitive
@@ -20,7 +20,7 @@ changes as needing a decision, and every "later" becomes a backlog record.
 | # | Item | lucy's answer | Lands | Requirements |
 |---|---|---|---|---|
 | 1.1 | Networking (TCP, UDP, HTTP, TLS, DNS) | TLS on remote calls; loopback and tailnet only; egress limited by berth and the gateway | m1 | LUCY-VIEW-006, LUCY-CRED-004 |
-| 1.2 | OS internals and permissions | Runs as the user; files 0600, dirs 0700; doctor checks modes | m0 | LUCY-SEC-001 |
+| 1.2 | OS internals and permissions | Runs as the user; files 0600, dirs 0700; `lucy preflight --check` checks modes | m0 | LUCY-SEC-001 |
 | 1.3 | Processes and privilege boundaries | Control plane, runner and gateway are separate processes with separate credentials | m1 | LUCY-RUN-001, LUCY-CRED-001 |
 | 1.4 | Crypto basics | Hash-chained audit, sigstore signatures, encrypted vault, TLS | m0 | LUCY-SPEC-009, LUCY-REL-002 |
 | 1.5 | Threat modeling and trust boundaries | STRIDE model, re-checked at every milestone exit | m0 | LUCY-SEC-003 |
@@ -33,9 +33,9 @@ changes as needing a decision, and every "later" becomes a backlog record.
 | 2.5 | Broken access control, object-level authorization | Every call checks scope and the object's org and task | m0 | LUCY-API-004 |
 | 2.6 | Rate limits and abuse prevention | Per-device limits, pairing-attempt limits, token budgets | m1 | LUCY-SEC-006 |
 | 2.7 | File uploads and deserialization | Strict typed JSON only; attachments inert and size-limited | m0 | LUCY-API-006 |
-| 3.1 | MFA design | Device pairing, passkeys, step-up for privileged remote actions | m3 | LUCY-CAP-003 |
+| 3.1 | MFA design | Device pairing, passkeys, step-up for privileged remote actions | m3 | LUCY-OWN-003 |
 | 3.2 | Credential hygiene, stuffing | No passwords; hashed device secrets; one-time codes; stray-token scans | m1 | LUCY-CRED-005 |
-| 3.3 | SSO flows | None: one captain (a non-goal); revisit only for a team | later | - |
+| 3.3 | SSO flows | None: one owner (a non-goal); revisit only for a team | later | - |
 | 3.4 | RBAC and ABAC | Device scopes plus policy attributes (org, task, action, risk, posture) | m0 | LUCY-POL-001 |
 | 3.5 | Workload identity, machine-to-machine auth | Runner and session capability tokens; SPIFFE-style with Agent Substrate | m1 | LUCY-CRED-003 |
 | 3.6 | Least privilege, time-bound access | Stage CredentialPolicy; expiring capability tokens | m1 | LUCY-SPEC-014, LUCY-CRED-003 |
@@ -47,8 +47,8 @@ changes as needing a decision, and every "later" becomes a backlog record.
 | 4.4 | Container and Kubernetes security | Hardening is berth's; lucy checks image version and the no-secret rule | m1 | LUCY-CRED-005, LUCY-SEC-013 |
 | 4.5 | IaC and policy as code | Spec resources; AutonomyPolicy and QualityGate as validated policy | m0 | LUCY-SPEC-010 |
 | 4.6 | Vulnerability management, patching | Vulnerability and dependency scans in CI; Dependabot; pinned toolchain; release SBOMs | m0 | LUCY-SEC-002, LUCY-REPO-008, LUCY-REL-008 |
-| 4.7 | Endpoint hardening | Doctor host baseline | m1 | LUCY-SEC-007 |
-| 4.8 | Secure configuration baselines | Setup applies and doctor checks a baseline profile | m1 | LUCY-OPS-001, LUCY-OPS-002 |
+| 4.7 | Endpoint hardening | `lucy preflight --check` host baseline | m1 | LUCY-SEC-007 |
+| 4.8 | Secure configuration baselines | `lucy preflight` applies and `--check` checks a baseline profile | m1 | LUCY-OPS-001, LUCY-OPS-002 |
 | 5.1 | Key log sources | Event store, audit chain, gateway egress log, container logs, forge events | m1 | LUCY-CRED-004, LUCY-OPS-004 |
 | 5.2 | Detection engineering | Deterministic rules over events | m2 | LUCY-SEC-009 |
 | 5.3 | Incident response to lessons learned | `lucy incident`; lessons become corpus scenarios; private advisories | m2 | LUCY-SEC-010, LUCY-SEC-004 |
@@ -109,7 +109,7 @@ changes as needing a decision, and every "later" becomes a backlog record.
   hash chain over it is slice 6.
 - **Deferred, remote authentication:** no network listener exists in m0. Remote HTTPS with device
   pairing, scoped credentials (hashed, revocable) and TLS on loopback and tailnet binds lands in m1
-  with remote control (LUCY-VIEW-006, checklist 2.4); the passkey step-up for privileged remote actions in m3 (LUCY-CAP-003). Until then
+  with remote control (LUCY-VIEW-006, checklist 2.4); the passkey step-up for privileged remote actions in m3 (LUCY-OWN-003). Until then
   the API cannot be reached from another machine.
 
 ## Applied in m0 slice 5 (the policy engine)
@@ -123,14 +123,14 @@ changes as needing a decision, and every "later" becomes a backlog record.
   no trusted input is denied, and approvals arrive only as daemon facts bound to one action's
   digest and to the facts the approver saw (a PR's head and base, a delete's resolved path), never
   from text; a new push to the PR voids the approval (LUCY-POL-004).
-- **3.4, RBAC and ABAC:** roles (captain, daemon, supervisor, worker, scout, reviewer, gateway) and
+- **3.4, RBAC and ABAC:** roles (owner, daemon, supervisor, worker, researcher, reviewer, gateway) and
   attributes (org, project, posture, check state, fixed-list categories) decide; an org-bound role
   never acts in another org; only the gateway role uses credentials.
 - **Incident 1 (the `rm -rf /` that wiped `~/.config`):** the destructive-op rule runs the path guard,
   which refuses `/`, `$HOME`, its ancestors and anything outside the declared roots after symlink
   resolution; a property test drives thousands of symlink, `..` and lookalike-character paths
   through it (LUCY-POL-007). Wiring it into every delete lucy makes is m1 (LUCY-SEC-005).
-- **Known m0 limitation, local captain:** any process running as the daemon's uid that reaches the
-  local socket counts as the captain for `policy.evaluate`. This authorizes nothing by itself in
+- **Known m0 limitation, local owner:** any process running as the daemon's uid that reaches the
+  local socket counts as the owner for `policy.evaluate`. This authorizes nothing by itself in
   m0: no executor acts on decisions yet, and `policy.evaluate` never creates approvals. Step-up
-  authentication for privileged captain actions lands in m3 (LUCY-CAP-003).
+  authentication for privileged owner actions lands in m3 (LUCY-OWN-003).

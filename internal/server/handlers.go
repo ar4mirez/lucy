@@ -128,15 +128,15 @@ func (s *Server) shutdown(context.Context, *api.NoParams) (api.ShutdownResult, e
 
 // evaluate decides one action through the policy engine and records the decision before
 // returning it (LUCY-POL-002, LUCY-POL-003). The actor is the caller: on the socket that is the
-// local owner, the captain. Facts come only from the daemon (Options.PolicyFacts), never from the
-// params; when they cannot be gathered the decision is a recorded deny.
+// local owner. Facts come only from the daemon (Options.PolicyFacts), never from the
+// params; when they cannot be gathered the decision is a recorded denial.
 func (s *Server) evaluate(ctx context.Context, p *api.EvaluateParams) (api.PolicyDecision, error) {
 	caller, _ := api.CallerFrom(ctx)
 	req := policy.Request{
-		Actor:  policy.Actor{ID: caller.Actor(), Role: policy.RoleCaptain},
+		Actor:  policy.Actor{ID: caller.Actor(), Role: policy.RoleOwner},
 		Kind:   policy.Kind(p.Kind),
 		Target: policy.Target{Org: p.Org, Project: p.Project, Resource: p.Resource},
-		Inputs: []policy.Input{{Source: policy.SourceCaptain, Ref: "api/" + caller.Device}},
+		Inputs: []policy.Input{{Source: policy.SourceOwner, Ref: "api/" + caller.Device}},
 	}
 	for _, in := range p.Inputs {
 		req.Inputs = append(req.Inputs, policy.Input{Source: policy.Source(in.Source), Ref: in.Ref})

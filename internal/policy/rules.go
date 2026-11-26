@@ -43,11 +43,11 @@ type evalCtx struct {
 	used   []string // approvals earlier rules accepted without deciding, in order
 }
 
-func allow(reason string) (verdict, bool) { return verdict{outcome: Allow, reason: reason}, true }
-func deny(reason string) (verdict, bool)  { return verdict{outcome: Deny, reason: reason}, true }
+func allow(reason string) (verdict, bool) { return verdict{outcome: Cleared, reason: reason}, true }
+func deny(reason string) (verdict, bool)  { return verdict{outcome: Denied, reason: reason}, true }
 func pass() (verdict, bool)               { return verdict{}, false }
-func escalate(reason string) (verdict, bool) {
-	return verdict{outcome: RequireCaptain, reason: reason}, true
+func hold(reason string) (verdict, bool) {
+	return verdict{outcome: Holding, reason: reason}, true
 }
 
 // match returns the decision id of an approval by by for this action under these facts, or
@@ -67,16 +67,16 @@ func (c *evalCtx) match(by ApprovalBy) (id string, stale bool) {
 }
 
 // approved allows when a matching approval exists, denies when the only ones for this action were
-// made under different facts, else escalates to the captain.
-func (c *evalCtx) approved(by ApprovalBy, allowWhy, escalateWhy string) (verdict, bool) {
+// made under different facts, else holds for the owner.
+func (c *evalCtx) approved(by ApprovalBy, allowWhy, holdWhy string) (verdict, bool) {
 	id, stale := c.match(by)
 	switch {
 	case id != "":
-		return verdict{outcome: Allow, reason: allowWhy, approvals: c.use(id)}, true
+		return verdict{outcome: Cleared, reason: allowWhy, approvals: c.use(id)}, true
 	case stale:
 		return deny(c.staleReason())
 	}
-	return escalate(escalateWhy)
+	return hold(holdWhy)
 }
 
 // use returns the approvals used so far with id appended, once.
@@ -100,6 +100,15 @@ func (c *evalCtx) staleReason() string {
 		changed = "the project's default branch changed"
 	}
 	return "the approval was for different facts: " + changed
+}
+
+// actorName names a role in a reason: "a worker", or "the {owner}" for the owner, whose display
+// title is resolved when the reason is rendered.
+func actorName(r Role) string {
+	if r == RoleOwner {
+		return "the {owner}"
+	}
+	return "a " + string(r)
 }
 
 func (c *evalCtx) kindIs(kinds ...Kind) bool {
@@ -129,7 +138,7 @@ var rules = []Rule{
 	}},
 	{"org.isolation", "An actor bound to an org acts only inside that org; cross-org access is denied.", func(c *evalCtx) (verdict, bool) {
 		if orgBound[c.req.Actor.Role] && c.req.Actor.Org != c.req.Target.Org {
-			return deny(fmt.Sprintf("a %s of org %q may not act on org %q", c.req.Actor.Role, c.req.Actor.Org, c.req.Target.Org))
+			return deny(fmt.Sprintf("%s of org %q may not act on org %q", actorName(c.req.Actor.Role), c.req.Actor.Org, c.req.Target.Org))
 		}
 		return pass()
 	}},
@@ -157,7 +166,7 @@ var rules = []Rule{
 		if c.req.Actor.Role == RoleWorker {
 			return allow("a worker writes in its own org's project")
 		}
-		return deny(fmt.Sprintf("a %s never writes to a project", c.req.Actor.Role))
+		return deny(actorName(c.req.Actor.Role) + " never writes to a project")
 	}},
 	{"credential.gateway-only", "Only the org's credential gateway uses credentials; no agent role ever does.", func(c *evalCtx) (verdict, bool) {
 		if !c.kindIs(KindCredentialUse) {
@@ -166,11 +175,11 @@ var rules = []Rule{
 		if c.req.Actor.Role == RoleGateway {
 			return allow("the org's gateway uses its own credential")
 		}
-		return deny(fmt.Sprintf("a %s may not use credentials; only the gateway does", c.req.Actor.Role))
+		return deny(actorName(c.req.Actor.Role) + " may not use credentials; only the gateway does")
 	}},
-	{"merge.role", "Only the captain, the daemon and an org supervisor merge.", func(c *evalCtx) (verdict, bool) {
+	{"merge.role", "Only the {owner}, the daemon and an org supervisor merge.", func(c *evalCtx) (verdict, bool) {
 		if c.kindIs(KindMerge) && !mergers[c.req.Actor.Role] {
-			return deny(fmt.Sprintf("a %s never merges", c.req.Actor.Role))
+			return deny(actorName(c.req.Actor.Role) + " never merges")
 		}
 		return pass()
 	}},
@@ -202,11 +211,11 @@ var rules = []Rule{
 		}
 		return pass()
 	}},
-	{"merge.fixed-list", "A change on the fixed list (destructive, irreversible, security, production, billing, credentials, data migration, cross-org, judgement) needs the captain in every posture, and the posture still decides.", func(c *evalCtx) (verdict, bool) {
+	{"merge.fixed-list", "A change on the fixed list (destructive, irreversible, security, production, billing, credentials, data migration, cross-org, judgement) needs the {owner} in every posture, and the posture still decides.", func(c *evalCtx) (verdict, bool) {
 		if !c.kindIs(KindMerge) || len(c.facts.Exceptions) == 0 {
 			return pass()
 		}
-		id, stale := c.match(ByCaptain)
+		id, stale := c.match(ByOwner)
 		switch {
 		case id != "":
 			c.used = c.use(id)
@@ -214,26 +223,26 @@ var rules = []Rule{
 		case stale:
 			return deny(c.staleReason())
 		}
-		return escalate(fmt.Sprintf("the change touches the fixed list (%s)", joinExceptions(c.facts.Exceptions)))
+		return hold(fmt.Sprintf("the change touches the fixed list (%s)", joinExceptions(c.facts.Exceptions)))
 	}},
-	{"merge.posture", "Merge within the project's posture: captain needs the captain's approval, green merges, client needs the client's confirmation relayed by the captain.", func(c *evalCtx) (verdict, bool) {
+	{"merge.posture", "Merge within the project's posture: the owner posture needs the approval of the {owner}, the green posture merges, the client posture needs the client's confirmation relayed by the {owner}.", func(c *evalCtx) (verdict, bool) {
 		if !c.kindIs(KindMerge) {
 			return pass()
 		}
 		switch c.facts.Posture {
-		case PostureCaptain, "":
-			return c.approved(ByCaptain, "the captain approved this merge", "the captain posture merges only on the captain's word")
+		case PostureOwner, "":
+			return c.approved(ByOwner, "the {owner} approved this merge", "the owner posture merges only on the word of the {owner}")
 		case PostureGreen:
-			return verdict{outcome: Allow, reason: "green checks under the green posture", approvals: c.used}, true
+			return verdict{outcome: Cleared, reason: "green checks under the green posture", approvals: c.used}, true
 		case PostureClient:
-			return c.approved(ByClientViaCaptain, "the captain relayed the client's confirmation",
-				"the client posture merges only after the captain relays the client's confirmation")
+			return c.approved(ByClientViaOwner, "the {owner} relayed the client's confirmation",
+				"the client posture merges only after the {owner} relays the client's confirmation")
 		}
 		return deny(fmt.Sprintf("unknown posture %q", c.facts.Posture))
 	}},
-	{"destructive.role", "Roles that never write (supervisor, scout, reviewer, gateway) never delete or rewrite anything.", func(c *evalCtx) (verdict, bool) {
+	{"destructive.role", "Roles that never write (supervisor, researcher, reviewer, gateway) never delete or rewrite anything.", func(c *evalCtx) (verdict, bool) {
 		if c.kindIs(append([]Kind{KindDelete}, gitDestructive...)...) && neverWrite[c.req.Actor.Role] {
-			return deny(fmt.Sprintf("a %s never deletes or rewrites", c.req.Actor.Role))
+			return deny(actorName(c.req.Actor.Role) + " never deletes or rewrites")
 		}
 		return pass()
 	}},
@@ -259,11 +268,11 @@ var rules = []Rule{
 		}
 		return pass()
 	}},
-	{"delete.project", "A delete inside a project, outside the scratch dir, needs the captain.", func(c *evalCtx) (verdict, bool) {
+	{"delete.project", "A delete inside a project, outside the scratch dir, needs the {owner}.", func(c *evalCtx) (verdict, bool) {
 		if !c.kindIs(KindDelete) {
 			return pass()
 		}
-		return c.approved(ByCaptain, "the captain approved this delete", "the path is inside a project, outside the task's scratch dir")
+		return c.approved(ByOwner, "the {owner} approved this delete", "the path is inside a project, outside the task's scratch dir")
 	}},
 	{"git.default-branch", "Never force-push, delete or rewrite the default branch, or a branch of a project whose default branch is unknown.", func(c *evalCtx) (verdict, bool) {
 		if !c.kindIs(gitDestructive...) {
@@ -277,11 +286,11 @@ var rules = []Rule{
 		}
 		return pass()
 	}},
-	{"git.captain", "Force-push, branch delete and history rewrite need the captain.", func(c *evalCtx) (verdict, bool) {
+	{"git.owner", "Force-push, branch delete and history rewrite need the {owner}.", func(c *evalCtx) (verdict, bool) {
 		if !c.kindIs(gitDestructive...) {
 			return pass()
 		}
-		return c.approved(ByCaptain, "the captain approved this "+string(c.req.Kind), string(c.req.Kind)+" is destructive")
+		return c.approved(ByOwner, "the {owner} approved this "+string(c.req.Kind), string(c.req.Kind)+" is destructive")
 	}},
 	{"default.deny", "Anything no rule allows is denied.", func(*evalCtx) (verdict, bool) {
 		return deny("no rule allows this action")
@@ -309,9 +318,9 @@ func validRequest(r Request) string {
 	case a.ID == "":
 		return "the actor has no id"
 	case orgBound[a.Role] && a.Org == "":
-		return fmt.Sprintf("a %s must belong to an org", a.Role)
+		return actorName(a.Role) + " must belong to an org"
 	case !orgBound[a.Role] && a.Org != "":
-		return fmt.Sprintf("a %s belongs to no org", a.Role)
+		return actorName(a.Role) + " belongs to no org"
 	case r.Target.Org == "":
 		return "the target names no org"
 	}
@@ -348,7 +357,7 @@ func validRequest(r Request) string {
 // validFacts returns "" or what is wrong with f.
 func validFacts(f Facts) string {
 	switch f.Posture {
-	case "", PostureCaptain, PostureGreen, PostureClient:
+	case "", PostureOwner, PostureGreen, PostureClient:
 	default:
 		return fmt.Sprintf("unknown posture %q", f.Posture)
 	}
@@ -366,7 +375,7 @@ func validFacts(f Facts) string {
 		}
 	}
 	for _, a := range f.Approvals {
-		if a.By != ByCaptain && a.By != ByClientViaCaptain {
+		if a.By != ByOwner && a.By != ByClientViaOwner {
 			return fmt.Sprintf("unknown approval kind %q", a.By)
 		}
 		if e := label(a.Decision, MaxLabelBytes); e != "" {
