@@ -98,8 +98,23 @@ const (
 	GroundPilotLost   = "pilot_lost"   // the Pilot was lost more often than the Tower restarts it
 	GroundTimeout     = "pilot_timeout"
 	GroundStalled     = "stalled" // the pull request made no progress toward a clearance
-	GroundClosed      = "pr_closed"
 )
+
+// Who merged a pull request lucy did not merge, as MergedOutside records it.
+const (
+	AttributionExternal = "external" // the forge reports an account other than lucy's
+	AttributionUnknown  = "unknown"  // the forge reports no account
+)
+
+// MergedOutside ends a flight whose pull request the forge reports merged by someone other than
+// lucy, or by no one it can name. It cites no clearance: lucy did not merge it.
+type MergedOutside struct {
+	PR          int    `json:"pr"`
+	HeadSHA     string `json:"head_sha"`
+	MergeSHA    string `json:"merge_sha"`
+	MergedBy    string `json:"merged_by,omitempty"` // the forge's account; empty when unknown
+	Attribution string `json:"attribution"`         // external or unknown
+}
 
 // Grounded ends a flight without a takeoff.
 type Grounded struct {
@@ -119,6 +134,7 @@ func (Cleared) EventType() string       { return "task.clearance" }
 func (MergeFailed) EventType() string   { return "task.merge_failed" }
 func (Takeoff) EventType() string       { return "task.takeoff" }
 func (Grounded) EventType() string      { return "task.grounded" }
+func (MergedOutside) EventType() string { return "task.merged_outside" }
 
 func (Dispatched) EventVersion() int    { return 1 }
 func (PilotStarted) EventVersion() int  { return 1 }
@@ -131,12 +147,13 @@ func (Cleared) EventVersion() int       { return 1 }
 func (MergeFailed) EventVersion() int   { return 1 }
 func (Takeoff) EventVersion() int       { return 1 }
 func (Grounded) EventVersion() int      { return 1 }
+func (MergedOutside) EventVersion() int { return 1 }
 
 // Payloads returns a sample of every event the Tower appends, for an eventstore.Registry. The
 // Tower also appends policy.DecisionRecord.
 func Payloads() []eventstore.Payload {
 	return []eventstore.Payload{
 		Dispatched{}, PilotStarted{}, PilotAsked{}, PilotAnswered{}, PilotExited{}, PRObserved{},
-		Approved{}, Cleared{}, MergeFailed{}, Takeoff{}, Grounded{},
+		Approved{}, Cleared{}, MergeFailed{}, Takeoff{}, Grounded{}, MergedOutside{},
 	}
 }

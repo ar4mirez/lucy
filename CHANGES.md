@@ -21,6 +21,8 @@ Changes since the last release. When a version is cut, its section moves to
   merge until the owner approves, and the approval lapses when the head or base moves.
   A cleared merge the forge fails with an error is tried again, backing off, and after three
   failures the flight holds for the owner with the forge's error.
+  A merge the forge reports by another account, or by none it can name, ends the flight
+  `outside` (`task.merged_outside`), never as lucy's takeoff.
 - A simulation harness: a fake Pilot runtime, a fake forge and a virtual clock run whole flights
   deterministically in tests, with fault hooks for daemon restarts and Pilot crashes.
 - Config is ai-sdlc spec resources (spec commit `b56ceca`): `lucy config validate [<dir>]` checks

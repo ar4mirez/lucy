@@ -35,6 +35,7 @@ import (
 const (
 	ActorDaemon = "daemon"
 	ActorOwner  = "owner"
+	ActorForge  = "forge" // a merge the forge reports that lucy did not perform
 )
 
 // State is where a flight is.
@@ -47,12 +48,13 @@ const (
 	StateAsking     State = "asking"     // the Pilot asked a question; waiting on the owner
 	StateReview     State = "review"     // the pull request is open; waiting for checks and a clearance
 	StateHolding    State = "holding"    // the clearance is holding: waiting on the owner's approval
-	StateTakeoff    State = "takeoff"    // merged
+	StateTakeoff    State = "takeoff"    // merged by lucy
+	StateOutside    State = "outside"    // merged, but not by lucy, or by no one the forge can name
 	StateGrounded   State = "grounded"   // ended without a merge
 )
 
 // Final reports whether no event can follow in this state.
-func (s State) Final() bool { return s == StateTakeoff || s == StateGrounded }
+func (s State) Final() bool { return s == StateTakeoff || s == StateOutside || s == StateGrounded }
 
 // Defaults for Config.
 const (
@@ -64,13 +66,14 @@ const (
 	maxMergeErrors      = 3    // consecutive errored merges of one clearance before the flight holds for the owner
 )
 
-// Config is what a Tower runs with. Store, Runtime, Forge and Clock are required; the store's
-// registry must hold Payloads() and policy.DecisionRecord.
+// Config is what a Tower runs with. Store, Runtime, Forge, Clock and ForgeIdentity are required;
+// the store's registry must hold Payloads() and policy.DecisionRecord.
 type Config struct {
-	Store   *eventstore.Store
-	Runtime Runtime
-	Forge   Forge
-	Clock   Clock
+	Store         *eventstore.Store
+	Runtime       Runtime
+	Forge         Forge
+	Clock         Clock
+	ForgeIdentity string // the forge account lucy merges as: a merge by any other is not lucy's
 
 	PollInterval time.Duration // how often a driver should Step while a flight is active
 	PilotTimeout time.Duration // a Pilot with no activity for this long is stopped and the flight grounded
@@ -98,7 +101,7 @@ type Status struct {
 	Question   string // when asking
 	PR         int
 	Observed   PullRequest // the pull request's last recorded facts
-	Reason     string      // when grounded, or holding after its merges failed: the last merge error
+	Reason     string      // when grounded; when holding after its merges failed, the last merge error; when outside, the attribution
 	Since      time.Time   // when the flight entered its state
 }
 
@@ -135,8 +138,8 @@ type Tower struct {
 
 // New returns a Tower on cfg's store, with every flight rebuilt from the log.
 func New(ctx context.Context, cfg Config) (*Tower, error) {
-	if cfg.Store == nil || cfg.Runtime == nil || cfg.Forge == nil || cfg.Clock == nil {
-		return nil, errors.New("tower: Config needs a Store, a Runtime, a Forge and a Clock")
+	if cfg.Store == nil || cfg.Runtime == nil || cfg.Forge == nil || cfg.Clock == nil || cfg.ForgeIdentity == "" {
+		return nil, errors.New("tower: Config needs a Store, a Runtime, a Forge, a Clock and a ForgeIdentity")
 	}
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = DefaultPollInterval
@@ -363,11 +366,17 @@ func (t *Tower) watchPR(ctx context.Context, f *flight) error {
 	}
 	if pr.Merged {
 		// A merge the Tower was cleared for but did not record (the forge merged, then the call
-		// failed or the daemon stopped) is the takeoff; any other merge happened outside lucy.
-		if d := f.decision; d.Outcome == policy.Cleared && d.HeadSHA == pr.HeadSHA {
+		// failed or the daemon stopped) is the takeoff only when the forge says lucy's account
+		// merged the cleared head; any other merge happened outside lucy and cites no clearance.
+		if d := f.decision; pr.MergedBy == t.cfg.ForgeIdentity && d.Outcome == policy.Cleared && d.HeadSHA == pr.HeadSHA {
 			return t.record(ctx, f, ActorDaemon, Takeoff{PR: f.pr, HeadSHA: pr.HeadSHA, MergeSHA: pr.MergeSHA, DecisionSeq: d.DecisionSeq})
 		}
-		return t.record(ctx, f, ActorDaemon, Grounded{Reason: GroundClosed, Detail: "the pull request was merged outside lucy"})
+		attribution := AttributionExternal
+		if pr.MergedBy == "" {
+			attribution = AttributionUnknown
+		}
+		return t.record(ctx, f, ActorForge, MergedOutside{PR: f.pr, HeadSHA: pr.HeadSHA, MergeSHA: pr.MergeSHA,
+			MergedBy: pr.MergedBy, Attribution: attribution})
 	}
 	if pr.Checks != policy.ChecksPending && pr.Checks != "" {
 		if f.clearanceKey() != f.cleared {
@@ -593,6 +602,9 @@ func (f *flight) apply(e eventstore.Event, p eventstore.Payload) {
 		enter(StateReview)
 	case Takeoff:
 		enter(StateTakeoff)
+	case MergedOutside:
+		f.reason = p.Attribution
+		enter(StateOutside)
 	case Grounded:
 		f.reason = p.Reason
 		enter(StateGrounded)

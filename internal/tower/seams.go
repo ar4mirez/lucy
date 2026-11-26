@@ -71,6 +71,7 @@ type PullRequest struct {
 	Conflict           bool              `json:"conflict,omitempty"`            // the head does not merge cleanly into the base
 	Merged             bool              `json:"merged,omitempty"`
 	MergeSHA           string            `json:"merge_sha,omitempty"` // when merged
+	MergedBy           string            `json:"merged_by,omitempty"` // when merged: the forge account that merged it; empty when the forge cannot say
 }
 
 // Forge errors a Merge returns.

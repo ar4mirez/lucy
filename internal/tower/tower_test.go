@@ -25,10 +25,11 @@ func world(t *testing.T) *sim.World {
 func TestNewNeedsEverySeam(t *testing.T) {
 	w := world(t)
 	for _, cfg := range []tower.Config{
-		{Runtime: w.Runtime, Forge: w.Forge, Clock: w.Clock},
-		{Store: w.Store, Forge: w.Forge, Clock: w.Clock},
-		{Store: w.Store, Runtime: w.Runtime, Clock: w.Clock},
-		{Store: w.Store, Runtime: w.Runtime, Forge: w.Forge},
+		{Runtime: w.Runtime, Forge: w.Forge, Clock: w.Clock, ForgeIdentity: sim.DefaultIdentity},
+		{Store: w.Store, Forge: w.Forge, Clock: w.Clock, ForgeIdentity: sim.DefaultIdentity},
+		{Store: w.Store, Runtime: w.Runtime, Clock: w.Clock, ForgeIdentity: sim.DefaultIdentity},
+		{Store: w.Store, Runtime: w.Runtime, Forge: w.Forge, ForgeIdentity: sim.DefaultIdentity},
+		{Store: w.Store, Runtime: w.Runtime, Forge: w.Forge, Clock: w.Clock},
 	} {
 		if _, err := tower.New(context.Background(), cfg); err == nil {
 			t.Errorf("New(%+v) succeeded", cfg)

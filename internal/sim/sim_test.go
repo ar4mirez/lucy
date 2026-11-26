@@ -3,6 +3,7 @@ package sim
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -94,9 +95,9 @@ func types(t *testing.T, w *World, id string) []string {
 	return out
 }
 
-// checkInvariants holds for every World: the audit chain verifies, and every merge the forge
-// performed rests on a cleared decision recorded before it, for the same pull request and head
-// (LUCY-SIM-002).
+// checkInvariants holds for every World: the audit chain verifies, every merge the forge
+// performed as lucy rests on a cleared decision recorded before it, for the same pull request and
+// head (LUCY-SIM-002), and every takeoff is a merge lucy performed.
 func checkInvariants(t *testing.T, w *World) {
 	t.Helper()
 	ctx := context.Background()
@@ -107,7 +108,17 @@ func checkInvariants(t *testing.T, w *World) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, f := range w.Tower.Flights() {
+		if f.State == tower.StateTakeoff && !slices.ContainsFunc(w.Forge.Merges(), func(m Merge) bool {
+			return m.PR == f.PR && m.By == w.Forge.Identity && m.HeadSHA == f.Observed.HeadSHA
+		}) {
+			t.Fatalf("flight %s took off without a merge by lucy", f.ID)
+		}
+	}
 	for _, m := range w.Forge.Merges() {
+		if m.By != w.Forge.Identity {
+			continue
+		}
 		found := false
 		for _, d := range ds {
 			r := d.Record
@@ -399,8 +410,14 @@ func TestRestartMidMerge(t *testing.T) {
 	if got := strings.Join(types(t, w, "f1"), " "); !strings.HasSuffix(got, "clearance merge_failed pr_observed takeoff") {
 		t.Fatalf("events %s", got)
 	}
-	if len(w.Forge.Merges()) != 1 {
-		t.Fatalf("merges %v", w.Forge.Merges())
+	if m := w.Forge.Merges(); len(m) != 1 || m[0].By != w.Forge.Identity {
+		t.Fatalf("merges %v", m)
+	}
+	ds, _ := w.Decisions(context.Background())
+	ls := landings(t, w, "f1")
+	if len(ls) != 1 || ls[0].Type != "task.takeoff" || ls[0].Actor != tower.ActorDaemon ||
+		!strings.Contains(ls[0].Payload, `"decision_seq":`+strconv.FormatInt(ds[0].Seq, 10)) {
+		t.Fatalf("landings %+v", ls)
 	}
 	checkInvariants(t, w)
 }
@@ -480,6 +497,77 @@ func TestMergeErrorHoldsAfterThreeTries(t *testing.T) {
 		t.Fatalf("merge calls %d after the hold", w.Forge.MergeCalls())
 	}
 	wantOutcomes(t, w, "cleared:merge.posture")
+	checkInvariants(t, w)
+}
+
+// landings returns the flight's takeoff and merged_outside events, with their actors.
+func landings(t *testing.T, w *World, id string) []Line {
+	t.Helper()
+	log, err := w.Log(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []Line
+	for _, l := range log {
+		if l.Stream == "task/acme/"+id && (l.Type == "task.takeoff" || l.Type == "task.merged_outside") {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// The owner merges by hand on the forge after lucy's merges were refused: the flight ends
+// merged outside lucy, with the owner's account, citing no clearance.
+func TestOwnerMergesAfterHold(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t, 20)
+	dispatch(t, w, spec("f1", policy.PostureGreen))
+	armed := false
+	run(t, w, RunOptions{BeforeStep: func(_ context.Context, w *World, _ int) error {
+		if st := state(t, w, "f1"); !armed && st.State == tower.StateReview && st.PR > 0 {
+			armed = true
+			return w.Forge.FailMerge("acme/web", st.PR, -1, errors.New("forge: 403 resource not accessible by integration"))
+		}
+		return nil
+	}})
+	wantState(t, w, "f1", tower.StateHolding, "forge: 403 resource not accessible by integration")
+	if err := w.Forge.MergeAs("acme/web", state(t, w, "f1").PR, "the-owner"); err != nil {
+		t.Fatal(err)
+	}
+	run(t, w, RunOptions{})
+	wantState(t, w, "f1", tower.StateOutside, tower.AttributionExternal)
+	ls := landings(t, w, "f1")
+	if len(ls) != 1 || ls[0].Type != "task.merged_outside" || ls[0].Actor != tower.ActorForge ||
+		!strings.Contains(ls[0].Payload, `"merged_by":"the-owner"`) || strings.Contains(ls[0].Payload, "decision_seq") {
+		t.Fatalf("landings %+v", ls)
+	}
+	if err := w.Restart(ctx); err != nil {
+		t.Fatal(err)
+	}
+	wantState(t, w, "f1", tower.StateOutside, tower.AttributionExternal)
+	checkInvariants(t, w)
+}
+
+// A forge that cannot say who merged: even lucy's own merge, whose reply was lost, is recorded
+// with unknown attribution, never as lucy's takeoff.
+func TestUnattributedMergeIsNotATakeoff(t *testing.T) {
+	w := newWorld(t, 21)
+	w.Forge.HideMerger = true
+	dispatch(t, w, spec("f1", policy.PostureGreen))
+	armed := false
+	run(t, w, RunOptions{BeforeStep: func(_ context.Context, w *World, _ int) error {
+		if st := state(t, w, "f1"); !armed && st.State == tower.StateReview && st.PR > 0 {
+			armed = true
+			return w.Forge.LoseMergeReply("acme/web", st.PR)
+		}
+		return nil
+	}})
+	wantState(t, w, "f1", tower.StateOutside, tower.AttributionUnknown)
+	ls := landings(t, w, "f1")
+	if len(ls) != 1 || ls[0].Type != "task.merged_outside" || ls[0].Actor == tower.ActorDaemon ||
+		strings.Contains(ls[0].Payload, "merged_by") || strings.Contains(ls[0].Payload, "decision_seq") {
+		t.Fatalf("landings %+v", ls)
+	}
 	checkInvariants(t, w)
 }
 

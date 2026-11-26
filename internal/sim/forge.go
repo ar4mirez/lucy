@@ -39,6 +39,7 @@ type Merge struct {
 	PR       int
 	HeadSHA  string
 	MergeSHA string
+	By       string // the forge account that merged
 	Time     time.Time
 }
 
@@ -46,6 +47,12 @@ type Merge struct {
 // on virtual time, and merges. It implements tower.Forge; the rest of its methods are what Pilots
 // and scenarios do to it.
 type Forge struct {
+	// Identity is the account Merge merges as: lucy's, DefaultIdentity; a World's Tower is
+	// opened with it as its ForgeIdentity.
+	Identity string
+	// HideMerger makes the forge report no merging account, as a forge that cannot say.
+	HideMerger bool
+
 	clock  *Clock
 	rng    *rand.Rand
 	repos  map[string]*repo
@@ -70,13 +77,17 @@ type pullRequest struct {
 	conflict  bool
 	merged    bool
 	mergeSHA  string
+	mergedBy  string
 	loseReply bool
 	failMerge int   // merges still to fail before they happen; -1 for every one
 	failErr   error // what they fail with
 }
 
+// DefaultIdentity is the forge account lucy merges as in a World.
+const DefaultIdentity = "lucy[bot]"
+
 func newForge(clock *Clock, rng *rand.Rand) *Forge {
-	return &Forge{clock: clock, rng: rng, repos: map[string]*repo{}}
+	return &Forge{Identity: DefaultIdentity, clock: clock, rng: rng, repos: map[string]*repo{}}
 }
 
 func (f *Forge) sha() string {
@@ -211,6 +222,9 @@ func (f *Forge) PullRequest(_ context.Context, name string, number int) (tower.P
 	now := f.clock.Now()
 	out := tower.PullRequest{Number: p.number, HeadSHA: p.head, BaseRef: p.base, BaseSHA: r.branches[p.base],
 		Conflict: p.conflict, Merged: p.merged, MergeSHA: p.mergeSHA}
+	if !f.HideMerger {
+		out.MergedBy = p.mergedBy
+	}
 	reported := map[string]bool{}
 	var red, pending bool
 	for _, c := range p.checks {
@@ -261,12 +275,29 @@ func (f *Forge) Merge(_ context.Context, name string, number int, head string) (
 		}
 		return "", p.failErr
 	}
-	p.merged, p.mergeSHA = true, f.sha()
-	r.branches[p.base] = p.mergeSHA
-	f.merges = append(f.merges, Merge{Repo: name, PR: number, HeadSHA: head, MergeSHA: p.mergeSHA, Time: f.clock.Now()})
+	f.land(name, r, p, f.Identity)
 	if p.loseReply {
 		p.loseReply = false
 		return "", errReplyLost
 	}
 	return p.mergeSHA, nil
+}
+
+// MergeAs is someone else merging the pull request on the forge, at its current head, as account.
+func (f *Forge) MergeAs(name string, number int, account string) error {
+	r, p, err := f.pr(name, number)
+	if err != nil {
+		return err
+	}
+	if p.merged {
+		return fmt.Errorf("forge: %s#%d is already merged", name, number)
+	}
+	f.land(name, r, p, account)
+	return nil
+}
+
+func (f *Forge) land(name string, r *repo, p *pullRequest, account string) {
+	p.merged, p.mergeSHA, p.mergedBy = true, f.sha(), account
+	r.branches[p.base] = p.mergeSHA
+	f.merges = append(f.merges, Merge{Repo: name, PR: p.number, HeadSHA: p.head, MergeSHA: p.mergeSHA, By: account, Time: f.clock.Now()})
 }

@@ -17,7 +17,7 @@ import (
 // Options configure a World. The zero value is a World at Epoch with the Tower's defaults.
 type Options struct {
 	Start time.Time    // the clock's start; Epoch when zero
-	Tower tower.Config // timings and limits; Store, Runtime, Forge and Clock are the World's own
+	Tower tower.Config // timings and limits; Store, Runtime, Forge, Clock and ForgeIdentity are the World's own
 }
 
 // World is one simulation: a virtual clock, a fake forge, a fake Pilot runtime, an event store
@@ -71,7 +71,7 @@ func (w *World) open(ctx context.Context) error {
 		return err
 	}
 	cfg := w.config
-	cfg.Store, cfg.Runtime, cfg.Forge, cfg.Clock = store, w.Runtime, w.Forge, w.Clock
+	cfg.Store, cfg.Runtime, cfg.Forge, cfg.Clock, cfg.ForgeIdentity = store, w.Runtime, w.Forge, w.Clock, w.Forge.Identity
 	t, err := tower.New(ctx, cfg)
 	if err != nil {
 		store.Close() //nolint:errcheck // the Tower's error is what matters
