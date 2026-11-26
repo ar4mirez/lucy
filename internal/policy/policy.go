@@ -192,7 +192,7 @@ const (
 type Decision struct {
 	Outcome        Outcome  `json:"outcome"`
 	Rule           string   `json:"rule"`   // the rule that decided
-	Reason         string   `json:"reason"` // why, in one line
+	Reason         string   `json:"reason"` // why, in one line; {owner} stands for the owner, rendered with the display title
 	RuleSetVersion int      `json:"ruleset_version"`
 	RuleSetSHA256  string   `json:"ruleset_sha256"`
 	ActionSHA256   string   `json:"action_sha256"`            // ActionDigest(request)

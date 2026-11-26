@@ -174,10 +174,10 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 
 | ID | Milestone | Requirement |
 |---|---|---|
-| LUCY-CAP-001 | m3 | A Claude Code plugin (MCP server, one skill, a `/lucy` command) lets the owner work from any Claude Code session with no folder |
-| LUCY-CAP-002 | m3 | The full dashboard has structured decision cards and push notifications |
-| LUCY-CAP-003 | m3 | Privileged remote actions (merge, credentials, destructive) need a passkey step-up |
-| LUCY-CAP-004 | m3 | The existing supervisor's homes are archived read-only once every org has moved |
+| LUCY-OWN-001 | m3 | A Claude Code plugin (MCP server, one skill, a `/lucy` command) lets the owner work from any Claude Code session with no folder |
+| LUCY-OWN-002 | m3 | The full dashboard has structured decision cards and push notifications |
+| LUCY-OWN-003 | m3 | Privileged remote actions (merge, credentials, destructive) need a passkey step-up |
+| LUCY-OWN-004 | m3 | The existing supervisor's homes are archived read-only once every org has moved |
 | LUCY-VIEW-001 | m1 | `lucy attach` shows a live session in any terminal, with a detach key |
 | LUCY-VIEW-002 | m1 | A bubbletea TUI shows orgs, tasks, sessions, decisions and events, and hands off to `lucy attach` |
 | LUCY-VIEW-003 | m1 | herdr panes run `lucy attach`; a herdr crash is only a viewer crash |

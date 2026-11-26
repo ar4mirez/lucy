@@ -164,7 +164,7 @@ type PolicyDecision struct {
 	Time           time.Time `json:"time" doc:"When it was recorded, UTC."`
 	Outcome        string    `json:"outcome" doc:"cleared, denied or holding (waiting on the owner)."`
 	Rule           string    `json:"rule" doc:"The rule that decided."`
-	Reason         string    `json:"reason" doc:"Why, in one line."`
+	Reason         string    `json:"reason" doc:"Why, in one line. {owner} stands for the owner; render it with the configured display title."`
 	RuleSetVersion int       `json:"ruleset_version" doc:"The version of the rule set that decided."`
 	RuleSetSHA256  string    `json:"ruleset_sha256" doc:"The SHA-256 of that rule set."`
 	ActionSHA256   string    `json:"action_sha256" doc:"The digest of the action (actor, kind, target) an approval must name."`

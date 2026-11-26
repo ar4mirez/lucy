@@ -4,12 +4,12 @@ title: "PRD: viewers, remote control and the owner surface"
 status: active
 version: 2
 owner: ar4mirez
-requirements: [LUCY-VIEW-001, LUCY-VIEW-002, LUCY-VIEW-003, LUCY-VIEW-004, LUCY-VIEW-005, LUCY-VIEW-006, LUCY-VIEW-007, LUCY-CAP-001, LUCY-CAP-002, LUCY-CAP-003, LUCY-CAP-004]
+requirements: [LUCY-VIEW-001, LUCY-VIEW-002, LUCY-VIEW-003, LUCY-VIEW-004, LUCY-VIEW-005, LUCY-VIEW-006, LUCY-VIEW-007, LUCY-OWN-001, LUCY-OWN-002, LUCY-OWN-003, LUCY-OWN-004]
 ---
 
 # PRD: viewers, remote control and the owner surface
 
-Areas `VIEW` and `CAP`. Background: [D5](../decisions/D5-session-ownership.md). Every surface is a thin
+Areas `VIEW` and `OWN`. Background: [D5](../decisions/D5-session-ownership.md). Every surface is a thin
 client of the one API (LUCY-API-001).
 
 ## VIEW: viewers and remote control
@@ -24,11 +24,11 @@ client of the one API (LUCY-API-001).
 | LUCY-VIEW-006 | Remote use binds loopback and tailnet only, over TLS; devices pair with one-time codes and hashed, revocable, scoped credentials | m1 | D5, checklist 2.4 |
 | LUCY-VIEW-007 | Dashboard sessions use CSP, output encoding, CSRF tokens and HttpOnly, Secure, SameSite=Strict cookies | m1 | checklist 2.1, 2.3 |
 
-## CAP: owner surface
+## OWN: owner surface
 
 | ID | Requirement | Milestone | Source |
 |---|---|---|---|
-| LUCY-CAP-001 | A Claude Code plugin (MCP server, one skill, a `/lucy` command) lets the owner work from any Claude Code session with no folder | m3 | Rationale: the owner needs no checkout to work from chat |
-| LUCY-CAP-002 | The full dashboard has structured decision cards and push notifications | m3 | D5 |
-| LUCY-CAP-003 | Privileged remote actions (merge, credentials, destructive) need a passkey step-up | m3 | checklist 3.1 |
-| LUCY-CAP-004 | The existing supervisor's homes are archived read-only once every org has moved | m3 | D2 revised |
+| LUCY-OWN-001 | A Claude Code plugin (MCP server, one skill, a `/lucy` command) lets the owner work from any Claude Code session with no folder | m3 | Rationale: the owner needs no checkout to work from chat |
+| LUCY-OWN-002 | The full dashboard has structured decision cards and push notifications | m3 | D5 |
+| LUCY-OWN-003 | Privileged remote actions (merge, credentials, destructive) need a passkey step-up | m3 | checklist 3.1 |
+| LUCY-OWN-004 | The existing supervisor's homes are archived read-only once every org has moved | m3 | D2 revised |

@@ -52,8 +52,10 @@ Changes since the last release. When a version is cut, its section moves to
   log, Takeoff) and the setup command is `lucy preflight` (from m1).
 - `config.toml`'s `[you]` section sets how lucy refers to you: `title` (default "Owner") and an
   optional `name`. The role stays `owner` in code, the API, policy and events; surfaces resolve the
-  title when they render text for you. `lucy status` shows it as `you:`, and exits 2 with the line
-  at fault when the file is invalid.
+  title when they render text for you. Policy decision reasons and rule summaries that name you
+  say `{owner}`, which surfaces render with the configured title, so a holding message reads
+  "holding: waiting on the Commander: the owner posture merges only on the word of the Commander".
+  `lucy status` shows it as `you:`, and exits 2 with the line at fault when the file is invalid.
 - API methods `policy.evaluate` (asks for a decision; the daemon records it as a `policy.decision`
   event before answering) and `policy.decisions` (pages the recorded decisions).
 
@@ -64,6 +66,8 @@ Changes since the last release. When a version is cut, its section moves to
   now `cleared`, `denied` and `holding`; the human role, input source, merge posture and approval
   are `owner` (approval kinds `owner` and `client_via_owner`, rule `git.owner`); the research-only
   agent role is `researcher`. `setup` and `doctor` are planned as one command, `lucy preflight`.
+- Requirement area `CAP` (the owner surface) is now `OWN`: its four requirements keep their
+  numbers and text as LUCY-OWN-001 to LUCY-OWN-004.
 
 - API params are now checked strictly inside nested objects too: unknown or case-folded members
   in an object inside params, or inside an array of objects, are refused.

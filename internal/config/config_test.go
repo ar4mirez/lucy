@@ -13,60 +13,47 @@ func TestDefaults(t *testing.T) {
 		t.Fatalf("a missing file is the defaults, got %v", err)
 	}
 	y := c.You
-	if y.Title() != "Owner" || y.Name() != "" || y.Address() != "Owner" || y.Label() != "Owner" {
-		t.Errorf("defaults: title %q, name %q, address %q, label %q", y.Title(), y.Name(), y.Address(), y.Label())
+	if y.Title() != "Owner" || y.Name() != "" || y.Label() != "Owner" {
+		t.Errorf("defaults: title %q, name %q, label %q", y.Title(), y.Name(), y.Label())
 	}
-	if got := y.Render("waiting on the {owner}; thanks, {you}"); got != "waiting on the Owner; thanks, Owner" {
+	if got := y.Render("the {owner} approved; {you} stays"); got != "the Owner approved; {you} stays" {
 		t.Errorf("Render = %q", got)
 	}
 	if got := y.Holding("the change touches the fixed list (security)"); got != "holding: waiting on the Owner: the change touches the fixed list (security)" {
 		t.Errorf("Holding = %q", got)
 	}
-	if Default() != (Config{}) {
-		t.Error("Default is not the zero Config")
+	if c != (Config{}) {
+		t.Error("the defaults are not the zero Config")
 	}
 }
 
 func TestCustomTitle(t *testing.T) {
 	c := mustParse(t, "# lucy settings\n[you]\ntitle = \"Commander\" # how lucy refers to me\n")
 	y := c.You
-	if y.Title() != "Commander" || y.Name() != "" || y.Address() != "Commander" || y.Label() != "Commander" {
-		t.Errorf("title %q, name %q, address %q, label %q", y.Title(), y.Name(), y.Address(), y.Label())
+	if y.Title() != "Commander" || y.Name() != "" || y.Label() != "Commander" {
+		t.Errorf("title %q, name %q, label %q", y.Title(), y.Name(), y.Label())
 	}
 	if got := y.Holding(""); got != "holding: waiting on the Commander" {
 		t.Errorf("Holding = %q", got)
 	}
-	if got := y.Render("{you}, the merge is waiting on the {owner}"); got != "Commander, the merge is waiting on the Commander" {
-		t.Errorf("Render = %q", got)
+	if got := y.Holding("only after the {owner} relays it"); got != "holding: waiting on the Commander: only after the Commander relays it" {
+		t.Errorf("Holding = %q", got)
 	}
 }
 
 func TestCustomName(t *testing.T) {
 	c := mustParse(t, "[you]\nname = 'Ada'\n")
 	y := c.You
-	if y.Title() != "Owner" || y.Name() != "Ada" || y.Address() != "Ada" || y.Label() != "Ada (Owner)" {
-		t.Errorf("title %q, name %q, address %q, label %q", y.Title(), y.Name(), y.Address(), y.Label())
+	if y.Title() != "Owner" || y.Name() != "Ada" || y.Label() != "Ada (Owner)" {
+		t.Errorf("title %q, name %q, label %q", y.Title(), y.Name(), y.Label())
 	}
 	c = mustParse(t, "\r\n  [ you ]  # me\r\n title=\"Capitán \\u00e9\"\r\n name = \"Ada \\\"A\\\" L.\"\r\n")
 	y = c.You
 	if y.Title() != "Capitán é" || y.Name() != `Ada "A" L.` || y.Label() != `Ada "A" L. (Capitán é)` {
 		t.Errorf("title %q, name %q, label %q", y.Title(), y.Name(), y.Label())
 	}
-	if got := y.Render("Good morning, {you}."); got != `Good morning, Ada "A" L..` {
+	if got := y.Render("waiting on the {owner}"); got != "waiting on the Capitán é" {
 		t.Errorf("Render = %q", got)
-	}
-}
-
-func TestNewYou(t *testing.T) {
-	y, err := NewYou("Commander", "Ada")
-	if err != nil || y.Label() != "Ada (Commander)" {
-		t.Fatalf("NewYou = %q, %v", y.Label(), err)
-	}
-	if y, err := NewYou("", ""); err != nil || y != (You{}) {
-		t.Errorf("empty NewYou = %+v, %v", y, err)
-	}
-	if _, err := NewYou("Com\x00mander", ""); err == nil || !strings.Contains(err.Error(), "title") {
-		t.Errorf("a control character in the title: %v", err)
 	}
 }
 
@@ -97,13 +84,13 @@ func TestLoad(t *testing.T) {
 	}
 }
 
-func TestDefaultPath(t *testing.T) {
+func TestLoadDefault(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/x/config")
-	if p, err := DefaultPath(); err != nil || p != filepath.Join("/x/config", "lucy", FileName) {
-		t.Errorf("DefaultPath = %q, %v", p, err)
+	if p, err := defaultPath(); err != nil || p != filepath.Join("/x/config", "lucy", FileName) {
+		t.Errorf("defaultPath = %q, %v", p, err)
 	}
 	t.Setenv("XDG_CONFIG_HOME", "relative")
-	if _, err := DefaultPath(); err == nil {
+	if _, err := LoadDefault(); err == nil {
 		t.Error("a relative XDG_CONFIG_HOME was accepted")
 	}
 	dir := t.TempDir()

@@ -56,8 +56,9 @@ One Go binary ([D1](docs/decisions/D1-language-go.md)); every box is a mode of i
 - Bundled instructions are plain Markdown embedded in the binary, viewable and overridable through
   the config overlay dir.
 - The owner's display title and name come from `config.toml`'s `[you]` section (`internal/config`,
-  default title "Owner"). Recorded data (events, decisions, API fields) holds the role id `owner`;
-  surfaces resolve the title only when they render text for the owner ([glossary](GLOSSARY.md)).
+  default title "Owner"). Recorded data (events, decisions, API fields) holds the role id `owner`,
+  and recorded text that names the owner, such as a decision's reason, says `{owner}`; surfaces
+  render the title in its place only when they render text for the owner ([glossary](GLOSSARY.md)).
 
 ## 3. Event log
 

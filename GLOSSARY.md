@@ -41,14 +41,16 @@ Inside lucy the human role is always `owner`. What lucy shows that person is a d
 ```toml
 [you]
 title = "Commander"   # how lucy refers to you; default "Owner"
-name = "Ada"          # optional; how lucy addresses you
+name = "Ada"          # optional; shown with the title, as "Ada (Commander)"
 ```
 
 `lucy preflight` will ask for both when it lands (m1); until then, edit the file. The title is
 resolved only when text is rendered for the owner: CLI and TUI output, the dashboard, chat replies
 through MCP, notifications and holding messages ("holding: waiting on the Commander"). Events,
-policy decisions, reasons and API fields keep the id `owner`, so changing the title never changes
-a record. `lucy status` shows the current setting as `you:`.
+policy decisions and API fields keep the id `owner`, and recorded text that names the owner, such
+as a decision's reason, says `{owner}` ("the owner posture merges only on the word of the
+{owner}"); a surface renders that placeholder with the title. Changing the title never changes a
+record. `lucy status` shows the current setting as `you:`.
 
 ## Choices recorded here
 
@@ -57,7 +59,5 @@ a record. `lucy status` shows the current setting as `you:`.
   schema 1.1.0 (LUCY-POL-006).
 - **Postures** are `owner` (the default: merges only on the owner's word), `green` and `client`
   (the client confirms, the owner relays it) (LUCY-POL-005).
-- **Requirement area codes stay.** IDs are never renamed, so the owner surface keeps the area code
-  `CAP` (LUCY-CAP-001 to LUCY-CAP-004).
 - **Plain technical words stay** where they are precise: `main` for a default branch or Go's
   `package main`, `org`, `project`, `task` and `worker` in code.

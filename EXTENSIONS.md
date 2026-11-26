@@ -62,7 +62,7 @@ Package `internal/config` reads it.
 | Section and key | Default | Means |
 |---|---|---|
 | `[you]` `title` | `"Owner"` | How lucy refers to you: the display title of the owner role ([glossary](GLOSSARY.md)) |
-| `[you]` `name` | none | Optional; how lucy addresses you, for example in chat replies |
+| `[you]` `name` | none | Optional; shown with the title, for example `Ada (Commander)` |
 
 ```toml
 [you]
@@ -70,9 +70,12 @@ title = "Commander"
 name = "Ada"
 ```
 
-- **Rendered, never recorded.** The role is `owner` in code, the API, policy and events. Surfaces
-  resolve the title when they render text for you: CLI and TUI output, the dashboard, MCP chat
-  replies, notifications and holding messages. `lucy status` shows it as `you: Ada (Commander)`.
+- **Rendered, never recorded.** The role is `owner` in code, the API, policy and events, and
+  recorded text that names you, such as a policy decision's reason, says `{owner}`. Surfaces put
+  the title in its place when they render text for you: CLI and TUI output, the dashboard, MCP
+  chat replies, notifications and holding messages ("holding: waiting on the Commander: the owner
+  posture merges only on the word of the Commander"). `lucy status` shows it as
+  `you: Ada (Commander)`.
 - **Set by `lucy preflight`** once that command lands (m1, LUCY-OPS-001); until then, edit the
   file.
 - **Strict.** The file is a TOML subset: `[section]` headers, `key = "basic"` or `key = 'literal'`

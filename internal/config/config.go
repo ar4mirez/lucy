@@ -2,14 +2,15 @@
 // person in charge (GLOSSARY.md, the owner).
 //
 // Inside lucy the human role is always the neutral id "owner": in code, in the API, in policy and
-// in every recorded event. What a surface shows that person is their configured display title,
-// resolved only when text is rendered for them (CLI, TUI, dashboard, MCP chat replies,
-// notifications, holding messages). The title defaults to "Owner"; `lucy preflight` will ask for
+// in every recorded event; recorded text that names them, such as a policy decision's reason,
+// says {owner}. What a surface shows that person is their configured display title, which Render
+// puts in place of {owner} only when text is rendered for them (CLI, TUI, dashboard, MCP chat
+// replies, notifications, holding messages). The title defaults to "Owner"; `lucy preflight` will ask for
 // it when it lands (LUCY-OPS-001), and until then it is set by editing config.toml:
 //
 //	[you]
 //	title = "Commander" # how lucy refers to you; default "Owner"
-//	name = "Ada"        # optional; how lucy addresses you
+//	name = "Ada"        # optional; shown with the title, as "Ada (Commander)"
 //
 // The file is a small TOML subset read without a TOML library, like the docs' front matter:
 // `[section]` headers, `key = "basic string"` or `key = 'literal string'`, and `#` comments.
@@ -47,25 +48,11 @@ type Config struct {
 	You You
 }
 
-// You is the [you] section: how lucy refers to and addresses its owner. The zero value is the
+// You is the [you] section: how lucy refers to its owner. The zero value is the
 // default: title "Owner", no name.
 type You struct {
 	title string
 	name  string
-}
-
-// NewYou returns a You with the given title and name, checked as the settings file would be. An
-// empty title is the default title; an empty name is no name.
-func NewYou(title, name string) (You, error) {
-	for key, v := range map[string]string{"title": title, "name": name} {
-		if v == "" {
-			continue
-		}
-		if err := checkValue(v); err != "" {
-			return You{}, fmt.Errorf("config: [you] %s %s", key, err)
-		}
-	}
-	return You{title: title, name: name}, nil
 }
 
 // Title is the owner's display title, for example "Owner" or "Commander".
@@ -79,15 +66,6 @@ func (y You) Title() string {
 // Name is the owner's name, or "" when none is set.
 func (y You) Name() string { return y.name }
 
-// Address is what lucy calls the owner when speaking to them: their name when set, else their
-// title.
-func (y You) Address() string {
-	if y.name != "" {
-		return y.name
-	}
-	return y.Title()
-}
-
 // Label is the owner as shown in a listing: "Commander", or "Ada (Commander)" when a name is set.
 func (y You) Label() string {
 	if y.name != "" {
@@ -96,29 +74,27 @@ func (y You) Label() string {
 	return y.Title()
 }
 
-// Render resolves the owner placeholders in a human-facing message: {owner} becomes the display
-// title and {you} the form of address (Address). Every surface passes text meant for the owner
-// through it, so recorded data keeps the role id and only rendered text carries the title.
+// Render resolves the {owner} placeholder in a message for the owner, such as a policy decision's
+// reason, to the display title. Recorded data keeps the placeholder; only rendered text carries
+// the title.
 func (y You) Render(msg string) string {
-	return strings.NewReplacer("{owner}", y.Title(), "{you}", y.Address()).Replace(msg)
+	return strings.ReplaceAll(msg, "{owner}", y.Title())
 }
 
-// Holding renders the message for an action that is holding: waiting on the owner's decision.
+// Holding renders the message for an action that is holding, waiting on the owner, with the
+// decision's reason rendered too.
 func (y You) Holding(reason string) string {
-	msg := y.Render("holding: waiting on the {owner}")
+	msg := "holding: waiting on the {owner}"
 	if reason != "" {
 		msg += ": " + reason
 	}
-	return msg
+	return y.Render(msg)
 }
 
-// Default returns the settings lucy uses when there is no settings file.
-func Default() Config { return Config{} }
-
-// Dir returns lucy's config directory: $XDG_CONFIG_HOME/lucy when XDG_CONFIG_HOME is set, else
+// dir returns lucy's config directory: $XDG_CONFIG_HOME/lucy when XDG_CONFIG_HOME is set, else
 // lucy inside the OS's user config dir (~/.config on Linux, ~/Library/Application Support on
 // macOS).
-func Dir() (string, error) {
+func dir() (string, error) {
 	if d := os.Getenv("XDG_CONFIG_HOME"); d != "" {
 		if !filepath.IsAbs(d) {
 			return "", fmt.Errorf("config: XDG_CONFIG_HOME %q is not absolute", d)
@@ -132,18 +108,19 @@ func Dir() (string, error) {
 	return filepath.Join(d, "lucy"), nil
 }
 
-// DefaultPath returns the settings file's path inside Dir.
-func DefaultPath() (string, error) {
-	d, err := Dir()
+// defaultPath returns the settings file's path inside dir.
+func defaultPath() (string, error) {
+	d, err := dir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(d, FileName), nil
 }
 
-// LoadDefault loads the settings file at DefaultPath.
+// LoadDefault loads the settings file in lucy's config directory: $XDG_CONFIG_HOME/lucy when
+// XDG_CONFIG_HOME is set, else lucy inside the OS's user config dir.
 func LoadDefault() (Config, error) {
-	p, err := DefaultPath()
+	p, err := defaultPath()
 	if err != nil {
 		return Config{}, err
 	}
@@ -154,7 +131,7 @@ func LoadDefault() (Config, error) {
 func Load(path string) (Config, error) {
 	f, err := os.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return Default(), nil
+		return Config{}, nil
 	}
 	if err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)

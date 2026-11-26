@@ -336,3 +336,45 @@ func TestRuleIDsUnique(t *testing.T) {
 		seen[r.ID] = true
 	}
 }
+
+// namesOwnerByID reports whether s calls the human "owner" in prose rather than {owner}; "the owner
+// posture" names the posture, not the person.
+func namesOwnerByID(s string) bool {
+	s = strings.NewReplacer("{owner}", "", "owner posture", "").Replace(s)
+	return strings.Contains(s, "owner")
+}
+
+// Reasons and summaries that name the human say {owner}, so a surface can render the configured
+// display title in its place.
+func TestReasonsNameTheOwnerByPlaceholder(t *testing.T) {
+	for _, r := range CurrentRuleSet().Rules {
+		if namesOwnerByID(r.Summary) {
+			t.Errorf("rule %s summary names the owner by role id: %q", r.ID, r.Summary)
+		}
+	}
+	f := Facts{Posture: PostureOwner, Checks: ChecksGreen, HeadSHA: head, DefaultBranch: "main"}
+	merge := request(daemon, KindMerge, "app", "pr/12")
+	client := Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head}
+	cases := map[string]struct {
+		req   Request
+		facts Facts
+		want  string
+	}{
+		"owner posture holds":   {merge, f, "the owner posture merges only on the word of the {owner}"},
+		"owner posture cleared": {merge, Facts{Posture: PostureOwner, Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{approval(merge, f, ByOwner)}}, "the {owner} approved this merge"},
+		"client posture holds":  {merge, client, "the client posture merges only after the {owner} relays the client's confirmation"},
+		"the owner writes":      {request(owner, KindWrite, "app", ""), Facts{}, "the {owner} never writes to a project"},
+		"the owner uses a key":  {request(owner, KindCredentialUse, "", "deploy-key"), Facts{}, "the {owner} may not use credentials; only the gateway does"},
+		"an owner in an org":    {request(Actor{ID: "owner", Role: RoleOwner, Org: "acme"}, KindRead, "", ""), Facts{}, "invalid request: the {owner} belongs to no org"},
+		"a worker merges":       {request(worker, KindMerge, "app", "pr/12"), f, "a worker never merges"},
+	}
+	for name, c := range cases {
+		d := Evaluate(c.req, c.facts)
+		if d.Reason != c.want {
+			t.Errorf("%s: reason %q, want %q", name, d.Reason, c.want)
+		}
+		if namesOwnerByID(d.Reason) {
+			t.Errorf("%s: reason names the owner by role id: %q", name, d.Reason)
+		}
+	}
+}

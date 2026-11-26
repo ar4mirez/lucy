@@ -108,7 +108,8 @@ with a YAML symbol. Extra keys (`decided`, `supersedes`, `generated`) are allowe
 ### 7.2 Stable requirement IDs
 
 - Format `LUCY-<AREA>-<NNN>`, defined once in a PRD table under [docs/prd](docs/prd/README.md),
-  never reused or renumbered (LUCY-REPO-003).
+  never reused or renumbered (LUCY-REPO-003). Before 1.0 an area may be renamed, with a CHANGES.md
+  entry.
 - A PRD file's `requirements` list is exactly the IDs it defines.
 - Each ID is scheduled in exactly one milestone plan, which must match the table's Milestone cell.
 - Any doc may mention an ID; an undefined ID fails the test.

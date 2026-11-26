@@ -474,7 +474,7 @@
               "type": "string"
             },
             "reason": {
-              "description": "Why, in one line.",
+              "description": "Why, in one line. {owner} stands for the owner; render it with the configured display title.",
               "type": "string"
             },
             "resource": {
@@ -609,7 +609,7 @@
                     "type": "string"
                   },
                   "reason": {
-                    "description": "Why, in one line.",
+                    "description": "Why, in one line. {owner} stands for the owner; render it with the configured display title.",
                     "type": "string"
                   },
                   "resource": {

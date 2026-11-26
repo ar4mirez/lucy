@@ -33,7 +33,7 @@ changes as needing a decision, and every "later" becomes a backlog record.
 | 2.5 | Broken access control, object-level authorization | Every call checks scope and the object's org and task | m0 | LUCY-API-004 |
 | 2.6 | Rate limits and abuse prevention | Per-device limits, pairing-attempt limits, token budgets | m1 | LUCY-SEC-006 |
 | 2.7 | File uploads and deserialization | Strict typed JSON only; attachments inert and size-limited | m0 | LUCY-API-006 |
-| 3.1 | MFA design | Device pairing, passkeys, step-up for privileged remote actions | m3 | LUCY-CAP-003 |
+| 3.1 | MFA design | Device pairing, passkeys, step-up for privileged remote actions | m3 | LUCY-OWN-003 |
 | 3.2 | Credential hygiene, stuffing | No passwords; hashed device secrets; one-time codes; stray-token scans | m1 | LUCY-CRED-005 |
 | 3.3 | SSO flows | None: one owner (a non-goal); revisit only for a team | later | - |
 | 3.4 | RBAC and ABAC | Device scopes plus policy attributes (org, task, action, risk, posture) | m0 | LUCY-POL-001 |
@@ -109,7 +109,7 @@ changes as needing a decision, and every "later" becomes a backlog record.
   hash chain over it is slice 6.
 - **Deferred, remote authentication:** no network listener exists in m0. Remote HTTPS with device
   pairing, scoped credentials (hashed, revocable) and TLS on loopback and tailnet binds lands in m1
-  with remote control (LUCY-VIEW-006, checklist 2.4); the passkey step-up for privileged remote actions in m3 (LUCY-CAP-003). Until then
+  with remote control (LUCY-VIEW-006, checklist 2.4); the passkey step-up for privileged remote actions in m3 (LUCY-OWN-003). Until then
   the API cannot be reached from another machine.
 
 ## Applied in m0 slice 5 (the policy engine)
@@ -133,4 +133,4 @@ changes as needing a decision, and every "later" becomes a backlog record.
 - **Known m0 limitation, local owner:** any process running as the daemon's uid that reaches the
   local socket counts as the owner for `policy.evaluate`. This authorizes nothing by itself in
   m0: no executor acts on decisions yet, and `policy.evaluate` never creates approvals. Step-up
-  authentication for privileged owner actions lands in m3 (LUCY-CAP-003).
+  authentication for privileged owner actions lands in m3 (LUCY-OWN-003).
