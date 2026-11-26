@@ -35,7 +35,7 @@ Toolchain: `mise install` (Go is pinned in `mise.toml` and `go.mod`). On shared 
 
 ## Layout
 
-- `cmd/lucy/`: the lucy binary (only version and help so far).
+- `cmd/lucy/`: the lucy binary (version, help and self-update so far).
 - `internal/doccheck/`: the doc-rules checker and its test.
 - `docs/`: PRD, milestones, decisions, runbooks, security, changes, and the generated index.
 - `.github/`: CI and Dependabot.

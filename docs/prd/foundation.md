@@ -2,9 +2,9 @@
 id: prd-foundation
 title: "PRD: repository, releases, event store, API and policy"
 status: active
-version: 1
+version: 2
 owner: ar4mirez
-requirements: [LUCY-REPO-001, LUCY-REPO-002, LUCY-REPO-003, LUCY-REPO-004, LUCY-REPO-005, LUCY-REPO-006, LUCY-REPO-007, LUCY-REPO-008, LUCY-REL-001, LUCY-REL-002, LUCY-REL-003, LUCY-REL-004, LUCY-REL-005, LUCY-REL-006, LUCY-REL-007, LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005]
+requirements: [LUCY-REPO-001, LUCY-REPO-002, LUCY-REPO-003, LUCY-REPO-004, LUCY-REPO-005, LUCY-REPO-006, LUCY-REPO-007, LUCY-REPO-008, LUCY-REL-001, LUCY-REL-002, LUCY-REL-003, LUCY-REL-004, LUCY-REL-005, LUCY-REL-006, LUCY-REL-007, LUCY-REL-008, LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005]
 ---
 
 # PRD: repository, releases, event store, API and policy
@@ -36,6 +36,7 @@ Design background: [TECH.md](../../TECH.md) and the decisions in [docs/decisions
 | LUCY-REL-005 | Merges to main cut releases from conventional commits; tags trigger goreleaser | m0 | D7 |
 | LUCY-REL-006 | `lucy self-update` verifies the new binary and `--to <version>` rolls back | m0 | D7 |
 | LUCY-REL-007 | A Homebrew cask ships in ar4mirez/homebrew-tap | m3 | D6, D7 |
+| LUCY-REL-008 | Each release archive ships an SPDX SBOM, covered by the signed checksums.txt | m0 | checklist 4.6 |
 
 ## EVT: state and event store
 

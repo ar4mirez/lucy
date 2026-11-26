@@ -2,7 +2,7 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-API-001, LUCY-API-002, LUCY-RUN-001, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007]
 ---
@@ -103,24 +103,32 @@ installs through mise from a pinned manifest and `lucy doctor` checks each row (
 | ai-memory | optional | mise, exact version and hash | off by default |
 
 Built in: GitHub API client, quota and usage data, SQLite, sigstore verification, policy engine,
-gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are kept minimal; the
-skeleton has none.
+gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are kept minimal. The only one
+is `gopkg.in/yaml.v3`, used only by tests: `internal/workflowcheck` parses the workflows so their
+permission and pinning rules, a security baseline (LUCY-REL, checklist area 5), do not pass or fail
+on formatting.
 
 ## 7. Repository layout
 
 | Path | Contents |
 |---|---|
-| `cmd/lucy/` | The binary's entrypoint (version and help in m0 slice 1) |
+| `cmd/lucy/` | The binary's entrypoint (version, help and self-update so far) |
 | `internal/` | All packages; nothing is a public Go API yet |
 | `internal/doccheck/` | Doc-rules checker and test |
+| `internal/selfupdate/` | `lucy self-update`, which updates lucy through mise |
+| `internal/workflowcheck/` | Test enforcing the GitHub Actions rules: SHA pins, permissions, release trigger |
+| `scripts/` | `verify-dist.sh`: checks a goreleaser `dist/` (assets, SBOMs, checksums) |
+| `.goreleaser.yaml` | The release build ([release runbook](docs/runbooks/release.md)) |
 | `docs/` | PRD, milestones, decisions, runbooks, security, changes, requirements index |
-| `.github/` | CI and Dependabot |
+| `.github/` | CI, the tag-triggered release workflow, Dependabot |
 
 ## 8. Build and CI
 
-- Go is pinned in `go.mod` and `mise.toml`; builds are `CGO_ENABLED=0` for linux and darwin, amd64
-  and arm64 from m0 slice 2.
+- Go is pinned in `go.mod` and `mise.toml`; release builds are `CGO_ENABLED=0` for linux and
+  darwin, amd64 and arm64, made by goreleaser on a `v*` tag ([release runbook](docs/runbooks/release.md)).
 - `mise run check` = gofmt check, `go vet`, `go test -race`, which includes the doc rules.
 - CI runs the same on `ubuntu-latest` and `macos-latest` (LUCY-REPO-007) with actions pinned by SHA,
   `permissions: contents: read`, no secrets and no persisted checkout credentials.
-- The version is stamped with `-ldflags "-X main.version=<v>"`.
+- The version is stamped with `-ldflags "-X main.version=<v>"`; goreleaser sets it.
+- CI also runs `goreleaser check` and a snapshot release build on every pull request; only the
+  release workflow publishes, and only its job has write scopes and an OIDC token.

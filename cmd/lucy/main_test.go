@@ -23,6 +23,8 @@ func TestRun(t *testing.T) {
 		{"long version", []string{"--version"}, 0, "lucy 1.2.3-test\n", ""},
 		{"version command", []string{"version"}, 0, "lucy 1.2.3-test\n", ""},
 		{"unknown flag", []string{"--nope"}, 2, "", `unknown command or flag "--nope"`},
+		{"self-update help", []string{"self-update", "--help"}, 0, "lucy self-update --check", ""},
+		{"self-update usage error", []string{"self-update", "--to", "nope"}, 2, "", "is not a release version"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
