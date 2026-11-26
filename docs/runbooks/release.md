@@ -80,5 +80,5 @@ scripts/verify-dist.sh dist "$(jq -r .version dist/metadata.json)"
 ## Roll back
 
 A user goes back with `lucy self-update --to <previous>`, which runs
-`mise use -g github:ar4mirez/lucy@<previous>` (it needs mise 2026.10.19 or newer). A bad release stays published but is marked as such in
-its notes, and the next patch release supersedes it.
+`mise use -g github:ar4mirez/lucy@<previous>` (it needs mise 2026.10.19 or newer). A bad release
+stays published but is marked as such in its notes, and the next patch release supersedes it.
