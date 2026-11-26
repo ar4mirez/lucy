@@ -44,7 +44,9 @@ Changes since the last release. When a version is cut, its section moves to
   approval and the action is denied. A merge whose head SHA is unknown is denied. A fixed-list merge
   in the client posture needs both the captain's approval and the relayed client confirmation.
   Force-push, branch delete and history rewrite name a plain branch name only, and the default
-  branch is matched case-insensitively.
+  branch is matched case-insensitively. Decisions record every approval an allow rested on, in
+  order, as `approvals_used` (for example the captain's fixed-list approval, then the relayed client
+  confirmation) instead of a single `approval`.
 - API methods `policy.evaluate` (asks for a decision; the daemon records it as a `policy.decision`
   event before answering) and `policy.decisions` (pages the recorded decisions).
 

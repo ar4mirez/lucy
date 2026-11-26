@@ -3,6 +3,7 @@ package policy
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -183,17 +184,33 @@ func TestMerge(t *testing.T) {
 	})
 	// A stale approval is denied with the reason, not silently escalated.
 	moved := Facts{Posture: PostureCaptain, Checks: ChecksGreen, HeadSHA: "2222222222222222222222222222222222222222", Approvals: []Approval{ok}}
-	if d := Evaluate(r, moved); !strings.Contains(d.Reason, "the approval was for different facts") || d.Approval != "" {
+	if d := Evaluate(r, moved); !strings.Contains(d.Reason, "the approval was for different facts") || len(d.ApprovalsUsed) != 0 {
 		t.Errorf("stale approval: %+v", d)
 	}
 	// The fixed-list approval is recorded when the green posture then allows.
 	fixed := with(greenFacts(), func(f *Facts) { f.Exceptions, f.Approvals = []Exception{ExceptionSecurity}, []Approval{ok} })
-	if d := Evaluate(r, fixed); d.Approval != ok.Decision {
-		t.Errorf("fixed-list approval used = %q, want %q", d.Approval, ok.Decision)
+	if d := Evaluate(r, fixed); !reflect.DeepEqual(d.ApprovalsUsed, []string{ok.Decision}) {
+		t.Errorf("fixed-list approvals used = %q, want [%q]", d.ApprovalsUsed, ok.Decision)
+	}
+	// A client-posture fixed-list merge records both approvals, the captain's first.
+	capt, rel := ok, relay
+	capt.Decision, rel.Decision = "d/1", "d/2"
+	both := Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head, Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{rel, capt}}
+	if d := Evaluate(r, both); d.Outcome != Allow || !reflect.DeepEqual(d.ApprovalsUsed, []string{"d/1", "d/2"}) {
+		t.Errorf("client fixed-list merge: %s, approvals used %q", d.Outcome, d.ApprovalsUsed)
+	}
+	// The captain posture's one approval, used by both rules, is recorded once.
+	captFixed := Facts{Posture: PostureCaptain, Checks: ChecksGreen, HeadSHA: head, Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{capt}}
+	if d := Evaluate(r, captFixed); d.Outcome != Allow || !reflect.DeepEqual(d.ApprovalsUsed, []string{"d/1"}) {
+		t.Errorf("captain fixed-list merge: %s, approvals used %q", d.Outcome, d.ApprovalsUsed)
+	}
+	// An escalation records none, even when an earlier rule accepted an approval.
+	if d := Evaluate(r, Facts{Posture: PostureClient, Checks: ChecksGreen, HeadSHA: head, Exceptions: []Exception{ExceptionSecurity}, Approvals: []Approval{capt}}); d.Outcome != RequireCaptain || len(d.ApprovalsUsed) != 0 {
+		t.Errorf("escalation: %s, approvals used %q", d.Outcome, d.ApprovalsUsed)
 	}
 	// The approval used is recorded on the decision.
-	if d := Evaluate(r, Facts{Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{other, ok}}); d.Approval != ok.Decision {
-		t.Errorf("approval used = %q, want %q", d.Approval, ok.Decision)
+	if d := Evaluate(r, Facts{Checks: ChecksGreen, HeadSHA: head, Approvals: []Approval{other, ok}}); !reflect.DeepEqual(d.ApprovalsUsed, []string{ok.Decision}) {
+		t.Errorf("approvals used = %q, want [%q]", d.ApprovalsUsed, ok.Decision)
 	}
 	// An approval binds to the actor too: the captain approving the supervisor's merge does not
 	// approve the daemon's.

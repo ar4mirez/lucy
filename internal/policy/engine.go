@@ -61,7 +61,7 @@ func Evaluate(req Request, facts Facts) (d Decision) {
 	d = Decision{RuleSetVersion: RuleSetVersion, RuleSetSHA256: ruleSetSHA256}
 	defer func() {
 		if r := recover(); r != nil {
-			d.Outcome, d.Rule, d.Reason, d.Approval = Deny, "engine.error", "evaluation failed; failing safe", ""
+			d.Outcome, d.Rule, d.Reason, d.ApprovalsUsed = Deny, "engine.error", "evaluation failed; failing safe", nil
 		}
 	}()
 	d.ActionSHA256, d.FactsSHA256 = ActionDigest(req), FactsDigest(req.Kind, facts)
@@ -79,7 +79,10 @@ func Evaluate(req Request, facts Facts) (d Decision) {
 		if v.outcome != Allow && v.outcome != Deny && v.outcome != RequireCaptain {
 			return failSafe(d, "rule "+r.ID+" returned outcome "+strconv.Quote(string(v.outcome)))
 		}
-		d.Outcome, d.Rule, d.Reason, d.Approval = v.outcome, r.ID, v.reason, v.approval
+		d.Outcome, d.Rule, d.Reason, d.ApprovalsUsed = v.outcome, r.ID, v.reason, nil
+		if v.outcome == Allow {
+			d.ApprovalsUsed = v.approvals
+		}
 		return d
 	}
 	return failSafe(d, "no rule decided")
@@ -97,6 +100,6 @@ func Refuse(req Request, why string) Decision {
 }
 
 func failSafe(d Decision, why string) Decision {
-	d.Outcome, d.Rule, d.Reason, d.Approval = Deny, "engine.error", why+"; failing safe", ""
+	d.Outcome, d.Rule, d.Reason, d.ApprovalsUsed = Deny, "engine.error", why+"; failing safe", nil
 	return d
 }

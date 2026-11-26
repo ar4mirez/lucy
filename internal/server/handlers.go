@@ -189,7 +189,7 @@ func decisionInfo(e eventstore.Event, r policy.DecisionRecord) api.PolicyDecisio
 	return api.PolicyDecision{
 		Seq: e.Seq, ID: e.StreamVersion, Time: e.Time, Outcome: string(r.Outcome), Rule: r.Rule,
 		Reason: r.Reason, RuleSetVersion: r.RuleSetVersion, RuleSetSHA256: r.RuleSetSHA256,
-		ActionSHA256: r.ActionSHA256, FactsSHA256: r.FactsSHA256, Tainted: r.Tainted, Approval: r.Approval, Actor: r.Actor.ID,
+		ActionSHA256: r.ActionSHA256, FactsSHA256: r.FactsSHA256, Tainted: r.Tainted, ApprovalsUsed: r.ApprovalsUsed, Actor: r.Actor.ID,
 		Role: string(r.Actor.Role), Kind: string(r.Kind), Org: r.Target.Org,
 		Project: r.Target.Project, Resource: r.Target.Resource,
 	}

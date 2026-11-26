@@ -18,7 +18,7 @@ type DecisionRecord struct {
 	ActionSHA256   string        `json:"action_sha256"`
 	FactsSHA256    string        `json:"facts_sha256"`
 	Tainted        bool          `json:"tainted"`
-	Approval       string        `json:"approval,omitempty"`
+	ApprovalsUsed  []string      `json:"approvals_used,omitempty"`
 	Actor          Actor         `json:"actor"`
 	Kind           Kind          `json:"kind"`
 	Target         Target        `json:"target"`
@@ -62,7 +62,7 @@ func NewRecord(req Request, facts Facts, d Decision) DecisionRecord {
 	rec := DecisionRecord{
 		Outcome: d.Outcome, Rule: d.Rule, Reason: d.Reason, RuleSetVersion: d.RuleSetVersion,
 		RuleSetSHA256: d.RuleSetSHA256, ActionSHA256: d.ActionSHA256, FactsSHA256: d.FactsSHA256, Tainted: d.Tainted,
-		Approval: d.Approval, Actor: req.Actor, Kind: req.Kind, Target: req.Target,
+		ApprovalsUsed: d.ApprovalsUsed, Actor: req.Actor, Kind: req.Kind, Target: req.Target,
 		Inputs: []InputRecord{},
 		Facts: FactsRecord{
 			Posture: facts.Posture, Checks: facts.Checks, RequiredUnreported: facts.RequiredUnreported,

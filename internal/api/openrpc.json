@@ -442,9 +442,12 @@
               "description": "Who asked.",
               "type": "string"
             },
-            "approval": {
-              "description": "The approval decision that allowed it, if any.",
-              "type": "string"
+            "approvals_used": {
+              "description": "The approval decisions an allow rested on, in the order the rules used them (a fixed-list captain approval before a relayed client confirmation); empty for a deny or require-captain.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             },
             "facts_sha256": {
               "description": "The digest of the facts the approver saw (a merge's head SHA, base ref and base SHA; a delete's resolved path; a credential's scope; the default branch for force-push, branch delete and history rewrite) an approval must also name; an approval for the same action under other facts is denied.",
@@ -574,9 +577,12 @@
                     "description": "Who asked.",
                     "type": "string"
                   },
-                  "approval": {
-                    "description": "The approval decision that allowed it, if any.",
-                    "type": "string"
+                  "approvals_used": {
+                    "description": "The approval decisions an allow rested on, in the order the rules used them (a fixed-list captain approval before a relayed client confirmation); empty for a deny or require-captain.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
                   },
                   "facts_sha256": {
                     "description": "The digest of the facts the approver saw (a merge's head SHA, base ref and base SHA; a delete's resolved path; a credential's scope; the default branch for force-push, branch delete and history rewrite) an approval must also name; an approval for the same action under other facts is denied.",

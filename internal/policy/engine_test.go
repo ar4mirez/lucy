@@ -186,10 +186,13 @@ func checkInvariants(t *testing.T, r Request, f Facts, d Decision) {
 		}
 		return false
 	}
-	if d.Approval != "" {
+	if d.Outcome != Allow && len(d.ApprovalsUsed) > 0 {
+		fail("a deny or escalation recorded approvals used")
+	}
+	for _, id := range d.ApprovalsUsed {
 		matched := false
 		for _, a := range f.Approvals {
-			matched = matched || a.Decision == d.Approval && a.ActionSHA256 == ActionDigest(r) && a.FactsSHA256 == FactsDigest(r.Kind, f)
+			matched = matched || a.Decision == id && a.ActionSHA256 == ActionDigest(r) && a.FactsSHA256 == FactsDigest(r.Kind, f)
 		}
 		if !matched {
 			fail("the decision used an approval that does not bind to this action and these facts")

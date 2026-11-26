@@ -158,8 +158,8 @@ them data, not code.
   `delete.scratch` (allow), `delete.project` (captain), `git.default-branch` (deny; the target
   must be a plain branch name by git check-ref-format rules and is compared case-insensitively),
   `git.captain`, and `default.deny`.
-- **Decision.** `allow`, `deny` or `require-captain`, with the rule, a reason, the approval used,
-  whether any input was untrusted, and the rule set's version and SHA-256 (LUCY-POL-006). The hash
+- **Decision.** `allow`, `deny` or `require-captain`, with the rule, a reason, every approval it
+  rested on (`approvals_used`, in the order the rules used them; empty unless allowed), whether any input was untrusted, and the rule set's version and SHA-256 (LUCY-POL-006). The hash
   covers the embedded `rules.go` and `trust.go` and the path guard's version;
   `internal/policy/testdata/ruleset.sum` records each version's hash and a test refuses a changed
   rule set under an old version. `Evaluate` is pure; a panic, an unknown outcome or facts the

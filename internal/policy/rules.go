@@ -30,17 +30,17 @@ type Rule struct {
 }
 
 type verdict struct {
-	outcome  Outcome
-	reason   string
-	approval string
+	outcome   Outcome
+	reason    string
+	approvals []string
 }
 
 type evalCtx struct {
 	req    Request
 	facts  Facts
-	action string // ActionDigest(req)
-	bound  string // FactsDigest(req.Kind, facts)
-	used   string // an approval an earlier rule accepted without deciding
+	action string   // ActionDigest(req)
+	bound  string   // FactsDigest(req.Kind, facts)
+	used   []string // approvals earlier rules accepted without deciding, in order
 }
 
 func allow(reason string) (verdict, bool) { return verdict{outcome: Allow, reason: reason}, true }
@@ -72,11 +72,21 @@ func (c *evalCtx) approved(by ApprovalBy, allowWhy, escalateWhy string) (verdict
 	id, stale := c.match(by)
 	switch {
 	case id != "":
-		return verdict{outcome: Allow, reason: allowWhy, approval: id}, true
+		return verdict{outcome: Allow, reason: allowWhy, approvals: c.use(id)}, true
 	case stale:
 		return deny(c.staleReason())
 	}
 	return escalate(escalateWhy)
+}
+
+// use returns the approvals used so far with id appended, once.
+func (c *evalCtx) use(id string) []string {
+	for _, u := range c.used {
+		if u == id {
+			return c.used
+		}
+	}
+	return append(c.used, id)
 }
 
 // staleReason says which bound facts an approval for this action no longer matches.
@@ -199,7 +209,7 @@ var rules = []Rule{
 		id, stale := c.match(ByCaptain)
 		switch {
 		case id != "":
-			c.used = id
+			c.used = c.use(id)
 			return pass()
 		case stale:
 			return deny(c.staleReason())
@@ -214,7 +224,7 @@ var rules = []Rule{
 		case PostureCaptain, "":
 			return c.approved(ByCaptain, "the captain approved this merge", "the captain posture merges only on the captain's word")
 		case PostureGreen:
-			return verdict{outcome: Allow, reason: "green checks under the green posture", approval: c.used}, true
+			return verdict{outcome: Allow, reason: "green checks under the green posture", approvals: c.used}, true
 		case PostureClient:
 			return c.approved(ByClientViaCaptain, "the captain relayed the client's confirmation",
 				"the client posture merges only after the captain relays the client's confirmation")

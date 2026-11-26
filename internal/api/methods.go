@@ -170,7 +170,7 @@ type PolicyDecision struct {
 	ActionSHA256   string    `json:"action_sha256" doc:"The digest of the action (actor, kind, target) an approval must name."`
 	FactsSHA256    string    `json:"facts_sha256" doc:"The digest of the facts the approver saw (a merge's head SHA, base ref and base SHA; a delete's resolved path; a credential's scope; the default branch for force-push, branch delete and history rewrite) an approval must also name; an approval for the same action under other facts is denied."`
 	Tainted        bool      `json:"tainted" doc:"Whether any input came from an untrusted source."`
-	Approval       string    `json:"approval,omitempty" doc:"The approval decision that allowed it, if any."`
+	ApprovalsUsed  []string  `json:"approvals_used,omitempty" doc:"The approval decisions an allow rested on, in the order the rules used them (a fixed-list captain approval before a relayed client confirmation); empty for a deny or require-captain."`
 	Actor          string    `json:"actor" doc:"Who asked."`
 	Role           string    `json:"role" doc:"The actor's role."`
 	Kind           string    `json:"kind" doc:"The action."`

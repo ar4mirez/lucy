@@ -194,15 +194,15 @@ const (
 
 // Decision is the engine's answer.
 type Decision struct {
-	Outcome        Outcome `json:"outcome"`
-	Rule           string  `json:"rule"`   // the rule that decided
-	Reason         string  `json:"reason"` // why, in one line
-	RuleSetVersion int     `json:"ruleset_version"`
-	RuleSetSHA256  string  `json:"ruleset_sha256"`
-	ActionSHA256   string  `json:"action_sha256"`      // ActionDigest(request)
-	FactsSHA256    string  `json:"facts_sha256"`       // FactsDigest(request kind, facts)
-	Tainted        bool    `json:"tainted"`            // some input came from an untrusted source
-	Approval       string  `json:"approval,omitempty"` // the approval decision used, if any
+	Outcome        Outcome  `json:"outcome"`
+	Rule           string   `json:"rule"`   // the rule that decided
+	Reason         string   `json:"reason"` // why, in one line
+	RuleSetVersion int      `json:"ruleset_version"`
+	RuleSetSHA256  string   `json:"ruleset_sha256"`
+	ActionSHA256   string   `json:"action_sha256"`            // ActionDigest(request)
+	FactsSHA256    string   `json:"facts_sha256"`             // FactsDigest(request kind, facts)
+	Tainted        bool     `json:"tainted"`                  // some input came from an untrusted source
+	ApprovalsUsed  []string `json:"approvals_used,omitempty"` // the approval decisions an allow rested on, in the order the rules used them
 }
 
 // ActionDigest is the SHA-256 of the action a request asks for: its actor, kind and target, but
