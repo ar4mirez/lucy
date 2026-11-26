@@ -9,8 +9,8 @@ requirements: [LUCY-EVT-005, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-
 
 # Security checklist mapped to milestones
 
-The captain's security checklist has 38 items in five areas. Angel: "not all at once, but...
-accounted for whenever it makes sense." Each item has an owner in lucy and a milestone.
+The captain's security checklist has 38 items in five areas, applied not all at once but whenever
+an item makes sense. Each item has an owner in lucy and a milestone.
 **Totals: 10 in m0, 22 in m1, 4 in m2, 1 in m3, 1 later** (SSO: lucy serves one captain).
 
 lucy applies the checklist to the work it runs as well: the readiness check asks the relevant

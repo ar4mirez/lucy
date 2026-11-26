@@ -18,7 +18,7 @@ and signed attestations. Its spec is `v1alpha1`, a draft with no stability guara
 
 ## Decision
 
-Angel: "The more we can borrow and use from spec the better even if is planned." lucy adopts the spec
+lucy adopts as much of the spec as it can, planned parts included, with the spec
 pinned at commit `b56cecaeef256644c3066fae2106af5c7eaa684a`
 (https://github.com/ai-sdlc-framework/ai-sdlc/blob/b56cecaeef256644c3066fae2106af5c7eaa684a/spec/spec.md):
 

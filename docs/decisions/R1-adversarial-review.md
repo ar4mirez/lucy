@@ -13,8 +13,7 @@ decided: 2026-11-26
 ## Context
 
 An independent review of the design report and decisions D1-D6, by a reviewer who did not write the
-design. Angel: "I do like everything that you provided on the adversarial review. Yes, let's bring it
-into the board and to the documentation." Every item is adopted.
+design. Every item is adopted.
 
 ## Items
 

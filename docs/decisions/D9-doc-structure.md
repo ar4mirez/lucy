@@ -12,8 +12,7 @@ decided: 2026-11-26
 
 ## Context
 
-Angel gave the go for m0 and asked for the doc structure of an existing workspace repository, with
-improvements. lucy's readiness check will later read docs as data, so they must be machine-readable.
+The doc structure follows a common agentic-docs layout, with improvements. lucy's readiness check will later read docs as data, so they must be machine-readable.
 
 ## Decision
 

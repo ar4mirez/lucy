@@ -22,7 +22,7 @@ lucy does not emulate a terminal and its memory is small next to the agents it r
 - lucy is written in Go and ships as one binary whose modes are the daemon, CLI, MCP server, hook
   entrypoint, runner and gateway.
 - lucy stays headless: herdr, tmux, lucy's own TUI or a dashboard display sessions.
-- Platforms: Linux and macOS. Built and maintained by Angel plus agents.
+- Platforms: Linux and macOS. Built and maintained by the captain plus agents.
 
 ## Consequences
 

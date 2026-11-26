@@ -13,7 +13,7 @@ requirements: [LUCY-REPO-006, LUCY-CORP-002, LUCY-RUN-011, LUCY-RUN-010, LUCY-OR
 
 lucy replaces a supervision stack that today lives in cloned folders and scripts (firstmate, its
 worktree pool, its validation daemon and per-org "second mate" homes) with one installed Go binary.
-One captain (Angel) runs several organisations' agent work through it. Each org is hard-isolated:
+One captain runs several organisations' agent work through it. Each org is hard-isolated:
 its own account, credentials, sandbox container, projects, memory and merge rules. lucy dispatches
 tasks, owns every agent session, validates work with its own lean pipeline, and lands PRs only when
 deterministic policy allows it.

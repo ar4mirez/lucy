@@ -12,7 +12,7 @@ decided: 2026-11-26
 
 ## Context
 
-Angel: keep it simple at first, distribute through mise connected to GitHub, and release often.
+Keep it simple at first: distribute through mise connected to GitHub, and release often.
 
 ## Decision
 
