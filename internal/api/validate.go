@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -58,12 +59,17 @@ func parseBounds(f reflect.StructField) bounds {
 	return b
 }
 
-// validate checks a decoded params struct against its declared bounds.
+// validate checks a decoded params struct against its declared bounds, including the fields of
+// nested structs and of structs inside arrays.
 func validate(v any) *Error {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
+	return validateStruct(rv, "")
+}
+
+func validateStruct(rv reflect.Value, prefix string) *Error {
 	t := rv.Type()
 	for i := range t.NumField() {
 		f := t.Field(i)
@@ -71,8 +77,22 @@ func validate(v any) *Error {
 		if !ok {
 			continue
 		}
-		if err := checkField(name, parseBounds(f), rv.Field(i)); err != nil {
+		name = prefix + name
+		fv := rv.Field(i)
+		if err := checkField(name, parseBounds(f), fv); err != nil {
 			return err
+		}
+		switch {
+		case fv.Kind() == reflect.Struct && fv.Type() != reflect.TypeFor[time.Time]():
+			if err := validateStruct(fv, name+"."); err != nil {
+				return err
+			}
+		case fv.Kind() == reflect.Slice && fv.Type().Elem().Kind() == reflect.Struct:
+			for j := range fv.Len() {
+				if err := validateStruct(fv.Index(j), fmt.Sprintf("%s[%d].", name, j)); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil

@@ -2,9 +2,9 @@
 id: security-checklist
 title: Security checklist mapped to milestones
 status: active
-version: 5
+version: 6
 owner: ar4mirez
-requirements: [LUCY-EVT-005, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-008, LUCY-VIEW-006, LUCY-SEC-001, LUCY-SEC-002, LUCY-SEC-003, LUCY-SEC-004, LUCY-SEC-005, LUCY-SEC-006, LUCY-SEC-007, LUCY-SEC-008, LUCY-SEC-009, LUCY-SEC-010, LUCY-SEC-011, LUCY-SEC-012, LUCY-SEC-013]
+requirements: [LUCY-EVT-005, LUCY-POL-001, LUCY-POL-004, LUCY-POL-006, LUCY-POL-007, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-008, LUCY-VIEW-006, LUCY-SEC-001, LUCY-SEC-002, LUCY-SEC-003, LUCY-SEC-004, LUCY-SEC-005, LUCY-SEC-006, LUCY-SEC-007, LUCY-SEC-008, LUCY-SEC-009, LUCY-SEC-010, LUCY-SEC-011, LUCY-SEC-012, LUCY-SEC-013]
 ---
 
 # Security checklist mapped to milestones
@@ -95,8 +95,8 @@ changes as needing a decision, and every "later" becomes a backlog record.
   (SO_PEERCRED on Linux, LOCAL_PEERCRED on macOS) must name the daemon's uid, or it is closed before
   a byte is read; `TestPeerCredRefusesOtherUsers` drives a real refusal (LUCY-API-003).
 - **2.5 and 3.4, access control seam:** the caller rides on every request's context; an authorizer
-  checks the method's scope before params are decoded. Only the local owner holds scopes until the
-  policy engine (slice 5) adds org and task checks (LUCY-API-004).
+  checks the method's scope before params are decoded. Only the local owner holds scopes until
+  methods address org-scoped objects and pass the policy engine's org check (LUCY-API-004, m1).
 - **2.2 and 2.7, input:** strict JSON only: no unknown, duplicate or case-folded members, bounds on
   every field, 64 KiB bodies, 32 levels of nesting, `application/json` only; `FuzzDecodeRequest`
   fuzzes the decoder (LUCY-API-006).
@@ -111,3 +111,21 @@ changes as needing a decision, and every "later" becomes a backlog record.
   pairing, scoped credentials (hashed, revocable) and TLS on loopback and tailnet binds lands in m1
   with remote control (LUCY-VIEW-006, checklist 2.4); the passkey step-up for privileged remote actions in m3 (LUCY-CAP-003). Until then
   the API cannot be reached from another machine.
+
+## Applied in m0 slice 5 (the policy engine)
+
+- **1.6, secure design ("LLM proposes, policy disposes"):** deterministic Go rules decide every
+  privileged action with default deny; the engine is pure, and any evaluation error is a deny
+  (LUCY-POL-001, LUCY-POL-006). Every decision is recorded before it is returned, naming its rule
+  and the rule set's version and SHA-256.
+- **2.2 and STRIDE 2-E, 5-E, 7-E, untrusted input:** every input to a request carries its source;
+  the engine decides trust from a fixed table, never from the requester; a privileged request with
+  no trusted input is denied, and approvals arrive only as daemon facts bound to one action's
+  digest, never from text (LUCY-POL-004).
+- **3.4, RBAC and ABAC:** roles (captain, daemon, supervisor, worker, scout, reviewer, gateway) and
+  attributes (org, project, posture, check state, fixed-list categories) decide; an org-bound role
+  never acts in another org; only the gateway role uses credentials.
+- **Incident 1 (the `rm -rf /` that wiped `~/.config`):** the destructive-op rule runs the path guard,
+  which refuses `/`, `$HOME`, its ancestors and anything outside the declared roots after symlink
+  resolution; a property test drives thousands of symlink, `..` and lookalike-character paths
+  through it (LUCY-POL-007). Wiring it into every delete lucy makes is m1 (LUCY-SEC-005).

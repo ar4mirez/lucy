@@ -28,3 +28,19 @@ Changes since the last release. When a version is cut, its section moves to
   limits and timeouts; typed errors that never carry internal details; every mutating call recorded
   as an `api.command` event before it runs. Its OpenRPC schema is `internal/api/openrpc.json`.
 - Runbook for the daemon and its API ([docs/runbooks/daemon.md](docs/runbooks/daemon.md)).
+- The policy engine: deterministic Go rules decide every privileged action (merge, delete,
+  force-push, branch delete, history rewrite, credential use) and cross-org access, with default
+  deny. A decision is `allow`, `deny` or `require-captain` and names its rule, reason and the rule
+  set's version and SHA-256; any evaluation error denies. Merges need green, fully reported checks
+  and the project's posture (captain by default); credentials are for the gateway role only; a
+  privileged request based only on outside text (issues, PR comments, web pages, tool output) is
+  denied.
+- A path guard for deletes: it refuses `/`, `$HOME` and anything outside the declared project and
+  scratch roots after resolving symlinks, plus `..` tricks and invisible or lookalike characters.
+- API methods `policy.evaluate` (asks for a decision; the daemon records it as a `policy.decision`
+  event before answering) and `policy.decisions` (pages the recorded decisions).
+
+### Changed
+
+- API params are now checked strictly inside nested objects too: unknown or case-folded members
+  in an object inside params, or inside an array of objects, are refused.

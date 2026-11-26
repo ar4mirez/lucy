@@ -7,17 +7,21 @@ import (
 	"slices"
 
 	"github.com/ar4mirez/lucy/internal/api"
+	"github.com/ar4mirez/lucy/internal/eventstore"
+	"github.com/ar4mirez/lucy/internal/policy"
 )
 
 // bindAll binds every API method to its implementation. New checks this matches the API table.
 func (s *Server) bindAll() map[string]handler {
 	return map[string]handler{
-		api.MethodDiscover: bind(s.discover),
-		api.MethodHello:    bind(s.hello),
-		api.MethodHealth:   bind(s.health),
-		api.MethodStatus:   bind(s.status),
-		api.MethodEvents:   bind(s.events),
-		api.MethodShutdown: bind(s.shutdown),
+		api.MethodDiscover:  bind(s.discover),
+		api.MethodHello:     bind(s.hello),
+		api.MethodHealth:    bind(s.health),
+		api.MethodStatus:    bind(s.status),
+		api.MethodEvents:    bind(s.events),
+		api.MethodShutdown:  bind(s.shutdown),
+		api.MethodEvaluate:  bind(s.evaluate),
+		api.MethodDecisions: bind(s.decisions),
 	}
 }
 
@@ -120,4 +124,73 @@ func (s *Server) shutdown(context.Context, *api.NoParams) (api.ShutdownResult, e
 	}
 	s.opts.OnShutdown()
 	return api.ShutdownResult{Stopping: true}, nil
+}
+
+// evaluate decides one action through the policy engine and records the decision before
+// returning it (LUCY-POL-002, LUCY-POL-003). The actor is the caller: on the socket that is the
+// local owner, the captain. Facts come only from the daemon (Options.PolicyFacts), never from the
+// params; when they cannot be gathered the decision is a recorded deny.
+func (s *Server) evaluate(ctx context.Context, p *api.EvaluateParams) (api.PolicyDecision, error) {
+	caller, _ := api.CallerFrom(ctx)
+	req := policy.Request{
+		Actor:  policy.Actor{ID: caller.Actor(), Role: policy.RoleCaptain},
+		Kind:   policy.Kind(p.Kind),
+		Target: policy.Target{Org: p.Org, Project: p.Project, Resource: p.Resource},
+		Inputs: []policy.Input{{Source: policy.SourceCaptain, Ref: "api/" + caller.Device}},
+	}
+	for _, in := range p.Inputs {
+		req.Inputs = append(req.Inputs, policy.Input{Source: policy.Source(in.Source), Ref: in.Ref})
+	}
+	var facts policy.Facts
+	var d policy.Decision
+	if s.opts.PolicyFacts != nil {
+		var err error
+		if facts, err = s.opts.PolicyFacts(ctx, req); err != nil {
+			s.opts.Log.Warn("policy facts unavailable; denying", "kind", p.Kind, "err", err)
+			facts, d = policy.Facts{}, policy.Refuse(req, "the daemon could not gather the facts")
+		}
+	}
+	if d.Outcome == "" {
+		d = policy.Evaluate(req, facts)
+	}
+	rec := policy.NewRecord(req, facts, d)
+	evs, err := s.opts.Store.Append(ctx, policy.Stream, eventstore.AnyVersion, caller.Actor(), rec)
+	if err != nil {
+		return api.PolicyDecision{}, err // unrecorded, so it authorizes nothing
+	}
+	return decisionInfo(evs[0], rec), nil
+}
+
+func (s *Server) decisions(ctx context.Context, p *api.DecisionsParams) (api.DecisionsPage, error) {
+	limit := p.Limit
+	if limit == 0 {
+		limit = api.DefaultEventsLimit
+	}
+	evs, err := s.opts.Store.ReadStream(ctx, policy.Stream, p.After, limit+1)
+	if err != nil {
+		return api.DecisionsPage{}, err
+	}
+	page := api.DecisionsPage{Decisions: []api.PolicyDecision{}, Next: p.After}
+	if len(evs) > limit {
+		evs, page.More = evs[:limit], true
+	}
+	for _, e := range evs {
+		rec, err := eventstore.DecodeAs[policy.DecisionRecord](s.opts.Store.Registry(), e)
+		if err != nil {
+			return api.DecisionsPage{}, err
+		}
+		page.Decisions = append(page.Decisions, decisionInfo(e, rec))
+		page.Next = e.StreamVersion
+	}
+	return page, nil
+}
+
+func decisionInfo(e eventstore.Event, r policy.DecisionRecord) api.PolicyDecision {
+	return api.PolicyDecision{
+		Seq: e.Seq, ID: e.StreamVersion, Time: e.Time, Outcome: string(r.Outcome), Rule: r.Rule,
+		Reason: r.Reason, RuleSetVersion: r.RuleSetVersion, RuleSetSHA256: r.RuleSetSHA256,
+		ActionSHA256: r.ActionSHA256, Tainted: r.Tainted, Approval: r.Approval, Actor: r.Actor.ID,
+		Role: string(r.Actor.Role), Kind: string(r.Kind), Org: r.Target.Org,
+		Project: r.Target.Project, Resource: r.Target.Resource,
+	}
 }

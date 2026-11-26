@@ -1,0 +1,358 @@
+package policy
+
+// This file is the rule set: its source is hashed into RuleSetSHA256, so any change here is a new
+// rule set version (see ruleset.go). Rules run in the order of the table; the first rule with an
+// opinion decides, and when none has one, default.deny does.
+
+import (
+	"fmt"
+	"path/filepath"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/ar4mirez/lucy/internal/pathguard"
+)
+
+// Limits on a request. A request outside them is invalid.
+const (
+	MaxLabelBytes    = 128  // an actor id, org, project, input ref
+	MaxResourceBytes = 4096 // a target resource (a path can be long)
+	MaxInputs        = 32
+	MaxFactItems     = 64 // roots, exceptions and approvals each
+)
+
+// Rule is one entry of the rule set.
+type Rule struct {
+	ID      string
+	Summary string
+	eval    func(*evalCtx) (verdict, bool)
+}
+
+type verdict struct {
+	outcome  Outcome
+	reason   string
+	approval string
+}
+
+type evalCtx struct {
+	req    Request
+	facts  Facts
+	action string // ActionDigest(req)
+}
+
+func allow(reason string) (verdict, bool) { return verdict{outcome: Allow, reason: reason}, true }
+func deny(reason string) (verdict, bool)  { return verdict{outcome: Deny, reason: reason}, true }
+func pass() (verdict, bool)               { return verdict{}, false }
+func escalate(reason string) (verdict, bool) {
+	return verdict{outcome: RequireCaptain, reason: reason}, true
+}
+
+// approved allows when a matching approval exists, else escalates to the captain.
+func (c *evalCtx) approved(by ApprovalBy, allowWhy, escalateWhy string) (verdict, bool) {
+	for _, a := range c.facts.Approvals {
+		if a.By == by && a.Decision != "" && a.ActionSHA256 == c.action {
+			return verdict{outcome: Allow, reason: allowWhy, approval: a.Decision}, true
+		}
+	}
+	return escalate(escalateWhy)
+}
+
+func (c *evalCtx) kindIs(kinds ...Kind) bool {
+	for _, k := range kinds {
+		if c.req.Kind == k {
+			return true
+		}
+	}
+	return false
+}
+
+var gitDestructive = []Kind{KindForcePush, KindBranchDelete, KindHistoryRewrite}
+
+// rules is the rule set, in evaluation order.
+var rules = []Rule{
+	{"request.valid", "A request must be well formed: known actor role, kind and input sources, bounded labels, and the target fields its kind needs.", func(c *evalCtx) (verdict, bool) {
+		if err := validRequest(c.req); err != "" {
+			return deny("invalid request: " + err)
+		}
+		return pass()
+	}},
+	{"facts.valid", "The daemon's facts must be well formed: known posture, check state, fixed-list categories and approval kinds, bounded lists.", func(c *evalCtx) (verdict, bool) {
+		if err := validFacts(c.facts); err != "" {
+			return deny("invalid facts: " + err)
+		}
+		return pass()
+	}},
+	{"org.isolation", "An actor bound to an org acts only inside that org; cross-org access is denied.", func(c *evalCtx) (verdict, bool) {
+		if orgBound[c.req.Actor.Role] && c.req.Actor.Org != c.req.Target.Org {
+			return deny(fmt.Sprintf("a %s of org %q may not act on org %q", c.req.Actor.Role, c.req.Actor.Org, c.req.Target.Org))
+		}
+		return pass()
+	}},
+	{"taint.trusted-basis", "A privileged request needs at least one input from a trusted source; outside text alone never raises privileges.", func(c *evalCtx) (verdict, bool) {
+		if !Privileged(c.req.Kind) {
+			return pass()
+		}
+		for _, in := range c.req.Inputs {
+			if Trusted(in.Source) {
+				return pass()
+			}
+		}
+		return deny("every input behind this privileged request comes from an untrusted source")
+	}},
+	{"read.in-org", "Reading inside the actor's own org is allowed.", func(c *evalCtx) (verdict, bool) {
+		if c.kindIs(KindRead) {
+			return allow("a read inside the actor's org")
+		}
+		return pass()
+	}},
+	{"write.worker-only", "Only a ship worker changes a project, inside its own org.", func(c *evalCtx) (verdict, bool) {
+		if !c.kindIs(KindWrite) {
+			return pass()
+		}
+		if c.req.Actor.Role == RoleWorker {
+			return allow("a worker writes in its own org's project")
+		}
+		return deny(fmt.Sprintf("a %s never writes to a project", c.req.Actor.Role))
+	}},
+	{"credential.gateway-only", "Only the org's credential gateway uses credentials; no agent role ever does.", func(c *evalCtx) (verdict, bool) {
+		if !c.kindIs(KindCredentialUse) {
+			return pass()
+		}
+		if c.req.Actor.Role == RoleGateway {
+			return allow("the org's gateway uses its own credential")
+		}
+		return deny(fmt.Sprintf("a %s may not use credentials; only the gateway does", c.req.Actor.Role))
+	}},
+	{"merge.role", "Only the captain, the daemon and an org supervisor merge.", func(c *evalCtx) (verdict, bool) {
+		if c.kindIs(KindMerge) && !mergers[c.req.Actor.Role] {
+			return deny(fmt.Sprintf("a %s never merges", c.req.Actor.Role))
+		}
+		return pass()
+	}},
+	{"merge.checks-green", "Never merge red, pending or unknown checks, or with a required check unreported, in any posture.", func(c *evalCtx) (verdict, bool) {
+		if !c.kindIs(KindMerge) {
+			return pass()
+		}
+		if c.facts.Checks != ChecksGreen {
+			state := string(c.facts.Checks)
+			if state == "" {
+				state = "unknown"
+			}
+			return deny("the pull request's checks are " + state)
+		}
+		if c.facts.RequiredUnreported {
+			return deny("a required check has not reported")
+		}
+		return pass()
+	}},
+	{"merge.closing-refs", "Never merge a pull request that closes issues its task did not intend.", func(c *evalCtx) (verdict, bool) {
+		if c.kindIs(KindMerge) && c.facts.UnintendedClosing {
+			return deny("the pull request closes issues its task did not intend")
+		}
+		return pass()
+	}},
+	{"merge.fixed-list", "A change on the fixed list (destructive, irreversible, security, production, billing, credentials, data migration, cross-org, judgement) needs the captain in every posture.", func(c *evalCtx) (verdict, bool) {
+		if !c.kindIs(KindMerge) || len(c.facts.Exceptions) == 0 {
+			return pass()
+		}
+		return c.approved(ByCaptain, "the captain approved this fixed-list merge",
+			fmt.Sprintf("the change touches the fixed list (%s)", joinExceptions(c.facts.Exceptions)))
+	}},
+	{"merge.posture", "Merge within the project's posture: captain needs the captain's approval, green merges, client needs the client's confirmation relayed by the captain.", func(c *evalCtx) (verdict, bool) {
+		if !c.kindIs(KindMerge) {
+			return pass()
+		}
+		switch c.facts.Posture {
+		case PostureCaptain, "":
+			return c.approved(ByCaptain, "the captain approved this merge", "the captain posture merges only on the captain's word")
+		case PostureGreen:
+			return allow("green checks under the green posture")
+		case PostureClient:
+			return c.approved(ByClientViaCaptain, "the captain relayed the client's confirmation",
+				"the client posture merges only after the captain relays the client's confirmation")
+		}
+		return deny(fmt.Sprintf("unknown posture %q", c.facts.Posture))
+	}},
+	{"destructive.role", "Roles that never write (supervisor, scout, reviewer, gateway) never delete or rewrite anything.", func(c *evalCtx) (verdict, bool) {
+		if c.kindIs(append([]Kind{KindDelete}, gitDestructive...)...) && neverWrite[c.req.Actor.Role] {
+			return deny(fmt.Sprintf("a %s never deletes or rewrites", c.req.Actor.Role))
+		}
+		return pass()
+	}},
+	{"delete.path-guard", "A delete must pass the path guard after symlink resolution: never /, $HOME or an ancestor of it, only strictly inside a declared root.", func(c *evalCtx) (verdict, bool) {
+		if !c.kindIs(KindDelete) {
+			return pass()
+		}
+		if c.facts.ResolvedPath == "" {
+			return deny("the delete target's resolved path is unknown")
+		}
+		if _, err := pathguard.CheckResolved(c.facts.Home, c.facts.Roots, c.req.Target.Resource, c.facts.ResolvedPath); err != nil {
+			return deny(err.Error())
+		}
+		return pass()
+	}},
+	{"delete.scratch", "A delete strictly inside the task's scratch dir is allowed.", func(c *evalCtx) (verdict, bool) {
+		if !c.kindIs(KindDelete) {
+			return pass()
+		}
+		root, _ := pathguard.CheckResolved(c.facts.Home, c.facts.Roots, c.req.Target.Resource, c.facts.ResolvedPath)
+		if root.Kind == pathguard.Scratch {
+			return allow("the path is inside the task's scratch dir")
+		}
+		return pass()
+	}},
+	{"delete.project", "A delete inside a project, outside the scratch dir, needs the captain.", func(c *evalCtx) (verdict, bool) {
+		if !c.kindIs(KindDelete) {
+			return pass()
+		}
+		return c.approved(ByCaptain, "the captain approved this delete", "the path is inside a project, outside the task's scratch dir")
+	}},
+	{"git.default-branch", "Never force-push, delete or rewrite the default branch, or a branch of a project whose default branch is unknown.", func(c *evalCtx) (verdict, bool) {
+		if !c.kindIs(gitDestructive...) {
+			return pass()
+		}
+		if c.facts.DefaultBranch == "" {
+			return deny("the project's default branch is unknown")
+		}
+		if strings.TrimPrefix(c.req.Target.Resource, "refs/heads/") == c.facts.DefaultBranch {
+			return deny("the target is the default branch")
+		}
+		return pass()
+	}},
+	{"git.captain", "Force-push, branch delete and history rewrite need the captain.", func(c *evalCtx) (verdict, bool) {
+		if !c.kindIs(gitDestructive...) {
+			return pass()
+		}
+		return c.approved(ByCaptain, "the captain approved this "+string(c.req.Kind), string(c.req.Kind)+" is destructive")
+	}},
+	{"default.deny", "Anything no rule allows is denied.", func(*evalCtx) (verdict, bool) {
+		return deny("no rule allows this action")
+	}},
+}
+
+// validRequest returns "" or what is wrong with r.
+func validRequest(r Request) string {
+	a := r.Actor
+	if _, ok := orgBound[a.Role]; !ok {
+		return fmt.Sprintf("unknown role %q", a.Role)
+	}
+	if _, ok := privileged[r.Kind]; !ok {
+		return fmt.Sprintf("unknown kind %q", r.Kind)
+	}
+	for name, v := range map[string]string{"actor id": a.ID, "actor org": a.Org, "org": r.Target.Org, "project": r.Target.Project} {
+		if e := label(v, MaxLabelBytes); e != "" {
+			return name + " " + e
+		}
+	}
+	if e := label(r.Target.Resource, MaxResourceBytes); e != "" {
+		return "resource " + e
+	}
+	switch {
+	case a.ID == "":
+		return "the actor has no id"
+	case orgBound[a.Role] && a.Org == "":
+		return fmt.Sprintf("a %s must belong to an org", a.Role)
+	case !orgBound[a.Role] && a.Org != "":
+		return fmt.Sprintf("a %s belongs to no org", a.Role)
+	case r.Target.Org == "":
+		return "the target names no org"
+	}
+	needs := map[Kind][]string{
+		KindWrite: {"project"}, KindMerge: {"project", "resource"}, KindDelete: {"resource"},
+		KindForcePush: {"project", "resource"}, KindBranchDelete: {"project", "resource"},
+		KindHistoryRewrite: {"project", "resource"}, KindCredentialUse: {"resource"},
+	}
+	for _, field := range needs[r.Kind] {
+		if field == "project" && r.Target.Project == "" || field == "resource" && r.Target.Resource == "" {
+			return fmt.Sprintf("a %s needs a target %s", r.Kind, field)
+		}
+	}
+	if r.Kind == KindDelete && !filepath.IsAbs(r.Target.Resource) {
+		return "a delete names an absolute path"
+	}
+	if len(r.Inputs) > MaxInputs {
+		return fmt.Sprintf("more than %d inputs", MaxInputs)
+	}
+	for _, in := range r.Inputs {
+		if !KnownSource(in.Source) {
+			return fmt.Sprintf("unknown input source %q", in.Source)
+		}
+		if e := label(in.Ref, MaxLabelBytes); e != "" {
+			return "input ref " + e
+		}
+	}
+	return ""
+}
+
+// validFacts returns "" or what is wrong with f.
+func validFacts(f Facts) string {
+	switch f.Posture {
+	case "", PostureCaptain, PostureGreen, PostureClient:
+	default:
+		return fmt.Sprintf("unknown posture %q", f.Posture)
+	}
+	switch f.Checks {
+	case "", ChecksGreen, ChecksRed, ChecksPending:
+	default:
+		return fmt.Sprintf("unknown check state %q", f.Checks)
+	}
+	if len(f.Exceptions) > MaxFactItems || len(f.Roots) > MaxFactItems || len(f.Approvals) > MaxFactItems {
+		return fmt.Sprintf("more than %d exceptions, roots or approvals", MaxFactItems)
+	}
+	for _, e := range f.Exceptions {
+		if !exceptions[e] {
+			return fmt.Sprintf("unknown fixed-list category %q", e)
+		}
+	}
+	for _, a := range f.Approvals {
+		if a.By != ByCaptain && a.By != ByClientViaCaptain {
+			return fmt.Sprintf("unknown approval kind %q", a.By)
+		}
+		if e := label(a.Decision, MaxLabelBytes); e != "" {
+			return "approval decision " + e
+		}
+	}
+	if e := label(f.DefaultBranch, MaxLabelBytes); e != "" {
+		return "default branch " + e
+	}
+	for _, p := range append([]string{f.Home, f.ResolvedPath}, rootPaths(f.Roots)...) {
+		if e := label(p, MaxResourceBytes); e != "" {
+			return "path " + e
+		}
+	}
+	return ""
+}
+
+// label returns "" or why s is not an acceptable label: valid UTF-8, no control or format
+// characters, at most max bytes.
+func label(s string, max int) string {
+	if len(s) > max {
+		return fmt.Sprintf("is longer than %d bytes", max)
+	}
+	if !utf8.ValidString(s) {
+		return "is not valid UTF-8"
+	}
+	for _, c := range s {
+		if unicode.IsControl(c) || unicode.Is(unicode.Cf, c) {
+			return "contains a control or invisible character"
+		}
+	}
+	return ""
+}
+
+func rootPaths(roots []pathguard.Root) []string {
+	s := make([]string, len(roots))
+	for i, r := range roots {
+		s[i] = r.Path
+	}
+	return s
+}
+
+func joinExceptions(es []Exception) string {
+	s := make([]string, len(es))
+	for i, e := range es {
+		s[i] = string(e)
+	}
+	return strings.Join(s, ", ")
+}

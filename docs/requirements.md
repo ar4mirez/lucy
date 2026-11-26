@@ -13,7 +13,7 @@ generated: true
 Generated from the requirement tables in [docs/prd](prd/README.md). Do not edit by hand:
 run `mise run docs-index` after changing a PRD table. CI fails when this file is stale.
 
-134 requirements (m0: 53, m1: 54, m2: 13, m3: 8, m4: 6). Milestone briefs: [docs/milestones](milestones/README.md).
+136 requirements (m0: 55, m1: 54, m2: 13, m3: 8, m4: 6). Milestone briefs: [docs/milestones](milestones/README.md).
 
 ## [foundation](prd/foundation.md)
 
@@ -38,6 +38,8 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 | LUCY-POL-003 | m0 | Every allowed action records the rule, actor and decision that allowed it |
 | LUCY-POL-004 | m0 | Outside text is tagged untrusted with its source and can never raise privileges |
 | LUCY-POL-005 | m0 | Merge postures (captain, green with exceptions, client-confirm) are typed data per org and project |
+| LUCY-POL-006 | m0 | The engine is pure and fail-safe: a decision is allow, deny or require-captain with its rule and reason, any evaluation error denies, and the versioned rule set's hash is recorded with every decision |
+| LUCY-POL-007 | m0 | The destructive-op rule uses a path guard that refuses `/`, `$HOME` and anything outside the declared project and scratch roots after symlink resolution |
 | LUCY-REL-001 | m0 | goreleaser builds static binaries (CGO off) for linux and darwin, amd64 and arm64, with checksums |
 | LUCY-REL-002 | m0 | A keyless cosign signature bundle covers checksums.txt |
 | LUCY-REL-003 | m0 | Each archive carries a GitHub artifact attestation (SLSA build provenance) |

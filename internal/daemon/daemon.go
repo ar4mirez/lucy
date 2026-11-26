@@ -19,6 +19,7 @@ import (
 
 	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/eventstore"
+	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/server"
 )
 
@@ -52,7 +53,7 @@ func (Stopped) EventVersion() int { return 1 }
 
 // Registry returns the event registry the daemon opens the store with.
 func Registry() (*eventstore.Registry, error) {
-	return eventstore.NewRegistry(Started{}, Stopped{}, server.CommandEvent{})
+	return eventstore.NewRegistry(Started{}, Stopped{}, server.CommandEvent{}, policy.DecisionRecord{})
 }
 
 // Options configures Run.

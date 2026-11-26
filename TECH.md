@@ -2,15 +2,16 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 5
+version: 6
 owner: ar4mirez
-requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-RUN-001, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007]
+requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-RUN-001, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007]
 ---
 
 # lucy: technical specification
 
-Status: m0. The skeleton, the release pipeline, the event store (section 3) and the first part of the
-API with `lucy daemon` (section 4) exist; the rest below is the design the m0-m3 slices build.
+Status: m0. The skeleton, the release pipeline, the event store (section 3), the first part of the
+API with `lucy daemon` (section 4) and the policy engine (section 5) exist; the rest below is the
+design the m0-m3 slices build.
 
 ## 1. Shape
 
@@ -102,7 +103,8 @@ Operations: [daemon runbook](docs/runbooks/daemon.md).
   HTTP/1.1 POST to `/rpc/v1`. The method table in `internal/api` declares every method's scope,
   whether it mutates, and its params and result types; `internal/api/openrpc.json` is generated
   from it, committed and served by `rpc.discover` (LUCY-API-007). Built so far: `hello`, `health`,
-  `status.get`, `events.list` (pages the event log), `rpc.discover` and `daemon.shutdown`.
+  `status.get`, `events.list` (pages the event log), `rpc.discover`, `daemon.shutdown`, and
+  `policy.evaluate` and `policy.decisions` (section 5).
 - **Transport and identity.** `lucy daemon` listens on `$XDG_RUNTIME_DIR/lucy/lucy.sock` (0600 in a
   0700 dir, one daemon per dir by `flock`). Each connection's peer credentials (SO_PEERCRED on
   Linux, LOCAL_PEERCRED on macOS) must name the daemon's own uid, or it is closed unread; the
@@ -124,7 +126,49 @@ Operations: [daemon runbook](docs/runbooks/daemon.md).
 - **Clients.** `internal/api/client` is the Go client: strict about the envelope, tolerant of new
   result fields. The CLI's `lucy status`, `lucy events` and `lucy daemon stop` use it.
 
-## 5. Orgs, runners and sessions
+## 5. Policy engine
+
+"LLM proposes, policy disposes" (LUCY-POL-001): models and agents only request; deterministic Go in
+`internal/policy` decides every privileged action. No policy language is embedded: the rules are a
+small Go table, and the spec model's `AutonomyPolicy` and `QualityGate` resources (slice 6) feed
+them data, not code.
+
+- **Request.** Actor (id, role, org: set by the daemon from the authenticated caller), kind (`read`,
+  `write`, `merge`, `delete`, `force_push`, `branch_delete`, `history_rewrite`, `credential_use`),
+  target (org, project, resource) and inputs, each with its source (`captain`, `config`, `daemon`,
+  `task` are trusted; `agent`, `tool_output`, `repo_content`, `issue`, `pr_body`, `pr_comment`,
+  `web`, `email` are not). The requester never sets trust (LUCY-POL-004).
+- **Facts.** What the daemon knows from trusted sources: posture (captain by default), check state,
+  unreported required checks, fixed-list categories, default branch, home, declared roots, the
+  symlink-resolved delete target and captain approvals. Approvals come only from decision records
+  and bind to the action's digest (actor, kind, target), so one cannot be reused for another
+  action (LUCY-POL-002).
+- **Rules, in order; the first with an opinion decides:** `request.valid`, `facts.valid`,
+  `org.isolation` (an org-bound role acts only in its org), `taint.trusted-basis` (a privileged
+  request needs a trusted input), `read.in-org`, `write.worker-only`, `credential.gateway-only`,
+  `merge.role`, `merge.checks-green` (never red, pending, unknown or with a required check
+  unreported), `merge.closing-refs`, `merge.fixed-list`, `merge.posture`, `destructive.role`,
+  `delete.path-guard`, `delete.scratch` (allow), `delete.project` (captain), `git.default-branch`
+  (deny), `git.captain`, and `default.deny`.
+- **Decision.** `allow`, `deny` or `require-captain`, with the rule, a reason, the approval used,
+  whether any input was untrusted, and the rule set's version and SHA-256 (LUCY-POL-006). The hash
+  covers the embedded `rules.go` and `trust.go` and the path guard's version;
+  `internal/policy/testdata/ruleset.sum` records each version's hash and a test refuses a changed
+  rule set under an old version. `Evaluate` is pure; a panic, an unknown outcome or facts the
+  daemon could not gather are a deny under `engine.error`.
+- **Recording.** `policy.evaluate` appends a `policy.decision` event (stream `policy`) before it
+  returns the decision; an unrecorded decision is never returned (LUCY-POL-003).
+  `policy.decisions` pages them. TODO(LUCY-POL-001): the privileged executors of m1 (merge, delete,
+  push, the gateway) call the engine and act only on a recorded allow.
+- **Path guard** (`internal/pathguard`, LUCY-POL-007): refuses `/`, `$HOME` and its ancestors, the
+  roots themselves, relative paths, `.`, `..` and empty components, control, invisible and
+  lookalike characters, and anything not strictly inside a declared root, checking both the
+  requested spelling and the symlink-resolved path; roots that are `/`, home or contain home are
+  refused when declared. A delete inside the task's scratch root is allowed; inside a project it
+  needs the captain. TODO(LUCY-SEC-005): every delete lucy makes goes through it, deleting the
+  resolved path without following links (m1).
+
+## 6. Orgs, runners and sessions
 
 - **Isolation per org:** harness config dir, GitHub token, git identity and key, repo allowlist,
   memory rows, merge rules, container. The daemon refuses any cross-org read or write.
@@ -138,7 +182,7 @@ Operations: [daemon runbook](docs/runbooks/daemon.md).
 - **Credentials:** the per-org gateway adds tokens only to allowlisted hosts and paths
   (LUCY-CRED-001); capability tokens are scoped to (org, task, action, expiry).
 
-## 6. External dependencies
+## 7. External dependencies
 
 Every external is a managed risk ([D8](docs/decisions/D8-built-in-vs-external.md)); `lucy setup`
 installs through mise from a pinned manifest and `lucy doctor` checks each row (LUCY-OPS-001).
@@ -170,7 +214,7 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
   permission and pinning rules, a security baseline (LUCY-REL, checklist area 5), do not pass or fail
   on formatting.
 
-## 7. Repository layout
+## 8. Repository layout
 
 | Path | Contents |
 |---|---|
@@ -182,6 +226,8 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 | `internal/` | All packages; nothing is a public Go API yet |
 | `internal/doccheck/` | Doc-rules checker and test |
 | `internal/eventstore/` | The SQLite event store: event log, projections, consumers, migrations (section 3) |
+| `internal/pathguard/` | The path guard every delete passes (section 5) |
+| `internal/policy/` | The policy engine: request model, rules, rule-set hash, decision record (section 5) |
 | `internal/selfupdate/` | `lucy self-update`, which updates lucy through mise |
 | `internal/workflowcheck/` | Test enforcing the GitHub Actions rules: SHA pins, permissions, release trigger |
 | `scripts/` | `verify-dist.sh`: checks a goreleaser `dist/` (assets, SBOMs, checksums) |
@@ -189,7 +235,7 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 | `docs/` | PRD, milestones, decisions, runbooks, security, changes, requirements index |
 | `.github/` | CI, the tag-triggered release workflow, Dependabot |
 
-## 8. Build and CI
+## 9. Build and CI
 
 - Go is pinned in `go.mod` and `mise.toml`; release builds are `CGO_ENABLED=0` for linux and
   darwin, amd64 and arm64, made by goreleaser on a `v*` tag ([release runbook](docs/runbooks/release.md)).

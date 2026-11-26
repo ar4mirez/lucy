@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Request is one decoded JSON-RPC request.
@@ -187,11 +189,8 @@ func DecodeParams(raw json.RawMessage, v any) *Error {
 	if err := json.Unmarshal(raw, &keys); err != nil || keys == nil {
 		return FieldError(CodeInvalidParams, "params", "params must be an object (by name)")
 	}
-	fields := jsonFields(reflect.TypeOf(v).Elem())
-	for k := range keys {
-		if _, ok := fields[k]; !ok {
-			return FieldError(CodeInvalidParams, k, "unknown field")
-		}
+	if e := checkKeys(keys, reflect.TypeOf(v).Elem(), ""); e != nil {
+		return e
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
@@ -203,6 +202,52 @@ func DecodeParams(raw json.RawMessage, v any) *Error {
 		return FieldError(CodeInvalidParams, "params", "params do not match the method's schema")
 	}
 	return validate(v)
+}
+
+// checkKeys refuses any member that is not a declared field of t, by exact name, in the object
+// and in every nested object, including objects inside arrays. Go's decoder would otherwise match
+// a case-folded member ("Source" for "source") inside nested objects.
+func checkKeys(keys map[string]json.RawMessage, t reflect.Type, path string) *Error {
+	fields := jsonFields(t)
+	for k, raw := range keys {
+		name := k
+		if path != "" {
+			name = path + "." + k
+		}
+		f, ok := fields[k]
+		if !ok {
+			return FieldError(CodeInvalidParams, name, "unknown field")
+		}
+		if e := checkNested(raw, f.Type, name); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+func checkNested(raw json.RawMessage, t reflect.Type, path string) *Error {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	switch {
+	case t.Kind() == reflect.Struct && t != reflect.TypeFor[time.Time]():
+		var keys map[string]json.RawMessage
+		if json.Unmarshal(raw, &keys) != nil || keys == nil {
+			return nil // not an object: the decoder reports the type error
+		}
+		return checkKeys(keys, t, path)
+	case t.Kind() == reflect.Slice:
+		var items []json.RawMessage
+		if json.Unmarshal(raw, &items) != nil {
+			return nil
+		}
+		for i, item := range items {
+			if e := checkNested(item, t.Elem(), fmt.Sprintf("%s[%d]", path, i)); e != nil {
+				return e
+			}
+		}
+	}
+	return nil
 }
 
 // NewResult builds a success response.

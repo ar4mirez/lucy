@@ -2,9 +2,9 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 2
+version: 3
 owner: ar4mirez
-requirements: [LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008]
+requirements: [LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003]
 ---
 
 # The daemon and its API
@@ -35,6 +35,19 @@ lucy daemon stop            # graceful stop through the API (recorded as an api.
 
 Every start and stop is in the log as `daemon.started` and `daemon.stopped` (reason `signal`, `api`
 or `error`); every mutating call as `api.command`, appended before the call runs.
+
+## Policy decisions
+
+The daemon decides privileged actions through its policy engine and records every decision as a
+`policy.decision` event in the `policy` stream before returning it. `policy.evaluate` asks for a
+decision as the caller (on the socket, the captain); `policy.decisions` pages the recorded ones,
+each naming its outcome (`allow`, `deny`, `require-captain`), rule, reason and rule set version and
+SHA-256. Facts (posture, checks, approvals, declared roots) come only from the daemon; until the spec
+model and the forge pollers supply them, merges and deletes are denied or escalated.
+
+A decision with rule `engine.error` means the engine failed safe: the facts could not be gathered or
+a rule failed. The daemon's log has the cause. A changed rule set is a new `ruleset_version`; compare
+`ruleset_sha256` across decisions to see which rules decided.
 
 ## When something is wrong
 
