@@ -14,6 +14,14 @@ run = [
   "go test -race ./...",
 ]
 
+[tasks.conformance]
+description = "Run the conformance corpus: every scenario, with what each pending one waits for"
+run = "go test -race -count=1 -run 'TestConformance|TestCorpusWellFormed|TestHarnessCatchesViolations' -v ./internal/corpus"
+
+[tasks.conformance-doc]
+description = "Regenerate docs/security/conformance.md from the corpus"
+run = "go test ./internal/corpus -run TestCoverageDoc -update"
+
 [tasks.docs-index]
 description = "Regenerate docs/requirements.md from the PRD tables"
 run = "go test ./internal/doccheck -run TestRequirementsIndex -update"
