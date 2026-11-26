@@ -2,14 +2,15 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 2
+version: 3
 owner: ar4mirez
-requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-API-001, LUCY-API-002, LUCY-RUN-001, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007]
+requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-RUN-001, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007]
 ---
 
 # lucy: technical specification
 
-Status: m0. Only the skeleton exists; everything below is the design the m0-m3 slices build.
+Status: m0. The skeleton, the release pipeline and the event store (section 3) exist; the rest below
+is the design the m0-m3 slices build.
 
 ## 1. Shape
 
@@ -55,10 +56,36 @@ One Go binary ([D1](docs/decisions/D1-language-go.md)); every box is a mode of i
 
 ## 3. Event log
 
-- Typed events (`status`, `pr.checks`, `pr.merged`, `validation.finding`, `session.exited`, ...) are
-  appended in the same transaction as the state change (LUCY-EVT-002).
-- Consumers read past a cursor; `ack(consumer, through_seq, generation)` is refused if the
-  generation changed, so an interruption before ack leaves work durable (LUCY-EVT-003).
+Built in `internal/eventstore`; operations in the [database runbook](docs/runbooks/database.md).
+
+- **Source of truth.** An append-only `events` table (triggers refuse `UPDATE` and `DELETE`); every
+  other table is a projection of it (LUCY-EVT-006). The driver is `modernc.org/sqlite`, pure Go, so
+  releases stay `CGO_ENABLED=0`.
+- **Envelope.** `seq` (global, commit order), `stream`, `stream_version` (1..n, no gaps), `type` and
+  `type_version` (the payload schema), `envelope_version`, time, `actor`, JSON payload. Payload types
+  are registered Go structs (`status`, `pr.checks`, `pr.merged`, `validation.finding`,
+  `session.exited`, ... as later slices add them); a changed shape is a new version registered next
+  to the old one; decoding rejects unknown fields.
+- **Append.** Optimistic concurrency per stream: an append names the version it expects (or
+  `NoStream`, `AnyVersion`) and gets a conflict error if another writer got there first. Projectors
+  run inside the same transaction, so events and the state change they describe commit together
+  (LUCY-EVT-002); a write that fails partway cannot commit.
+- **Projections.** A projector owns its tables, resets and replays them on demand, and is rebuilt
+  automatically when its version changes or it is behind the log.
+- **Consumers.** Read past a cursor; `Claim` starts a new generation and
+  `ack(consumer, through_seq, generation)` is refused if the generation changed, so an interruption
+  before ack leaves work durable (LUCY-EVT-003). Acks can commit in the same transaction as the
+  events the work produced.
+- **Migrations.** Numbered, checksummed SQL files applied forward-only, each in one transaction; a
+  newer or edited schema is refused; a snapshot is written before an upgrade; upgrades are tested
+  from every older version and from committed dumps (LUCY-EVT-004).
+- **Limits and secrets.** No secrets in events: secret-looking field names are refused at
+  registration and at append; payloads are capped at 64 KiB, appends at 256 events; all SQL binds
+  values as parameters, enforced by a test (LUCY-EVT-005).
+- **Durability.** WAL with `synchronous=FULL` (plus `fullfsync` on macOS); one writer connection
+  with immediate transactions; read-only reader connections.
+- **Audit seam.** The hash-chained audit (LUCY-SPEC-009) lands in m0 slice 6 as a projector over
+  these events, written in the same transaction as the events it chains.
 - A harness Stop hook asks the daemon for actionable events, so an idle session costs no tokens.
 
 ## 4. API
@@ -103,10 +130,14 @@ installs through mise from a pinned manifest and `lucy doctor` checks each row (
 | ai-memory | optional | mise, exact version and hash | off by default |
 
 Built in: GitHub API client, quota and usage data, SQLite, sigstore verification, policy engine,
-gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are kept minimal. The only one
-is `gopkg.in/yaml.v3`, used only by tests: `internal/workflowcheck` parses the workflows so their
-permission and pinning rules, a security baseline (LUCY-REL, checklist area 5), do not pass or fail
-on formatting.
+gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are kept minimal:
+
+- `modernc.org/sqlite` (with its `modernc.org/libc` runtime and their small dependencies): the
+  SQLite engine translated to Go, so the binary stays static and cross-compiled without cgo
+  (LUCY-EVT-001, LUCY-REL-001).
+- `gopkg.in/yaml.v3`, used only by tests: `internal/workflowcheck` parses the workflows so their
+  permission and pinning rules, a security baseline (LUCY-REL, checklist area 5), do not pass or fail
+  on formatting.
 
 ## 7. Repository layout
 
@@ -115,6 +146,7 @@ on formatting.
 | `cmd/lucy/` | The binary's entrypoint (version, help and self-update so far) |
 | `internal/` | All packages; nothing is a public Go API yet |
 | `internal/doccheck/` | Doc-rules checker and test |
+| `internal/eventstore/` | The SQLite event store: event log, projections, consumers, migrations (section 3) |
 | `internal/selfupdate/` | `lucy self-update`, which updates lucy through mise |
 | `internal/workflowcheck/` | Test enforcing the GitHub Actions rules: SHA pins, permissions, release trigger |
 | `scripts/` | `verify-dist.sh`: checks a goreleaser `dist/` (assets, SBOMs, checksums) |
