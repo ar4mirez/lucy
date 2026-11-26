@@ -5,24 +5,42 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"strconv"
+	"strings"
 
 	"github.com/ar4mirez/lucy/internal/pathguard"
 )
 
-// RuleSetVersion is the version of the rule set. Bump it whenever rules.go, trust.go, digest.go or
-// engine.go change; the committed testdata/ruleset.sum, checked by TestRuleSetVersioned, records
-// the SHA-256 of every version and refuses a changed rule set under an old version.
+// RuleSetVersion is the version of the rule set. Bump it whenever any non-test source file of this
+// package changes; the committed testdata/ruleset.sum, checked by TestRuleSetVersioned, records the
+// SHA-256 of every version and refuses a changed rule set under an old version.
 const RuleSetVersion = 2
 
-//go:embed rules.go trust.go digest.go engine.go
+//go:embed *.go
 var ruleSources embed.FS
 
-// ruleSetSHA256 is computed once from the embedded rule sources and the path guard's version.
+// ruleSourceNames lists the embedded non-test source files of this package, sorted by name.
+func ruleSourceNames() []string {
+	entries, err := fs.ReadDir(ruleSources, ".")
+	if err != nil {
+		panic("policy: rule sources missing from the binary: " + err.Error()) // a build error
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() && !strings.HasSuffix(e.Name(), "_test.go") {
+			names = append(names, e.Name())
+		}
+	}
+	return names
+}
+
+// ruleSetSHA256 is computed once from every non-test source file of this package, in sorted order,
+// and the path guard's version.
 var ruleSetSHA256 = func() string {
 	h := sha256.New()
 	fmt.Fprintf(h, "lucy policy rule set\nversion %d\npathguard %d\n", RuleSetVersion, pathguard.Version)
-	for _, name := range []string{"rules.go", "trust.go", "digest.go", "engine.go"} {
+	for _, name := range ruleSourceNames() {
 		data, err := ruleSources.ReadFile(name)
 		if err != nil {
 			panic("policy: rule source missing from the binary: " + name) // a build error

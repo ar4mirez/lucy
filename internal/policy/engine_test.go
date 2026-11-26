@@ -17,8 +17,26 @@ import (
 
 var update = flag.Bool("update", false, "record this rule set version's hash in testdata/ruleset.sum")
 
+// TestRuleSetHashesEverySource checks that the rule-set hash covers exactly the package's non-test
+// .go files, so a new or split file can never fall outside it.
+func TestRuleSetHashesEverySource(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for _, e := range entries {
+		if n := e.Name(); !e.IsDir() && strings.HasSuffix(n, ".go") && !strings.HasSuffix(n, "_test.go") {
+			want = append(want, n)
+		}
+	}
+	if got := ruleSourceNames(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("hashed sources %v, package sources %v", got, want)
+	}
+}
+
 // TestRuleSetVersioned locks the rule set: testdata/ruleset.sum holds one "version sha256" line per
-// rule set version ever released. Changing rules.go, trust.go, digest.go or engine.go changes the
+// rule set version ever released. Changing any non-test source file of this package changes the
 // hash, which fails here until RuleSetVersion is bumped and the new line recorded with -update. An
 // old version's hash can never be replaced.
 func TestRuleSetVersioned(t *testing.T) {
