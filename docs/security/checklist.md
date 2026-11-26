@@ -2,9 +2,9 @@
 id: security-checklist
 title: Security checklist mapped to milestones
 status: active
-version: 2
+version: 3
 owner: ar4mirez
-requirements: [LUCY-SEC-001, LUCY-SEC-002, LUCY-SEC-003, LUCY-SEC-004, LUCY-SEC-005, LUCY-SEC-006, LUCY-SEC-007, LUCY-SEC-008, LUCY-SEC-009, LUCY-SEC-010, LUCY-SEC-011, LUCY-SEC-012, LUCY-SEC-013]
+requirements: [LUCY-EVT-005, LUCY-SEC-001, LUCY-SEC-002, LUCY-SEC-003, LUCY-SEC-004, LUCY-SEC-005, LUCY-SEC-006, LUCY-SEC-007, LUCY-SEC-008, LUCY-SEC-009, LUCY-SEC-010, LUCY-SEC-011, LUCY-SEC-012, LUCY-SEC-013]
 ---
 
 # Security checklist mapped to milestones
@@ -66,3 +66,19 @@ changes as needing a decision, and every "later" becomes a backlog record.
 - **5.3:** SECURITY.md routes reports to GitHub private advisories (LUCY-SEC-004).
 - **Supply chain:** the skeleton has no third-party Go dependencies; the doc checker parses its own
   front matter subset instead of pulling in a YAML library.
+
+## Applied in m0 slice 3 (the event store)
+
+- **1.2:** the database file and its pre-migration snapshots are 0600 in 0700 dirs owned by the
+  user; lucy refuses to open the database as root, with a looser mode or another owner, through a
+  symlink, or inside a git work tree (LUCY-SEC-001).
+- **2.1, SQL injection:** every SQL statement in `internal/eventstore` binds its values as
+  parameters; `TestHostileInputIsData` appends, reads, claims and acks with stream, actor, consumer
+  and payload strings built to break out of SQL (quotes, `'; DROP TABLE events; --`, backslashes,
+  unicode), checks they round-trip exactly and that the schema and event count are unchanged
+  (LUCY-EVT-005).
+- **2.7 and STRIDE 2-D:** event payloads are strict typed JSON, capped at 64 KiB, at most 256 events
+  per append; decoding rejects unknown fields.
+- **3.7, secrets:** events never carry secrets; secret-looking field names are refused at
+  registration and at append, map keys included (LUCY-EVT-005,
+  [database runbook](../runbooks/database.md)).

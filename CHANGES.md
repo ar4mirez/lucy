@@ -30,3 +30,10 @@ Changes since the last release. When a version is cut, its section moves to
 - `lucy self-update` updates lucy through mise (attestation checks forced on); `--to <version>` rolls
   back and `--check` reports whether a newer release exists.
 - Runbooks for cutting a release and for verifying one (`cosign verify-blob`, `gh attestation verify`).
+- Event store (`internal/eventstore`, not yet wired to a command): one pure-Go SQLite database in WAL
+  mode under the XDG data dir, an append-only log of typed, versioned events with per-stream
+  optimistic concurrency, projections updated in the same transaction and rebuildable by replay,
+  consumer cursors with generation-bound acks, and forward-only checksummed migrations with a
+  uniquely named pre-upgrade snapshot in the XDG state dir. The file is 0600 in a 0700 dir and
+  refused as root or inside a git repo; events refuse secret-looking field names and payloads over
+  64 KiB. Runbook: [database](docs/runbooks/database.md).

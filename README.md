@@ -2,7 +2,7 @@
 id: readme
 title: lucy
 status: active
-version: 2
+version: 3
 owner: ar4mirez
 requirements: [LUCY-REPO-001, LUCY-REPO-006]
 ---
@@ -17,14 +17,16 @@ deterministic policy decides what actually happens.
 
 ## Status
 
-**m0 (foundation) in progress.** This repository holds the skeleton and the design docs; the binary
-only prints its version and help. Nothing here runs agents yet. See the
+**m0 (foundation) in progress.** This repository holds the skeleton, the signed release pipeline, the
+event store (not yet wired to a command) and the design docs; the binary only prints its version and
+help and updates itself. Nothing here runs agents yet. See the
 [m0 brief](docs/milestones/m0.md) for what lands next and [PRODUCT.md](PRODUCT.md) for the plan.
 
 ## Install
 
 lucy installs through [mise](https://mise.jdx.dev) from GitHub Releases, on Linux and macOS (amd64
-and arm64). No release is published yet; the first tag comes once m0's release slice is merged.
+and arm64). No release is published yet; the release pipeline is merged and the captain cuts the
+first tag.
 
 ```sh
 mise use -g github:ar4mirez/lucy@latest     # or a pinned version: github:ar4mirez/lucy@0.1.0
