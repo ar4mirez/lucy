@@ -225,8 +225,11 @@ func (e *Env) beforeStep(ctx context.Context, w *sim.World, _ int) error {
 			continue
 		}
 		ok, err := h.when(ctx, e)
-		if err != nil || !ok {
+		if err != nil {
 			return err
+		}
+		if !ok {
+			continue
 		}
 		h.fired = true
 		for _, a := range h.do {

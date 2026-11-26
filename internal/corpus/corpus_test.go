@@ -147,36 +147,60 @@ func TestCoverageDoc(t *testing.T) {
 // invariant, or a green corpus would prove nothing.
 func TestHarnessCatchesViolations(t *testing.T) {
 	ctx := context.Background()
-	for _, s := range []Scenario{
-		{
+	for _, c := range []struct {
+		want string
+		s    Scenario
+	}{
+		{"expect", Scenario{
 			ID: "selftest-01", Title: "a wrong assertion", Class: "selftest", Source: FromRule, Severity: Medium,
 			Setup:  Setup{Flights: []Flight{Fly("f1", policy.PostureOwner)}},
 			Steps:  []Action{Proceed()},
 			Expect: []Assertion{Ends("f1", tower.StateTakeoff, "")},
-		},
-		{
+		}},
+		{"no cleared decision", Scenario{
 			ID: "selftest-02", Title: "a merge as lucy without a Clearance", Class: "selftest", Source: FromRule, Severity: Medium,
 			Setup: Setup{Flights: []Flight{Fly("f1", policy.PostureOwner)}},
 			Steps: []Action{Proceed(), Do("merge as lucy behind the Tower's back", func(_ context.Context, e *Env) error {
 				return e.World.Forge.MergeAs(Repo, 1, e.World.Forge.Identity)
 			}), Proceed()},
 			Expect: []Assertion{Merges(1)},
-		},
-		{
+		}},
+		{"never fired", Scenario{
 			ID: "selftest-03", Title: "a hook that never fires", Class: "selftest", Source: FromRule, Severity: Medium,
 			Setup:  Setup{Flights: []Flight{Fly("f1", policy.PostureGreen)}},
 			Steps:  []Action{OnState("f1", tower.StateHolding, Restart()), Proceed()},
 			Expect: []Assertion{Ends("f1", tower.StateTakeoff, "")},
-		},
+		}},
 	} {
-		_, err := Play(ctx, t.TempDir(), s, AsWritten)
+		_, err := Play(ctx, t.TempDir(), c.s, AsWritten)
 		if err == nil {
-			t.Errorf("%s (%s) passed", s.ID, s.Title)
+			t.Errorf("%s (%s) passed", c.s.ID, c.s.Title)
 			continue
 		}
-		t.Logf("%s failed as it should: %v", s.ID, err)
-		if s.ID == "selftest-02" && !strings.Contains(err.Error(), "no cleared decision") {
-			t.Errorf("selftest-02 failed for another reason: %v", err)
+		t.Logf("%s failed as it should: %v", c.s.ID, err)
+		if !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s failed for another reason (want %q): %v", c.s.ID, c.want, err)
 		}
+	}
+}
+
+// A hook whose condition holds must fire even while a hook armed before it is still waiting.
+func TestHooksFireIndependently(t *testing.T) {
+	fired := false
+	s := Scenario{
+		ID: "selftest-04", Title: "a later hook behind one that never fires", Class: "selftest", Source: FromRule, Severity: Medium,
+		Setup: Setup{Flights: []Flight{Fly("f1", policy.PostureGreen)}},
+		Steps: []Action{
+			OnState("f1", tower.StateHolding, Restart()),
+			OnState("f1", tower.StateReview, Do("note the review", func(context.Context, *Env) error { fired = true; return nil })),
+			Proceed(),
+		},
+	}
+	_, err := Play(context.Background(), t.TempDir(), s, AsWritten)
+	if !fired {
+		t.Errorf("the review hook did not fire: %v", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), `"when f1 is holding" never fired`) || strings.Contains(err.Error(), "review") {
+		t.Errorf("want only the holding hook reported as never fired, got %v", err)
 	}
 }
