@@ -2,17 +2,17 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 7
+version: 8
 owner: ar4mirez
-requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-RUN-001, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007]
+requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-001, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-009, LUCY-RUN-001, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007]
 ---
 
 # lucy: technical specification
 
 Status: m0. The skeleton, the release pipeline, the event store (section 3), the first part of the
-API with `lucy daemon` (section 4), the policy engine (section 5) and lucy's settings file (section
-2) exist; the rest below is the
-design the m0-m3 slices build.
+API with `lucy daemon` (section 4), the policy engine (section 5), lucy's settings file (section
+2), and the spec model with the audit chain (section 10) exist; the rest below is the design the
+m0-m3 slices build.
 
 ## 1. Shape
 
@@ -45,7 +45,7 @@ One Go binary ([D1](docs/decisions/D1-language-go.md)); every box is a mode of i
 
 | Kind | Location (Linux; macOS uses `~/Library` equivalents) | Contents |
 |---|---|---|
-| Config | `$XDG_CONFIG_HOME/lucy/` | `config.toml` (lucy's settings, [EXTENSIONS.md](EXTENSIONS.md) section 3), per-org spec resources, instruction overlays |
+| Config | `$XDG_CONFIG_HOME/lucy/` | `config.toml` (lucy's settings, [EXTENSIONS.md](EXTENSIONS.md) section 3), spec resources in `resources/` (section 10), instruction overlays |
 | Data | `$XDG_DATA_HOME/lucy/` | `lucy.db`, pools, materialized skills, pinned toolchain |
 | State | `$XDG_STATE_HOME/lucy/` | logs, pre-migration database snapshots, daily database backups |
 | Runtime | `$XDG_RUNTIME_DIR/lucy/` | daemon and runner sockets |
@@ -92,8 +92,8 @@ Built in `internal/eventstore`; operations in the [database runbook](docs/runboo
   strings and checks the schema and log are unchanged (LUCY-EVT-005).
 - **Durability.** WAL with `synchronous=FULL` (plus `fullfsync` on macOS); one writer connection
   with immediate transactions; read-only reader connections.
-- **Audit seam.** The hash-chained audit (LUCY-SPEC-009) lands in m0 slice 6 as a projector over
-  these events, written in the same transaction as the events it chains.
+- **Audit chain.** `internal/audit` is a projector over these events: every event's audit entry is
+  written in its append transaction (section 10, LUCY-SPEC-009).
 - A harness Stop hook asks the daemon for actionable events, so an idle session costs no tokens.
 
 ## 4. API
@@ -108,8 +108,9 @@ Operations: [daemon runbook](docs/runbooks/daemon.md).
   HTTP/1.1 POST to `/rpc/v1`. The method table in `internal/api` declares every method's scope,
   whether it mutates, and its params and result types; `internal/api/openrpc.json` is generated
   from it, committed and served by `rpc.discover` (LUCY-API-007). Built so far: `hello`, `health`,
-  `status.get`, `events.list` (pages the event log), `rpc.discover`, `daemon.shutdown`, and
-  `policy.evaluate` and `policy.decisions` (section 5).
+  `status.get`, `events.list` (pages the event log), `rpc.discover`, `daemon.shutdown`,
+  `policy.evaluate` and `policy.decisions` (section 5), and `resources.list`, `audit.verify` and
+  `audit.entries` (section 10).
 - **Transport and identity.** `lucy daemon` listens on `$XDG_RUNTIME_DIR/lucy/lucy.sock` (0600 in a
   0700 dir, one daemon per dir by `flock`). Each connection's peer credentials (SO_PEERCRED on
   Linux, LOCAL_PEERCRED on macOS) must name the daemon's own uid, or it is closed unread; the
@@ -135,8 +136,8 @@ Operations: [daemon runbook](docs/runbooks/daemon.md).
 
 "LLM proposes, policy disposes" (LUCY-POL-001): models and agents only request; deterministic Go in
 `internal/policy` decides every privileged action. No policy language is embedded: the rules are a
-small Go table, and the spec model's `AutonomyPolicy` and `QualityGate` resources (slice 6) feed
-them data, not code.
+small Go table, and the spec model's `AutonomyPolicy` and `QualityGate` resources (m1,
+LUCY-SPEC-010) feed them data, not code.
 
 - **Request.** Actor (id, role, org: set by the daemon from the authenticated caller), kind (`read`,
   `write`, `merge`, `delete`, `force_push`, `branch_delete`, `history_rewrite`, `credential_use`),
@@ -226,20 +227,27 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 - `golang.org/x/sys`, already pulled in by `modernc.org/sqlite` and direct since m0 slice 4: the
   peer-credential syscalls (`SO_PEERCRED`, `LOCAL_PEERCRED`) behind the socket's identity check
   (LUCY-API-003).
-- `gopkg.in/yaml.v3`, used only by tests: `internal/workflowcheck` parses the workflows so their
-  permission and pinning rules, a security baseline (LUCY-REL, checklist area 5), do not pass or fail
-  on formatting.
+- `github.com/santhosh-tekuri/jsonschema/v6`: the draft 2020-12 validator for spec resources
+  (LUCY-SPEC-004, [D11](docs/decisions/D11-spec-loading.md)); it needs `golang.org/x/text` for
+  its messages.
+- `go.yaml.in/yaml/v3`, the maintained continuation of `gopkg.in/yaml.v3`: the YAML parser behind
+  config loading, read only as a node tree (section 10), and the workflow test
+  (`internal/workflowcheck`), which parses the workflows so their permission and pinning rules, a
+  security baseline (LUCY-REL, checklist area 5), do not pass or fail on formatting.
 
 ## 8. Repository layout
 
 | Path | Contents |
 |---|---|
-| `cmd/lucy/` | The binary's entrypoint: version, help, self-update, `daemon`, `status`, `events` |
+| `cmd/lucy/` | The binary's entrypoint: version, help, self-update, `daemon`, `status`, `events`, `config`, `audit` |
 | `internal/api/` | The API's method table, wire format, errors and generated OpenRPC schema (section 4) |
 | `internal/api/client/` | The Go client of the API |
 | `internal/server/` | The API's HTTP handler, peer-credential listener and authorizer seam |
 | `internal/daemon/` | `lucy daemon`: runtime dir, lock, socket, store, graceful stop |
 | `internal/config/` | `config.toml`: lucy's settings, and rendering the owner's display title |
+| `internal/spec/` | Spec resources: vendored and lucy schemas, safe YAML decoding, loading, admission, status (section 10) |
+| `internal/jcs/` | RFC 8785 canonical JSON |
+| `internal/audit/` | The hash-chained audit log: entries, projector, verification (section 10) |
 | `internal/` | All packages; nothing is a public Go API yet |
 | `internal/doccheck/` | Doc-rules checker and test |
 | `internal/eventstore/` | The SQLite event store: event log, projections, consumers, migrations (section 3) |
@@ -262,3 +270,38 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 - The version is stamped with `-ldflags "-X main.version=<v>"`; goreleaser sets it.
 - CI also runs `goreleaser check` and a snapshot release build on every pull request; only the
   release workflow publishes, and only its job has write scopes and an OIDC token.
+
+## 10. Spec model and audit log
+
+Built in `internal/spec`, `internal/jcs` and `internal/audit` ([D3b](docs/decisions/D3b-ai-sdlc-spec.md),
+[D11](docs/decisions/D11-spec-loading.md)); operations in the [daemon runbook](docs/runbooks/daemon.md).
+
+- **Resources.** Config is ai-sdlc resources: `apiVersion`, `kind`, `metadata`, `spec`
+  (LUCY-SPEC-001). The core kinds (`Pipeline`, `AgentRole`, `QualityGate`, `AutonomyPolicy`,
+  `AdapterBinding`) are `ai-sdlc.io/v1alpha1`; lucy's (`Airspace`, `Runway`, `Flight`, `Pilot`,
+  schema stubs so far) are `lucy/v1alpha1`. `metadata.namespace` is required and names the
+  airspace (LUCY-SPEC-002).
+- **Schemas.** The spec's schemas at commit `b56ceca` are vendored verbatim under
+  `internal/spec/schemas/ai-sdlc`, each with its SHA-256 in `PROVENANCE`, which a test checks;
+  lucy's own are under `internal/spec/schemas/lucy`. All are embedded and compiled at first use;
+  a `$ref` to anything not embedded fails, and nothing is fetched. Validation is draft 2020-12 with
+  formats asserted and unknown fields refused; defaults are applied to admitted resources
+  (LUCY-SPEC-004).
+- **Loading.** `spec.LoadDir` walks a directory for `.yaml`, `.yml` and `.json` files (hidden ones
+  skipped, symlinks refused), decodes each through a YAML node walker that refuses anchors,
+  aliases, merge keys and custom tags, and admits each document through `spec.Admit`: envelope,
+  known kind, no `status`, namespace present, schema, then defaults. Limits: 1 MiB, 64 documents and
+  100,000 nodes per file; 1,024 files, 16 MiB and 8 levels per tree. `lucy config validate` and the
+  daemon use the same path.
+- **Internal model.** An admitted document becomes a `spec.Resource` keyed by namespace, kind and
+  name, with its canonical spec digest. Only the pinned apiVersion is admitted; another needs an
+  explicit migration into this model first (LUCY-SPEC-005).
+- **Status.** Never read from or written to a file (LUCY-SPEC-003). The daemon records a `Valid`
+  condition per resource as `resource.status` events (stream `config`), `resource.removed` when a
+  resource leaves config and a `config.loaded` summary; the `resource_status` projection holds
+  current conditions, stamping `lastTransitionTime` from event time (LUCY-SPEC-007).
+- **Audit chain.** The `audit` projector turns each event into a schemaVersion 2 entry, hashed as
+  SHA-256 over its RFC 8785 form (`internal/jcs`) and linked to the previous entry's hash, in the
+  event's own transaction; the table refuses UPDATE and DELETE. `audit.VerifyStore` rechecks
+  every hash and link and that every entry is exactly what its event maps to; `audit.VerifyJSONL`
+  verifies exported chains, including the spec's cross-SDK samples (LUCY-SPEC-009).

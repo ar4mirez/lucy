@@ -23,8 +23,25 @@ specification, pinned at commit b56cecaeef256644c3066fae2106af5c7eaa684a:
   ai-sdlc        https://github.com/ai-sdlc-framework/ai-sdlc
                  Apache License, Version 2.0.
 
-When spec text or the ai-sdlc JSON Schemas are vendored into this
-repository, they keep their own licence and notices, and an entry naming
-the vendored files is added here (Apache-2.0, section 4). Any MIT-licensed
-code copied from the projects above will carry its copyright and
-permission notice in a section below.
+Any MIT-licensed code copied from the projects above will carry its
+copyright and permission notice in a section below.
+
+Vendored files
+--------------
+
+The following files are copied unmodified from the ai-sdlc specification
+(https://github.com/ai-sdlc-framework/ai-sdlc) at commit
+b56cecaeef256644c3066fae2106af5c7eaa684a and remain under the Apache
+License, Version 2.0. The upstream repository ships no NOTICE file.
+internal/spec/schemas/ai-sdlc/PROVENANCE lists each file with its source
+path and SHA-256.
+
+  internal/spec/schemas/ai-sdlc/v1alpha1/*.json
+                 the core resource schemas, the shared definitions and the
+                 audit entry schema (spec/schemas)
+  internal/audit/testdata/audit-chain/
+                 the cross-SDK audit chain fixture and sample chains
+                 (conformance/audit-chain)
+  internal/spec/testdata/examples/*.yaml
+                 the spec's resource examples, sections 5.1.3 to 5.5.3 of
+                 spec/spec.md, copied verbatim

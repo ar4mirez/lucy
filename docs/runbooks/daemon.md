@@ -2,9 +2,9 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 4
+version: 5
 owner: ar4mirez
-requirements: [LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003]
+requirements: [LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
 
 # The daemon and its API
@@ -36,6 +36,39 @@ lucy daemon stop            # graceful stop through the API (recorded as an api.
 Every start and stop is in the log as `daemon.started` and `daemon.stopped` (reason `signal`, `api`
 or `error`); every mutating call as `api.command`, appended before the call runs.
 
+## Config and its status
+
+At start the daemon loads the spec resources in `$XDG_CONFIG_HOME/lucy/resources` (or
+`--resources <dir>`; a missing directory means none) exactly as `lucy config validate` does, then
+records the outcome in the `config` stream: a `resource.status` event for each resource whose status
+changed, `resource.removed` for one no longer in config, and a `config.loaded` summary. It never
+writes a config file. Refused resources do not stop the daemon; they are recorded with
+`Valid=False` and are not admitted. A directory it cannot read at all, or one over the limits
+(1,024 files, 16 MiB, 8 levels), does stop it.
+
+```sh
+lucy config validate ~/.config/lucy/resources   # offline: each resource's Valid condition and every violation
+lucy config status                              # the daemon's view: resources and their conditions
+```
+
+Change config by editing the files and restarting the daemon. Recorded violation messages carry
+only the paths; `lucy config validate` shows the full messages.
+
+## The audit chain
+
+Every event is also an audit entry in the ai-sdlc wire format, written in the same transaction and
+chained by SHA-256 over RFC 8785 canonical JSON ([D11](../decisions/D11-spec-loading.md)).
+
+```sh
+lucy audit verify                       # the daemon's chain, checked against its event log
+lucy audit export > chain.jsonl         # the chain as JSON Lines
+lucy audit verify --file chain.jsonl    # offline; also verifies chains other ai-sdlc SDKs wrote
+```
+
+`audit: broken` names the first event whose entry fails and why: the event or its entry was changed
+outside lucy, or one of them is missing. Stop the daemon, keep the database file and its
+pre-migration snapshots for inspection, and compare against a backup; lucy never repairs a chain.
+
 ## Policy decisions
 
 The daemon decides privileged actions through its policy engine and records every decision as a
@@ -60,6 +93,8 @@ a rule failed. The daemon's log has the cause. A changed rule set is a new `rule
 | `socket path too long` | The path passes the OS limit (107 bytes on Linux, 103 on macOS). Set `XDG_RUNTIME_DIR` or `--socket` to a shorter path |
 | A client hangs up with no answer, and `refused_connections` grows | A process of another user tried the socket; the peer check refused it. The daemon logs each refusal with the peer's uid and pid |
 | `internal error` with a `request_id` | The daemon's stderr log has the details under that id; the client never sees them |
+| `spec: cannot load config` at start | The resources path is not a readable directory, or is over the limits. Fix it, or point `--resources` elsewhere |
+| `config loaded ... refused=N` in the log | N documents were refused; `lucy config validate` shows why |
 
 ## Add an API method
 

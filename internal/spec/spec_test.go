@@ -290,6 +290,24 @@ func TestLoadDir(t *testing.T) {
 	}
 }
 
+// TestLoadDirThroughSymlink loads a config directory that is itself a symlink, as a dotfiles
+// setup makes it; symlinks below it are still refused.
+func TestLoadDirThroughSymlink(t *testing.T) {
+	real := t.TempDir()
+	writeFile(t, real, "airspace.yaml", airspace)
+	link := filepath.Join(t.TempDir(), "resources")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	set, err := LoadDir(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set.Dir != link || len(set.Admitted()) != 1 || set.Results[0].Source.File != "airspace.yaml" {
+		t.Fatalf("set %+v", set)
+	}
+}
+
 func TestLoadDirLimits(t *testing.T) {
 	if _, err := LoadDir(filepath.Join(t.TempDir(), "missing")); !errors.Is(err, ErrLoad) {
 		t.Fatalf("missing dir: %v", err)

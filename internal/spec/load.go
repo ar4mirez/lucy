@@ -63,8 +63,8 @@ func IsConfigFile(name string) bool {
 
 // LoadDir reads every config file under dir and admits each document in it (Admit). Hidden files
 // and directories are skipped, as are files that are not .yaml, .yml or .json. Symlinks are never
-// followed: a symlinked config file is refused, so config cannot be pulled in from outside the
-// directory. Problems with single files or documents are results, not errors; the error is for a
+// followed below dir: a symlinked config file is refused, so config cannot be pulled in from
+// outside the directory. dir itself may be a symlink. Problems with single files or documents are results, not errors; the error is for a
 // directory that cannot be read or exceeds the limits.
 //
 // Duplicate resources (the same namespace, kind and name) are all refused but the first.
@@ -77,15 +77,19 @@ func LoadDir(dir string) (Set, error) {
 	if !fi.IsDir() {
 		return set, fmt.Errorf("%w: %s is not a directory", ErrLoad, dir)
 	}
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return set, fmt.Errorf("%w: %w", ErrLoad, err)
+	}
 	files, total := 0, int64(0)
-	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		rel, relErr := filepath.Rel(dir, p)
+	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		rel, relErr := filepath.Rel(root, p)
 		if relErr != nil {
 			return relErr
 		}
 		rel = filepath.ToSlash(rel)
 		if err != nil {
-			if p == dir {
+			if p == root {
 				return err
 			}
 			set.Results = append(set.Results, fileProblem(rel, ReasonUnreadable, clip(err.Error())))
@@ -94,7 +98,7 @@ func LoadDir(dir string) (Set, error) {
 			}
 			return nil
 		}
-		if p == dir {
+		if p == root {
 			return nil
 		}
 		name := d.Name()

@@ -13,7 +13,7 @@ generated: true
 Generated from the requirement tables in [docs/prd](prd/README.md). Do not edit by hand:
 run `mise run docs-index` after changing a PRD table. CI fails when this file is stale.
 
-136 requirements (m0: 55, m1: 54, m2: 13, m3: 8, m4: 6). Milestone plans: [docs/milestones](milestones/README.md).
+136 requirements (m0: 53, m1: 56, m2: 13, m3: 8, m4: 6). Milestone plans: [docs/milestones](milestones/README.md).
 
 ## [foundation](prd/foundation.md)
 
@@ -154,11 +154,11 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 | LUCY-SPEC-003 | m0 | Config files hold spec; the database holds status and never writes back into config |
 | LUCY-SPEC-004 | m0 | The spec's JSON Schemas are vendored at the pinned commit; config is validated on load (2020-12, unknown fields rejected) |
 | LUCY-SPEC-005 | m0 | Spec resources map through an internal model, so a spec bump never breaks an org |
-| LUCY-SPEC-006 | m0 | lucy kinds (Org, Project, Account, Task, Session, client-confirm) live under lucy's own apiVersion with schemas |
+| LUCY-SPEC-006 | m0 | lucy kinds live under lucy's own apiVersion (`lucy/v1alpha1`) with schemas: Airspace, Runway, Flight and Pilot first, Account, Session and the client-confirm route later |
 | LUCY-SPEC-007 | m0 | Status is reported as conditions (True, False, Unknown with a reason) on every surface |
-| LUCY-SPEC-008 | m0 | Converge loops are level-triggered, idempotent reconcilers with backoff, woken by the event log |
+| LUCY-SPEC-008 | m1 | Converge loops are level-triggered, idempotent reconcilers with backoff, woken by the event log |
 | LUCY-SPEC-009 | m0 | The audit log is a hash chain (RFC 8785 + SHA-256) that passes the spec's cross-SDK fixture |
-| LUCY-SPEC-010 | m0 | QualityGate and AutonomyPolicy are modelled and validated; the owner is the only override role |
+| LUCY-SPEC-010 | m1 | QualityGate and AutonomyPolicy are modelled and validated; the owner is the only override role |
 | LUCY-SPEC-011 | m0 | The vendored schemas validate the spec's own examples in CI |
 | LUCY-SPEC-012 | m1 | Dispatch is refused until a task has a goal, delivery path, autonomy and acceptance test (readiness check) |
 | LUCY-SPEC-013 | m1 | Decisions waiting on the owner are Decision resources projected from the event log; only the owner's words close them |

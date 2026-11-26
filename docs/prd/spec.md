@@ -2,7 +2,7 @@
 id: prd-spec
 title: "PRD: ai-sdlc spec model"
 status: active
-version: 2
+version: 3
 owner: ar4mirez
 requirements: [LUCY-SPEC-001, LUCY-SPEC-002, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-006, LUCY-SPEC-007, LUCY-SPEC-008, LUCY-SPEC-009, LUCY-SPEC-010, LUCY-SPEC-011, LUCY-SPEC-012, LUCY-SPEC-013, LUCY-SPEC-014, LUCY-SPEC-015, LUCY-SPEC-016, LUCY-SPEC-017, LUCY-SPEC-018, LUCY-SPEC-019, LUCY-SPEC-020]
 ---
@@ -21,11 +21,11 @@ the Source column below names the spec section, RFC or schema each requirement c
 | LUCY-SPEC-003 | Config files hold spec; the database holds status and never writes back into config | m0 | spec 4 |
 | LUCY-SPEC-004 | The spec's JSON Schemas are vendored at the pinned commit; config is validated on load (2020-12, unknown fields rejected) | m0 | spec 7, 8 |
 | LUCY-SPEC-005 | Spec resources map through an internal model, so a spec bump never breaks an org | m0 | P2-13 |
-| LUCY-SPEC-006 | lucy kinds (Org, Project, Account, Task, Session, client-confirm) live under lucy's own apiVersion with schemas | m0 | spec 10 |
+| LUCY-SPEC-006 | lucy kinds live under lucy's own apiVersion (`lucy/v1alpha1`) with schemas: Airspace, Runway, Flight and Pilot first, Account, Session and the client-confirm route later | m0 | spec 10 |
 | LUCY-SPEC-007 | Status is reported as conditions (True, False, Unknown with a reason) on every surface | m0 | spec 6 |
-| LUCY-SPEC-008 | Converge loops are level-triggered, idempotent reconcilers with backoff, woken by the event log | m0 | spec 9 |
+| LUCY-SPEC-008 | Converge loops are level-triggered, idempotent reconcilers with backoff, woken by the event log | m1 | spec 9 |
 | LUCY-SPEC-009 | The audit log is a hash chain (RFC 8785 + SHA-256) that passes the spec's cross-SDK fixture | m0 | spec 12 |
-| LUCY-SPEC-010 | QualityGate and AutonomyPolicy are modelled and validated; the owner is the only override role | m0 | spec 5.3, 5.4 |
+| LUCY-SPEC-010 | QualityGate and AutonomyPolicy are modelled and validated; the owner is the only override role | m1 | spec 5.3, 5.4 |
 | LUCY-SPEC-011 | The vendored schemas validate the spec's own examples in CI | m0 | D3b |
 | LUCY-SPEC-012 | Dispatch is refused until a task has a goal, delivery path, autonomy and acceptance test (readiness check) | m1 | RFC-0011 |
 | LUCY-SPEC-013 | Decisions waiting on the owner are Decision resources projected from the event log; only the owner's words close them | m1 | RFC-0035 |
