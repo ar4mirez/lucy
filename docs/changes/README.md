@@ -25,4 +25,5 @@ The release runbook ([docs/runbooks/release.md](../runbooks/release.md)) runs th
 
 ## Versions
 
+- [0.2.0](0.2.0.md) (2026-11-26)
 - [0.1.0](0.1.0.md) (2026-11-26)
