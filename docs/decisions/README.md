@@ -2,7 +2,7 @@
 id: decisions
 title: Decisions
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: []
 ---
@@ -26,6 +26,7 @@ new ADR whose front matter says `supersedes`.
 | [D7](D7-distribution-mise.md) | Distribute through mise and GitHub Releases | accepted |
 | [D8](D8-built-in-vs-external.md) | Built-in vs external inventory; full setup | accepted |
 | [D9](D9-doc-structure.md) | Repository doc structure and doc rules | accepted |
+| [D10](D10-api-json-rpc.md) | The one API is restricted JSON-RPC 2.0 with a generated OpenRPC schema | accepted |
 | [R1](R1-adversarial-review.md) | Adversarial architecture review, adopted in full | accepted |
 
 ## Format
@@ -33,4 +34,5 @@ new ADR whose front matter says `supersedes`.
 Front matter: `id`, `title`, `status` (`accepted`, `superseded` or `draft`), `version`, `owner`,
 `requirements` (the IDs this decision drives), `decided` (date), and `supersedes` or
 `superseded_by` when they apply. Body: **Context**, **Decision**, **Consequences**, and
-**Revisions** when the decision changed. All decisions here were made by Angel on 2026-11-26.
+**Revisions** when the decision changed. D1 to D9 and R1 were made by Angel on 2026-11-26; D10 was
+delegated to m0 slice 4 under a stated rule, which its Context records.

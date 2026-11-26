@@ -2,7 +2,7 @@
 id: runbooks
 title: Runbooks
 status: active
-version: 3
+version: 4
 owner: ar4mirez
 requirements: []
 ---
@@ -17,4 +17,5 @@ the result.
 | [release.md](release.md) | Cutting a lucy release |
 | [verify-release.md](verify-release.md) | Verifying a release's signature, checksums and attestation |
 | [repository-settings.md](repository-settings.md) | Setting up or auditing the GitHub repository's settings |
+| [daemon.md](daemon.md) | Running, checking or stopping the daemon; adding an API method |
 | [database.md](database.md) | Adding an event type or migration; upgrading, rolling back or inspecting the database |

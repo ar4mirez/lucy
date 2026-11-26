@@ -2,7 +2,7 @@
 id: agents
 title: Instructions for coding agents
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-REPO-002, LUCY-REPO-004, LUCY-REPO-007]
 ---
@@ -35,7 +35,7 @@ Toolchain: `mise install` (Go is pinned in `mise.toml` and `go.mod`). On shared 
 
 ## Layout
 
-- `cmd/lucy/`: the lucy binary (version, help and self-update so far).
+- `cmd/lucy/`: the lucy binary (version, help, self-update, `daemon`, `status` and `events` so far).
 - `internal/doccheck/`: the doc-rules checker and its test.
 - `docs/`: PRD, milestones, decisions, runbooks, security, changes, and the generated index.
 - `.github/`: CI and Dependabot.

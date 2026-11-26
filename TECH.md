@@ -2,15 +2,15 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 3
+version: 5
 owner: ar4mirez
-requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-RUN-001, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007]
+requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-RUN-001, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007]
 ---
 
 # lucy: technical specification
 
-Status: m0. The skeleton, the release pipeline and the event store (section 3) exist; the rest below
-is the design the m0-m3 slices build.
+Status: m0. The skeleton, the release pipeline, the event store (section 3) and the first part of the
+API with `lucy daemon` (section 4) exist; the rest below is the design the m0-m3 slices build.
 
 ## 1. Shape
 
@@ -92,11 +92,37 @@ Built in `internal/eventstore`; operations in the [database runbook](docs/runboo
 
 ## 4. API
 
-One typed API (JSON-RPC or Connect; chosen in m0 slice 4) on a 0600 unix socket, the same over HTTPS
-and WebSocket for remote surfaces (LUCY-API-001). Messages: `hello`/`welcome`, `query`,
-`subscribe(from_seq, filter)`, `attach(session, view|input, from_seq)`, `input`, and
-`command(steer | decide | dispatch | stop | merge)` (LUCY-API-002). Every call passes the policy
-engine; every command is an audit entry.
+One typed API on a 0600 unix socket, the same over HTTPS and WebSocket for remote surfaces
+(LUCY-API-001). Messages: `hello`/`welcome`, `query`, `subscribe(from_seq, filter)`,
+`attach(session, view|input, from_seq)`, `input`, and `command(steer | decide | dispatch | stop |
+merge)` (LUCY-API-002). Every call passes the policy engine; every command is an audit entry.
+Operations: [daemon runbook](docs/runbooks/daemon.md).
+
+- **Protocol** ([D10](docs/decisions/D10-api-json-rpc.md)): restricted JSON-RPC 2.0, one request per
+  HTTP/1.1 POST to `/rpc/v1`. The method table in `internal/api` declares every method's scope,
+  whether it mutates, and its params and result types; `internal/api/openrpc.json` is generated
+  from it, committed and served by `rpc.discover` (LUCY-API-007). Built so far: `hello`, `health`,
+  `status.get`, `events.list` (pages the event log), `rpc.discover` and `daemon.shutdown`.
+- **Transport and identity.** `lucy daemon` listens on `$XDG_RUNTIME_DIR/lucy/lucy.sock` (0600 in a
+  0700 dir, one daemon per dir by `flock`). Each connection's peer credentials (SO_PEERCRED on
+  Linux, LOCAL_PEERCRED on macOS) must name the daemon's own uid, or it is closed unread; the
+  accepted caller (uid, gid, pid, device `local`) rides on the request context (LUCY-API-003).
+- **Authorization seam.** An `Authorizer` grants scopes (read, decide, steer, attach-view,
+  attach-input, admin) and checks each call's scope before its params are decoded. Today only the
+  local owner holds scopes; the policy engine adds org and task checks (LUCY-API-004).
+- **Recording.** A mutating call is appended as an `api.command` event (method, request id, caller,
+  params digest) before it runs, and does not run if the append fails (LUCY-API-005).
+- **Limits** (LUCY-API-006): 64 KiB bodies, 32 levels of nesting, 8 KiB headers; 5 s to read
+  headers, 15 s per request body, 30 s to write, 60 s idle, 10 s per call; 64 connections. Params
+  are decoded strictly: no unknown, duplicate or case-folded members, bounds from struct tags.
+- **Errors** (LUCY-API-008): JSON-RPC codes plus lucy's (-32001 forbidden, -32002 unsupported
+  version, -32003 too large, -32004 unavailable, -32005 timeout), one fixed message and `kind` per
+  code; internal errors are logged with a correlation id, which is all the caller sees.
+- **Remote transport (m1).** The handler is transport-neutral; HTTPS needs only a TLS listener and a
+  device authenticator. No network listener exists in m0: remote HTTPS with device pairing, scoped
+  credentials and TLS lands in m1 (LUCY-VIEW-006).
+- **Clients.** `internal/api/client` is the Go client: strict about the envelope, tolerant of new
+  result fields. The CLI's `lucy status`, `lucy events` and `lucy daemon stop` use it.
 
 ## 5. Orgs, runners and sessions
 
@@ -137,6 +163,9 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 - `modernc.org/sqlite` (with its `modernc.org/libc` runtime and their small dependencies): the
   SQLite engine translated to Go, so the binary stays static and cross-compiled without cgo
   (LUCY-EVT-001, LUCY-REL-001).
+- `golang.org/x/sys`, already pulled in by `modernc.org/sqlite` and direct since m0 slice 4: the
+  peer-credential syscalls (`SO_PEERCRED`, `LOCAL_PEERCRED`) behind the socket's identity check
+  (LUCY-API-003).
 - `gopkg.in/yaml.v3`, used only by tests: `internal/workflowcheck` parses the workflows so their
   permission and pinning rules, a security baseline (LUCY-REL, checklist area 5), do not pass or fail
   on formatting.
@@ -145,7 +174,11 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 
 | Path | Contents |
 |---|---|
-| `cmd/lucy/` | The binary's entrypoint (version, help and self-update so far) |
+| `cmd/lucy/` | The binary's entrypoint: version, help, self-update, `daemon`, `status`, `events` |
+| `internal/api/` | The API's method table, wire format, errors and generated OpenRPC schema (section 4) |
+| `internal/api/client/` | The Go client of the API |
+| `internal/server/` | The API's HTTP handler, peer-credential listener and authorizer seam |
+| `internal/daemon/` | `lucy daemon`: runtime dir, lock, socket, store, graceful stop |
 | `internal/` | All packages; nothing is a public Go API yet |
 | `internal/doccheck/` | Doc-rules checker and test |
 | `internal/eventstore/` | The SQLite event store: event log, projections, consumers, migrations (section 3) |

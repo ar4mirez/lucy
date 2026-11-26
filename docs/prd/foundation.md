@@ -2,9 +2,9 @@
 id: prd-foundation
 title: "PRD: repository, releases, event store, API and policy"
 status: active
-version: 3
+version: 4
 owner: ar4mirez
-requirements: [LUCY-REPO-001, LUCY-REPO-002, LUCY-REPO-003, LUCY-REPO-004, LUCY-REPO-005, LUCY-REPO-006, LUCY-REPO-007, LUCY-REPO-008, LUCY-REL-001, LUCY-REL-002, LUCY-REL-003, LUCY-REL-004, LUCY-REL-005, LUCY-REL-006, LUCY-REL-007, LUCY-REL-008, LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005]
+requirements: [LUCY-REPO-001, LUCY-REPO-002, LUCY-REPO-003, LUCY-REPO-004, LUCY-REPO-005, LUCY-REPO-006, LUCY-REPO-007, LUCY-REPO-008, LUCY-REL-001, LUCY-REL-002, LUCY-REL-003, LUCY-REL-004, LUCY-REL-005, LUCY-REL-006, LUCY-REL-007, LUCY-REL-008, LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005]
 ---
 
 # PRD: repository, releases, event store, API and policy
@@ -59,6 +59,8 @@ Design background: [TECH.md](../../TECH.md) and the decisions in [docs/decisions
 | LUCY-API-004 | Every call checks the caller's scope and the object's org and task through the policy engine | m0 | checklist 2.5 |
 | LUCY-API-005 | Every command becomes an audit entry naming the actor and device | m0 | STRIDE 1-R |
 | LUCY-API-006 | Requests are strict typed JSON: unknown fields rejected, sizes bounded, no native deserialization | m0 | checklist 2.7 |
+| LUCY-API-007 | The API is versioned (major version in the path, negotiated by hello) and its schema is generated from one method table and committed | m0 | P1-8, D10 |
+| LUCY-API-008 | API errors are typed: one fixed message per code, details only about the caller's input, internal error text never sent | m0 | checklist 2.2, D10 |
 
 ## POL: policy engine
 

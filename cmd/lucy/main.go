@@ -1,7 +1,7 @@
 // Command lucy is a headless supervisor for autonomous coding agents.
 //
-// m0 so far: version, help and self-update. Everything else lands in later m0
-// slices (see docs/milestones/m0.md).
+// m0 so far: version, help, self-update, the daemon and the first API clients (status, events).
+// Everything else lands in later m0 slices (see docs/milestones/m0.md).
 package main
 
 import (
@@ -21,6 +21,10 @@ Usage:
   lucy [flags]
   lucy version
   lucy self-update [--to <version> | --check]
+  lucy daemon [--socket <path>] [--db <path>]
+  lucy daemon stop
+  lucy status
+  lucy events [--after <seq>] [--limit <n>]
 
 Flags:
   -h, --help       show this help
@@ -29,6 +33,11 @@ Flags:
 Commands:
   version        print the version
   self-update    update lucy through mise, which installed it
+  daemon         run the daemon: the API on a unix socket, over the event store
+  status         show the running daemon's status, through its API
+  events         list events from the daemon's log
+
+Run ` + "`lucy <command> --help`" + ` for a command's flags.
 
 Status: m0 in progress; only these commands exist so far.
 Docs: https://github.com/ar4mirez/lucy
@@ -53,6 +62,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "self-update":
 		return selfupdate.New(version).Run(args[1:], stdout, stderr)
+	case "daemon":
+		return runDaemon(args[1:], stdout, stderr)
+	case "status":
+		return runStatus(args[1:], stdout, stderr)
+	case "events":
+		return runEvents(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "error: unknown command or flag %q\nhelp: run `lucy --help`\n", args[0])
 		return 2

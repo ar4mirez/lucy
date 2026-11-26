@@ -2,7 +2,7 @@
 id: readme
 title: lucy
 status: active
-version: 3
+version: 4
 owner: ar4mirez
 requirements: [LUCY-REPO-001, LUCY-REPO-006]
 ---
@@ -18,8 +18,9 @@ deterministic policy decides what actually happens.
 ## Status
 
 **m0 (foundation) in progress.** This repository holds the skeleton, the signed release pipeline, the
-event store (not yet wired to a command) and the design docs; the binary only prints its version and
-help and updates itself. Nothing here runs agents yet. See the
+event store, the first part of the typed API with `lucy daemon` and the design docs; the binary
+prints its version and help, updates itself, and runs a daemon that `lucy status` and `lucy events`
+talk to over a local socket. Nothing here runs agents yet. See the
 [m0 brief](docs/milestones/m0.md) for what lands next and [PRODUCT.md](PRODUCT.md) for the plan.
 
 ## Install
