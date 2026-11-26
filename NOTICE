@@ -1,0 +1,30 @@
+lucy
+Copyright 2026 the lucy authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Attributions
+------------
+
+lucy is a from-scratch rewrite. Its design is informed by the following
+projects; no source code or substantial text from them is included in this
+repository at this time.
+
+  firstmate      https://github.com/kunchenguid/firstmate
+                 Copyright (c) 2026 Kun Chen. MIT License.
+  treehouse      https://github.com/kunchenguid/treehouse
+                 Copyright (c) 2026 kunchenguid. MIT License.
+  no-mistakes    https://github.com/kunchenguid/no-mistakes
+                 Copyright (c) 2026 Kun Chen. MIT License.
+
+lucy adopts concepts, resource kinds and schemas from the ai-sdlc
+specification, pinned at commit b56cecaeef256644c3066fae2106af5c7eaa684a:
+
+  ai-sdlc        https://github.com/ai-sdlc-framework/ai-sdlc
+                 Apache License, Version 2.0.
+
+When spec text or the ai-sdlc JSON Schemas are vendored into this
+repository, they keep their own licence and notices, and an entry naming
+the vendored files is added here (Apache-2.0, section 4). Any MIT-licensed
+code copied from the projects above will carry its copyright and
+permission notice in a section below.
