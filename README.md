@@ -25,8 +25,7 @@ help and updates itself. Nothing here runs agents yet. See the
 ## Install
 
 lucy installs through [mise](https://mise.jdx.dev) from GitHub Releases, on Linux and macOS (amd64
-and arm64). No release is published yet; the release pipeline is merged and the captain cuts the
-first tag.
+and arm64). The first release is 0.1.0 ([what it contains](docs/changes/0.1.0.md)).
 
 ```sh
 mise use -g github:ar4mirez/lucy@latest     # or a pinned version: github:ar4mirez/lucy@0.1.0
