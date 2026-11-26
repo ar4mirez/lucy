@@ -1,0 +1,141 @@
+package tower
+
+import (
+	"github.com/ar4mirez/lucy/internal/eventstore"
+	"github.com/ar4mirez/lucy/internal/policy"
+)
+
+// A flight's events, on its stream "task/<org>/<id>". The log holds the neutral id task for a
+// flight (GLOSSARY.md); the Tower's state is a projection of these events, rebuilt on restart.
+
+// Dispatched starts a flight.
+type Dispatched struct {
+	Org        string             `json:"org"`
+	Project    string             `json:"project"`
+	Goal       string             `json:"goal"`
+	Base       string             `json:"base"`
+	Posture    policy.Posture     `json:"posture"`
+	Exceptions []policy.Exception `json:"exceptions,omitempty"`
+}
+
+// PilotStarted records a Pilot session started for the flight.
+type PilotStarted struct {
+	Session    string `json:"session"`
+	Generation int    `json:"generation"`
+}
+
+// PilotAsked records the Pilot's question; the flight waits on the owner's answer.
+type PilotAsked struct {
+	Session  string `json:"session"`
+	Question string `json:"question"` // untrusted agent output, capped
+}
+
+// PilotAnswered records that the owner answered. The answer itself is not kept, only its digest.
+type PilotAnswered struct {
+	Session      string `json:"session"`
+	AnswerSHA256 string `json:"answer_sha256"`
+}
+
+// Pilot exits.
+const (
+	ExitDone    = "done"    // finished with a pull request
+	ExitFailed  = "failed"  // the Pilot gave up
+	ExitLost    = "lost"    // the session crashed or vanished
+	ExitStopped = "stopped" // the Tower stopped it
+)
+
+// PilotExited records that a Pilot session ended.
+type PilotExited struct {
+	Session    string `json:"session"`
+	Generation int    `json:"generation"`
+	Exit       string `json:"exit"`
+	PR         int    `json:"pr,omitempty"`
+	Reason     string `json:"reason,omitempty"` // untrusted agent output when the Pilot failed, capped
+}
+
+// PRObserved records the pull request's facts whenever they change.
+type PRObserved struct {
+	PullRequest
+}
+
+// Approved records the owner's approval of one merge under the facts the owner saw. It binds to
+// the action and facts digests (internal/policy), so it lapses when the head or base moves.
+type Approved struct {
+	policy.Approval
+}
+
+// Cleared records the Tower's clearance for a merge: the policy.decision event at DecisionSeq,
+// appended in the same transaction.
+type Cleared struct {
+	DecisionSeq  int64          `json:"decision_seq"`
+	Outcome      policy.Outcome `json:"outcome"`
+	Rule         string         `json:"rule"`
+	HeadSHA      string         `json:"head_sha"` // the head commit the decision was about
+	ActionSHA256 string         `json:"action_sha256"`
+	FactsSHA256  string         `json:"facts_sha256"`
+}
+
+// MergeFailed records a merge the forge refused after a clearance.
+type MergeFailed struct {
+	PR      int    `json:"pr"`
+	HeadSHA string `json:"head_sha"`
+	Reason  string `json:"reason"` // conflict, head_moved or error
+}
+
+// Takeoff records the merge.
+type Takeoff struct {
+	PR          int    `json:"pr"`
+	HeadSHA     string `json:"head_sha"`
+	MergeSHA    string `json:"merge_sha"`
+	DecisionSeq int64  `json:"decision_seq"` // the cleared policy.decision it rested on
+}
+
+// Grounding reasons.
+const (
+	GroundStartFailed = "start_failed" // the runtime could not start a Pilot
+	GroundPilotFailed = "pilot_failed" // the Pilot gave up
+	GroundPilotLost   = "pilot_lost"   // the Pilot was lost more often than the Tower restarts it
+	GroundTimeout     = "pilot_timeout"
+	GroundStalled     = "stalled" // the pull request made no progress toward a clearance
+	GroundClosed      = "pr_closed"
+)
+
+// Grounded ends a flight without a takeoff.
+type Grounded struct {
+	Reason string `json:"reason"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// EventType and EventVersion implement eventstore.Payload.
+func (Dispatched) EventType() string    { return "task.dispatched" }
+func (PilotStarted) EventType() string  { return "task.pilot_started" }
+func (PilotAsked) EventType() string    { return "task.pilot_asked" }
+func (PilotAnswered) EventType() string { return "task.pilot_answered" }
+func (PilotExited) EventType() string   { return "task.pilot_exited" }
+func (PRObserved) EventType() string    { return "task.pr_observed" }
+func (Approved) EventType() string      { return "task.approved" }
+func (Cleared) EventType() string       { return "task.clearance" }
+func (MergeFailed) EventType() string   { return "task.merge_failed" }
+func (Takeoff) EventType() string       { return "task.takeoff" }
+func (Grounded) EventType() string      { return "task.grounded" }
+
+func (Dispatched) EventVersion() int    { return 1 }
+func (PilotStarted) EventVersion() int  { return 1 }
+func (PilotAsked) EventVersion() int    { return 1 }
+func (PilotAnswered) EventVersion() int { return 1 }
+func (PilotExited) EventVersion() int   { return 1 }
+func (PRObserved) EventVersion() int    { return 1 }
+func (Approved) EventVersion() int      { return 1 }
+func (Cleared) EventVersion() int       { return 1 }
+func (MergeFailed) EventVersion() int   { return 1 }
+func (Takeoff) EventVersion() int       { return 1 }
+func (Grounded) EventVersion() int      { return 1 }
+
+// Payloads returns a sample of every event the Tower appends, for an eventstore.Registry. The
+// Tower also appends policy.DecisionRecord.
+func Payloads() []eventstore.Payload {
+	return []eventstore.Payload{
+		Dispatched{}, PilotStarted{}, PilotAsked{}, PilotAnswered{}, PilotExited{}, PRObserved{},
+		Approved{}, Cleared{}, MergeFailed{}, Takeoff{}, Grounded{},
+	}
+}
