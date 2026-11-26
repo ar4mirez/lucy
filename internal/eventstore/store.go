@@ -319,6 +319,9 @@ func insideGitWorkTree(dir string) (string, bool) {
 // Path is the database file's absolute path.
 func (s *Store) Path() string { return s.path }
 
+// Registry returns the registry the store was opened with, for decoding the events it returns.
+func (s *Store) Registry() *Registry { return s.reg }
+
 // Close closes the store. It is safe to call more than once.
 func (s *Store) Close() error {
 	s.closeOnce.Do(func() {

@@ -58,8 +58,8 @@ func TestMethodTable(t *testing.T) {
 		if m.Mutating && m.Group != "command" {
 			t.Errorf("%s: a mutating method must be a command", m.Name)
 		}
-		if err := DecodeParams(nil, m.NewParams()); err != nil && m.Name != MethodHello {
-			t.Errorf("%s: empty params refused: %v", m.Name, err)
+		if err := DecodeParams(nil, m.NewParams()); err != nil && m.Name != MethodHello && m.Name != MethodEvaluate {
+			t.Errorf("%s: empty params refused: %v (only methods with required params may refuse them)", m.Name, err)
 		}
 		schemaOf(m.Params, bounds{}, true)
 		if _, ok := Lookup(m.Name); !ok {

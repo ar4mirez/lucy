@@ -17,6 +17,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/api/client"
 	"github.com/ar4mirez/lucy/internal/eventstore"
+	"github.com/ar4mirez/lucy/internal/policy"
 )
 
 // note is a test payload type.
@@ -56,7 +57,7 @@ type fixture struct {
 func start(t *testing.T, allowUID, maxConns int, tweak func(*Options), onRefuse ...func(PeerCred, error)) *fixture {
 	t.Helper()
 	dir := shortTempDir(t)
-	reg, err := eventstore.NewRegistry(CommandEvent{}, note{})
+	reg, err := eventstore.NewRegistry(CommandEvent{}, policy.DecisionRecord{}, note{})
 	if err != nil {
 		t.Fatal(err)
 	}

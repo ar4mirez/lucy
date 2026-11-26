@@ -22,12 +22,14 @@ func typeOf[T any]() reflect.Type { return reflect.TypeFor[T]() }
 
 // Method names.
 const (
-	MethodDiscover = "rpc.discover"
-	MethodHello    = "hello"
-	MethodHealth   = "health"
-	MethodStatus   = "status.get"
-	MethodEvents   = "events.list"
-	MethodShutdown = "daemon.shutdown"
+	MethodDiscover  = "rpc.discover"
+	MethodHello     = "hello"
+	MethodHealth    = "health"
+	MethodStatus    = "status.get"
+	MethodEvents    = "events.list"
+	MethodShutdown  = "daemon.shutdown"
+	MethodEvaluate  = "policy.evaluate"
+	MethodDecisions = "policy.decisions"
 )
 
 var methods = []Method{
@@ -37,6 +39,8 @@ var methods = []Method{
 	{MethodStatus, "The daemon's version, uptime and event log head.", "query", ScopeRead, false, typeOf[NoParams](), typeOf[Status]()},
 	{MethodEvents, "Events from the log after a sequence number, oldest first.", "query", ScopeRead, false, typeOf[EventsParams](), typeOf[EventsPage]()},
 	{MethodShutdown, "Stop the daemon gracefully after answering.", "command", ScopeAdmin, true, typeOf[NoParams](), typeOf[ShutdownResult]()},
+	{MethodEvaluate, "Ask the policy engine to decide an action; the decision is recorded before it is returned.", "command", ScopeDecide, true, typeOf[EvaluateParams](), typeOf[PolicyDecision]()},
+	{MethodDecisions, "Recorded policy decisions, oldest first.", "query", ScopeRead, false, typeOf[DecisionsParams](), typeOf[DecisionsPage]()},
 }
 
 // NewParams returns a pointer to a new, zero params value for the method, ready for DecodeParams.
@@ -134,4 +138,56 @@ type EventInfo struct {
 // ShutdownResult answers daemon.shutdown.
 type ShutdownResult struct {
 	Stopping bool `json:"stopping" doc:"True: the daemon stops after this response."`
+}
+
+// EvaluateParams asks the policy engine about one action. The actor is the caller, as the daemon
+// identified it; the facts (posture, checks, approvals, resolved paths) are the daemon's own and
+// cannot be supplied here.
+type EvaluateParams struct {
+	Kind     string        `json:"kind" lucy:"required,maxlen=32" doc:"The action: read, write, merge, delete, force_push, branch_delete, history_rewrite or credential_use."`
+	Org      string        `json:"org" lucy:"required,maxlen=128" doc:"The org the target belongs to."`
+	Project  string        `json:"project,omitempty" lucy:"maxlen=128" doc:"The project (repository), when the action has one."`
+	Resource string        `json:"resource,omitempty" lucy:"maxlen=4096" doc:"What the action is on: a PR (pr/12), an absolute path, a branch or a credential name."`
+	Inputs   []PolicyInput `json:"inputs,omitempty" lucy:"maxitems=31" doc:"What the request is based on, each with its source. The caller's own request is added as a captain input."`
+}
+
+// PolicyInput is one input behind a request: where it came from and a reference to it.
+type PolicyInput struct {
+	Source string `json:"source" lucy:"required,maxlen=32" doc:"captain, config, daemon, task, agent, tool_output, repo_content, issue, pr_body, pr_comment, web or email."`
+	Ref    string `json:"ref,omitempty" lucy:"maxlen=128" doc:"A reference to the input: an event, URL or comment id. Never the text itself."`
+}
+
+// PolicyDecision is one recorded policy decision.
+type PolicyDecision struct {
+	Seq            int64     `json:"seq" doc:"The decision event's position in the whole log."`
+	ID             int64     `json:"id" doc:"The decision's position in the policy stream; pass as after to page."`
+	Time           time.Time `json:"time" doc:"When it was recorded, UTC."`
+	Outcome        string    `json:"outcome" doc:"allow, deny or require-captain."`
+	Rule           string    `json:"rule" doc:"The rule that decided."`
+	Reason         string    `json:"reason" doc:"Why, in one line."`
+	RuleSetVersion int       `json:"ruleset_version" doc:"The version of the rule set that decided."`
+	RuleSetSHA256  string    `json:"ruleset_sha256" doc:"The SHA-256 of that rule set."`
+	ActionSHA256   string    `json:"action_sha256" doc:"The digest of the action (actor, kind, target) an approval must name."`
+	FactsSHA256    string    `json:"facts_sha256" doc:"The digest of the facts the approver saw (a merge's head SHA, base ref and base SHA; a delete's resolved path; a credential's scope; the default branch for force-push, branch delete and history rewrite) an approval must also name; an approval for the same action under other facts is denied."`
+	Tainted        bool      `json:"tainted" doc:"Whether any input came from an untrusted source."`
+	ApprovalsUsed  []string  `json:"approvals_used,omitempty" doc:"The approval decisions an allow rested on, in the order the rules used them (a fixed-list captain approval before a relayed client confirmation); empty for a deny or require-captain."`
+	Actor          string    `json:"actor" doc:"Who asked."`
+	Role           string    `json:"role" doc:"The actor's role."`
+	Kind           string    `json:"kind" doc:"The action."`
+	Org            string    `json:"org" doc:"The target's org."`
+	Project        string    `json:"project,omitempty" doc:"The target's project."`
+	Resource       string    `json:"resource,omitempty" doc:"The target resource."`
+}
+
+// DecisionsParams pages through recorded decisions.
+type DecisionsParams struct {
+	After int64 `json:"after,omitempty" lucy:"min=0" doc:"Return decisions with an id greater than this; 0 starts at the beginning."`
+	Limit int   `json:"limit,omitempty" lucy:"min=0,max=500" doc:"At most this many decisions; 0 means 100."`
+}
+
+// DecisionsPage is one page of recorded decisions.
+type DecisionsPage struct {
+	Decisions []PolicyDecision `json:"decisions" doc:"The decisions, oldest first."`
+	Next      int64            `json:"next" doc:"Pass as after to read the next page."`
+	More      bool             `json:"more" doc:"Whether decisions after this page existed when it was read."`
 }

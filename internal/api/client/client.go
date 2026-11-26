@@ -157,3 +157,17 @@ func (c *Client) Discover(ctx context.Context) (json.RawMessage, error) {
 	err := c.Call(ctx, api.MethodDiscover, nil, &doc)
 	return doc, err
 }
+
+// Evaluate asks the policy engine to decide an action; the daemon records the decision first.
+func (c *Client) Evaluate(ctx context.Context, p api.EvaluateParams) (api.PolicyDecision, error) {
+	var d api.PolicyDecision
+	err := c.Call(ctx, api.MethodEvaluate, p, &d)
+	return d, err
+}
+
+// Decisions returns a page of recorded policy decisions.
+func (c *Client) Decisions(ctx context.Context, p api.DecisionsParams) (api.DecisionsPage, error) {
+	var page api.DecisionsPage
+	err := c.Call(ctx, api.MethodDecisions, p, &page)
+	return page, err
+}

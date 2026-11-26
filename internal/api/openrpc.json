@@ -355,6 +355,338 @@
       "x-lucy-scope": "admin",
       "x-lucy-mutating": true,
       "x-lucy-group": "command"
+    },
+    {
+      "name": "policy.evaluate",
+      "summary": "Ask the policy engine to decide an action; the decision is recorded before it is returned.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "kind",
+          "description": "The action: read, write, merge, delete, force_push, branch_delete, history_rewrite or credential_use.",
+          "required": true,
+          "schema": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "org",
+          "description": "The org the target belongs to.",
+          "required": true,
+          "schema": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "project",
+          "description": "The project (repository), when the action has one.",
+          "required": false,
+          "schema": {
+            "maxLength": 128,
+            "type": "string"
+          }
+        },
+        {
+          "name": "resource",
+          "description": "What the action is on: a PR (pr/12), an absolute path, a branch or a credential name.",
+          "required": false,
+          "schema": {
+            "maxLength": 4096,
+            "type": "string"
+          }
+        },
+        {
+          "name": "inputs",
+          "description": "What the request is based on, each with its source. The caller's own request is added as a captain input.",
+          "required": false,
+          "schema": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "ref": {
+                  "description": "A reference to the input: an event, URL or comment id. Never the text itself.",
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                "source": {
+                  "description": "captain, config, daemon, task, agent, tool_output, repo_content, issue, pr_body, pr_comment, web or email.",
+                  "maxLength": 32,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "source"
+              ],
+              "type": "object"
+            },
+            "maxItems": 31,
+            "type": "array"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "action_sha256": {
+              "description": "The digest of the action (actor, kind, target) an approval must name.",
+              "type": "string"
+            },
+            "actor": {
+              "description": "Who asked.",
+              "type": "string"
+            },
+            "approvals_used": {
+              "description": "The approval decisions an allow rested on, in the order the rules used them (a fixed-list captain approval before a relayed client confirmation); empty for a deny or require-captain.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "facts_sha256": {
+              "description": "The digest of the facts the approver saw (a merge's head SHA, base ref and base SHA; a delete's resolved path; a credential's scope; the default branch for force-push, branch delete and history rewrite) an approval must also name; an approval for the same action under other facts is denied.",
+              "type": "string"
+            },
+            "id": {
+              "description": "The decision's position in the policy stream; pass as after to page.",
+              "type": "integer"
+            },
+            "kind": {
+              "description": "The action.",
+              "type": "string"
+            },
+            "org": {
+              "description": "The target's org.",
+              "type": "string"
+            },
+            "outcome": {
+              "description": "allow, deny or require-captain.",
+              "type": "string"
+            },
+            "project": {
+              "description": "The target's project.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Why, in one line.",
+              "type": "string"
+            },
+            "resource": {
+              "description": "The target resource.",
+              "type": "string"
+            },
+            "role": {
+              "description": "The actor's role.",
+              "type": "string"
+            },
+            "rule": {
+              "description": "The rule that decided.",
+              "type": "string"
+            },
+            "ruleset_sha256": {
+              "description": "The SHA-256 of that rule set.",
+              "type": "string"
+            },
+            "ruleset_version": {
+              "description": "The version of the rule set that decided.",
+              "type": "integer"
+            },
+            "seq": {
+              "description": "The decision event's position in the whole log.",
+              "type": "integer"
+            },
+            "tainted": {
+              "description": "Whether any input came from an untrusted source.",
+              "type": "boolean"
+            },
+            "time": {
+              "description": "When it was recorded, UTC.",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          "required": [
+            "seq",
+            "id",
+            "time",
+            "outcome",
+            "rule",
+            "reason",
+            "ruleset_version",
+            "ruleset_sha256",
+            "action_sha256",
+            "facts_sha256",
+            "tainted",
+            "actor",
+            "role",
+            "kind",
+            "org"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "decide",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
+    },
+    {
+      "name": "policy.decisions",
+      "summary": "Recorded policy decisions, oldest first.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "after",
+          "description": "Return decisions with an id greater than this; 0 starts at the beginning.",
+          "required": false,
+          "schema": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        {
+          "name": "limit",
+          "description": "At most this many decisions; 0 means 100.",
+          "required": false,
+          "schema": {
+            "maximum": 500,
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "decisions": {
+              "description": "The decisions, oldest first.",
+              "items": {
+                "properties": {
+                  "action_sha256": {
+                    "description": "The digest of the action (actor, kind, target) an approval must name.",
+                    "type": "string"
+                  },
+                  "actor": {
+                    "description": "Who asked.",
+                    "type": "string"
+                  },
+                  "approvals_used": {
+                    "description": "The approval decisions an allow rested on, in the order the rules used them (a fixed-list captain approval before a relayed client confirmation); empty for a deny or require-captain.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "facts_sha256": {
+                    "description": "The digest of the facts the approver saw (a merge's head SHA, base ref and base SHA; a delete's resolved path; a credential's scope; the default branch for force-push, branch delete and history rewrite) an approval must also name; an approval for the same action under other facts is denied.",
+                    "type": "string"
+                  },
+                  "id": {
+                    "description": "The decision's position in the policy stream; pass as after to page.",
+                    "type": "integer"
+                  },
+                  "kind": {
+                    "description": "The action.",
+                    "type": "string"
+                  },
+                  "org": {
+                    "description": "The target's org.",
+                    "type": "string"
+                  },
+                  "outcome": {
+                    "description": "allow, deny or require-captain.",
+                    "type": "string"
+                  },
+                  "project": {
+                    "description": "The target's project.",
+                    "type": "string"
+                  },
+                  "reason": {
+                    "description": "Why, in one line.",
+                    "type": "string"
+                  },
+                  "resource": {
+                    "description": "The target resource.",
+                    "type": "string"
+                  },
+                  "role": {
+                    "description": "The actor's role.",
+                    "type": "string"
+                  },
+                  "rule": {
+                    "description": "The rule that decided.",
+                    "type": "string"
+                  },
+                  "ruleset_sha256": {
+                    "description": "The SHA-256 of that rule set.",
+                    "type": "string"
+                  },
+                  "ruleset_version": {
+                    "description": "The version of the rule set that decided.",
+                    "type": "integer"
+                  },
+                  "seq": {
+                    "description": "The decision event's position in the whole log.",
+                    "type": "integer"
+                  },
+                  "tainted": {
+                    "description": "Whether any input came from an untrusted source.",
+                    "type": "boolean"
+                  },
+                  "time": {
+                    "description": "When it was recorded, UTC.",
+                    "format": "date-time",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "seq",
+                  "id",
+                  "time",
+                  "outcome",
+                  "rule",
+                  "reason",
+                  "ruleset_version",
+                  "ruleset_sha256",
+                  "action_sha256",
+                  "facts_sha256",
+                  "tainted",
+                  "actor",
+                  "role",
+                  "kind",
+                  "org"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "more": {
+              "description": "Whether decisions after this page existed when it was read.",
+              "type": "boolean"
+            },
+            "next": {
+              "description": "Pass as after to read the next page.",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "decisions",
+            "next",
+            "more"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "read",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
     }
   ],
   "components": {
