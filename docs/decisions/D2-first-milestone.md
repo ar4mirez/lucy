@@ -2,7 +2,7 @@
 id: D2
 title: "D2: m1 runs one org end to end"
 status: accepted
-version: 2
+version: 3
 owner: ar4mirez
 requirements: [LUCY-RUN-012, LUCY-CORP-003, LUCY-ORG-007]
 decided: 2026-11-26
@@ -17,9 +17,10 @@ real work proves the design.
 
 ## Decision
 
-- **m1 runs one org, ar4mirez, end to end.** m2 and onward complete the replacement of firstmate.
-- The ledger and doctor checks fold into m1 as part of running the org, not a separate milestone.
-- ar4mirez is the first org to move off firstmate.
+- **m1 runs one org, ar4mirez, end to end.** m2 and onward complete the replacement of the existing
+  supervisor.
+- The ledger and the `lucy preflight` checks fold into m1 as part of running the org, not a separate milestone.
+- ar4mirez is the first org to move off the existing supervisor.
 - No calendar estimates: work is planned by implementation order and token cost, because agentic
   development changes the time model.
 

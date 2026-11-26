@@ -15,7 +15,7 @@ import (
 // RuleSetVersion is the version of the rule set. Bump it whenever any non-test source file of this
 // package changes; the committed testdata/ruleset.sum, checked by TestRuleSetVersioned, records the
 // SHA-256 of every version and refuses a changed rule set under an old version.
-const RuleSetVersion = 2
+const RuleSetVersion = 3
 
 //go:embed *.go
 var ruleSources embed.FS
@@ -79,7 +79,7 @@ func Evaluate(req Request, facts Facts) (d Decision) {
 	d = Decision{RuleSetVersion: RuleSetVersion, RuleSetSHA256: ruleSetSHA256}
 	defer func() {
 		if r := recover(); r != nil {
-			d.Outcome, d.Rule, d.Reason, d.ApprovalsUsed = Deny, "engine.error", "evaluation failed; failing safe", nil
+			d.Outcome, d.Rule, d.Reason, d.ApprovalsUsed = Denied, "engine.error", "evaluation failed; failing safe", nil
 		}
 	}()
 	d.ActionSHA256, d.FactsSHA256 = ActionDigest(req), FactsDigest(req.Kind, facts)
@@ -94,11 +94,11 @@ func Evaluate(req Request, facts Facts) (d Decision) {
 		if !ok {
 			continue
 		}
-		if v.outcome != Allow && v.outcome != Deny && v.outcome != RequireCaptain {
+		if v.outcome != Cleared && v.outcome != Denied && v.outcome != Holding {
 			return failSafe(d, "rule "+r.ID+" returned outcome "+strconv.Quote(string(v.outcome)))
 		}
 		d.Outcome, d.Rule, d.Reason, d.ApprovalsUsed = v.outcome, r.ID, v.reason, nil
-		if v.outcome == Allow {
+		if v.outcome == Cleared {
 			d.ApprovalsUsed = v.approvals
 		}
 		return d
@@ -118,6 +118,6 @@ func Refuse(req Request, why string) Decision {
 }
 
 func failSafe(d Decision, why string) Decision {
-	d.Outcome, d.Rule, d.Reason, d.ApprovalsUsed = Deny, "engine.error", why+"; failing safe", nil
+	d.Outcome, d.Rule, d.Reason, d.ApprovalsUsed = Denied, "engine.error", why+"; failing safe", nil
 	return d
 }

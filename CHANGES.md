@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -30,11 +30,11 @@ Changes since the last release. When a version is cut, its section moves to
 - Runbook for the daemon and its API ([docs/runbooks/daemon.md](docs/runbooks/daemon.md)).
 - The policy engine: deterministic Go rules decide every privileged action (merge, delete,
   force-push, branch delete, history rewrite, credential use) and cross-org access, with default
-  deny. A decision is `allow`, `deny` or `require-captain` and names its rule, reason and the rule
-  set's version and SHA-256; any evaluation error denies. Merges need green, fully reported checks
-  and the project's posture (captain by default); credentials are for the gateway role only; a
-  privileged request based only on outside text (issues, PR comments, web pages, tool output) is
-  denied.
+  deny. A decision (a clearance) is `cleared`, `denied` or `holding` (waiting on the owner) and
+  names its rule, reason and the rule set's version and SHA-256; any evaluation error denies.
+  Merges need green, fully reported checks and the project's posture (owner by default);
+  credentials are for the gateway role only; a privileged request based only on outside text
+  (issues, PR comments, web pages, tool output) is denied.
 - A path guard for deletes: it refuses `/`, `$HOME` and anything outside the declared project and
   scratch roots after resolving symlinks, plus `..` tricks and invisible or lookalike characters.
 - Approvals bind to the facts the approver saw (rule set version 2): besides the action's digest,
@@ -42,15 +42,28 @@ Changes since the last release. When a version is cut, its section moves to
   delete's resolved path, a credential's scope, or the default branch for force-push, branch delete
   and history rewrite. A new push to the PR, or a path that now resolves elsewhere, voids the
   approval and the action is denied. A merge whose head SHA is unknown is denied. A fixed-list merge
-  in the client posture needs both the captain's approval and the relayed client confirmation.
+  in the client posture needs both the owner's approval and the relayed client confirmation.
   Force-push, branch delete and history rewrite name a plain branch name only, and the default
   branch is matched case-insensitively. Decisions record every approval an allow rested on, in
-  order, as `approvals_used` (for example the captain's fixed-list approval, then the relayed client
+  order, as `approvals_used` (for example the owner's fixed-list approval, then the relayed client
   confirmation) instead of a single `approval`.
+- A glossary, [GLOSSARY.md](GLOSSARY.md): lucy names its parts after a control tower (Owner, Tower,
+  Approach, Airspace, Runway, Pilot, Flight, Clearance, Holding, Grounded, Pre-flight check, Flight
+  log, Takeoff) and the setup command is `lucy preflight` (from m1).
+- `config.toml`'s `[you]` section sets how lucy refers to you: `title` (default "Owner") and an
+  optional `name`. The role stays `owner` in code, the API, policy and events; surfaces resolve the
+  title when they render text for you. `lucy status` shows it as `you:`, and exits 2 with the line
+  at fault when the file is invalid.
 - API methods `policy.evaluate` (asks for a decision; the daemon records it as a `policy.decision`
   event before answering) and `policy.decisions` (pages the recorded decisions).
 
 ### Changed
+
+- Renamed to lucy's own terms (rule set version 3, API schema 1.1.0; the path stays `/rpc/v1`,
+  which no release has served yet): policy outcomes `allow`, `deny` and the escalation outcome are
+  now `cleared`, `denied` and `holding`; the human role, input source, merge posture and approval
+  are `owner` (approval kinds `owner` and `client_via_owner`, rule `git.owner`); the research-only
+  agent role is `researcher`. `setup` and `doctor` are planned as one command, `lucy preflight`.
 
 - API params are now checked strictly inside nested objects too: unknown or case-folded members
   in an object inside params, or inside an array of objects, are refused.

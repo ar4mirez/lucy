@@ -2,7 +2,7 @@
 id: D10
 title: "D10: the one API is restricted JSON-RPC 2.0 over HTTP, with a generated OpenRPC schema"
 status: accepted
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-API-001, LUCY-API-002, LUCY-API-006, LUCY-API-007, LUCY-API-008]
 decided: 2026-11-26
@@ -16,7 +16,7 @@ decided: 2026-11-26
 same over HTTPS", behind the CLI, TUI, dashboard, MCP and remote control (LUCY-API-001). m0 slice 4
 had to pick one. The choice was delegated to the slice with a rule: the least dependency weight that
 still gives typed Go clients and a schema other surfaces can generate from. Unlike D1 to D9, this
-ADR was written by the slice's agent under that rule; the captain can revise it.
+ADR was written by the slice's agent under that rule; the owner can revise it.
 
 ## Options
 

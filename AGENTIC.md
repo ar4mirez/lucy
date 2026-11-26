@@ -2,7 +2,7 @@
 id: agentic
 title: "lucy: agent model and documentation rules"
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-POL-001, LUCY-POL-002, LUCY-POL-004, LUCY-POL-005, LUCY-VIEW-004, LUCY-REPO-002, LUCY-REPO-003, LUCY-REPO-004, LUCY-REPO-005]
 ---
@@ -10,7 +10,8 @@ requirements: [LUCY-POL-001, LUCY-POL-002, LUCY-POL-004, LUCY-POL-005, LUCY-VIEW
 # lucy: agent model and documentation rules
 
 How agents work under lucy, and the rules every doc in this repository follows. Working *on* this
-repository as a coding agent: [AGENTS.md](AGENTS.md).
+repository as a coding agent: [AGENTS.md](AGENTS.md). lucy's terms (Owner, Tower, Approach, Pilot,
+Flight, Clearance, Holding, ...) are defined in the [glossary](GLOSSARY.md).
 
 ## 1. Principles
 
@@ -27,19 +28,23 @@ repository as a coding agent: [AGENTS.md](AGENTS.md).
 
 ## 2. Roles
 
-Roles are ai-sdlc `AgentRole` resources with lucy's bundled, versioned instructions.
+Roles are ai-sdlc `AgentRole` resources with lucy's bundled, versioned instructions. The Owner is
+the one human; the Tower (the daemon) supervises everything; the rest are agents.
 
-| Role | Does | Never |
+| Role (id) | Does | Never |
 |---|---|---|
-| Captain | Decides, grants postures, answers decisions, steers | - |
-| Org supervisor | Turns captain intent into tasks, supervises, escalates | Writes to a project; addresses anyone but the captain |
-| Ship worker | Changes one project in an isolated worktree and lands a PR | Merges; answers its own findings; holds credentials |
-| Scout | Researches and reports; ships nothing | Writes to a project |
-| Reviewer | Reviews a diff independently, from another model family | Reviews its own family's work without recording it |
+| Owner (`owner`) | Decides, grants postures, answers holding decisions, steers | - |
+| Approach, the org supervisor (`supervisor`) | Turns owner intent into flights (tasks), supervises, escalates | Writes to a project; addresses anyone but the owner |
+| Pilot: ship worker (`worker`) | Changes one project in an isolated worktree and lands a PR | Merges; answers its own findings; holds credentials |
+| Pilot: researcher (`researcher`) | Researches and reports; ships nothing | Writes to a project |
+| Pilot: reviewer (`reviewer`) | Reviews a diff independently, from another model family | Reviews its own family's work without recording it |
+
+lucy shows the owner a configurable display title ("Owner" by default, `[you]` in config.toml);
+the id stays `owner` everywhere it is recorded.
 
 ## 3. Tasks and readiness
 
-Two task shapes: **scout** (knowledge only) and **ship** (a change that lands). Dispatch is refused
+Two flight (task) shapes: **research** (knowledge only) and **ship** (a change that lands). Dispatch is refused
 until a task has a goal, a delivery path, an autonomy level and an acceptance test (readiness check,
 LUCY-SPEC-012). Every task runs in its own worktree, TMPDIR and synthetic HOME inside its org's
 sandbox.
@@ -50,21 +55,22 @@ Merge postures are typed data per org and project (LUCY-POL-005):
 
 | Posture | Merges |
 |---|---|
-| `captain` (default) | Only on the captain's explicit word |
+| `owner` (default) | Only on the owner's explicit word |
 | `green` | Green PRs, except anything on the fixed list below |
-| `client` | Only after the client confirms and the captain relays it through the API |
+| `client` | Only after the client confirms and the owner relays it through the API |
 
-**The fixed list always needs the captain:** destructive or irreversible changes, security-sensitive
+**The fixed list always needs the owner:** destructive or irreversible changes, security-sensitive
 changes, production, billing or live money, credentials, data migrations, cross-org access and real
 trade-offs. In every posture: never merge red, never with a required check unreported, never with
-closing references the task did not intend. A timeout never approves anything. Promotion is proposed
-by lucy and granted only by the captain.
+closing references the task did not intend. A timeout never approves anything. A merge that needs
+the owner is *holding* until the owner decides. Promotion is proposed
+by lucy and granted only by the owner.
 
 ## 5. Agent-facing surfaces
 
 - **MCP** (`lucy mcp`): about nine tools in under 2k tokens of schema (LUCY-VIEW-004):
   `lucy_status`, `lucy_next`, `lucy_dispatch`, `lucy_steer`, `lucy_decide`, `lucy_merge`,
-  `lucy_report`, `lucy_doctor`, `lucy_peek`. Each is a thin mapping onto the one API.
+  `lucy_report`, `lucy_preflight`, `lucy_peek`. Each is a thin mapping onto the one API.
 - **CLI**: AXI conventions: compact structured output, definitive empty states, structured errors with
   a next step, stable exit codes.
 - **Hooks** (`lucy hook <event>`): harness events become typed events in lucy's log.
@@ -73,8 +79,8 @@ by lucy and granted only by the captain.
 
 Each is a daemon property, not prose: the supervisor never writes to a project; nothing merges outside
 the posture; unlanded work is never torn down; steering is addressed by (org, task, session
-generation) and refused when ambiguous or stale; acks are generation-bound; only the captain's words
-close a decision; workers have no captain channel; one live session per role, fenced before replaced.
+generation) and refused when ambiguous or stale; acks are generation-bound; only the owner's words
+close a decision; workers have no owner channel; one live session per role, fenced before replaced.
 
 ## 7. Documentation rules
 
@@ -104,7 +110,7 @@ with a YAML symbol. Extra keys (`decided`, `supersedes`, `generated`) are allowe
 - Format `LUCY-<AREA>-<NNN>`, defined once in a PRD table under [docs/prd](docs/prd/README.md),
   never reused or renumbered (LUCY-REPO-003).
 - A PRD file's `requirements` list is exactly the IDs it defines.
-- Each ID is scheduled in exactly one milestone brief, which must match the table's Milestone cell.
+- Each ID is scheduled in exactly one milestone plan, which must match the table's Milestone cell.
 - Any doc may mention an ID; an undefined ID fails the test.
 - [docs/requirements.md](docs/requirements.md) is generated (`mise run docs-index`) and must be current.
 

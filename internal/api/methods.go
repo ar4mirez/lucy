@@ -148,12 +148,12 @@ type EvaluateParams struct {
 	Org      string        `json:"org" lucy:"required,maxlen=128" doc:"The org the target belongs to."`
 	Project  string        `json:"project,omitempty" lucy:"maxlen=128" doc:"The project (repository), when the action has one."`
 	Resource string        `json:"resource,omitempty" lucy:"maxlen=4096" doc:"What the action is on: a PR (pr/12), an absolute path, a branch or a credential name."`
-	Inputs   []PolicyInput `json:"inputs,omitempty" lucy:"maxitems=31" doc:"What the request is based on, each with its source. The caller's own request is added as a captain input."`
+	Inputs   []PolicyInput `json:"inputs,omitempty" lucy:"maxitems=31" doc:"What the request is based on, each with its source. The caller's own request is added as an owner input."`
 }
 
 // PolicyInput is one input behind a request: where it came from and a reference to it.
 type PolicyInput struct {
-	Source string `json:"source" lucy:"required,maxlen=32" doc:"captain, config, daemon, task, agent, tool_output, repo_content, issue, pr_body, pr_comment, web or email."`
+	Source string `json:"source" lucy:"required,maxlen=32" doc:"owner, config, daemon, task, agent, tool_output, repo_content, issue, pr_body, pr_comment, web or email."`
 	Ref    string `json:"ref,omitempty" lucy:"maxlen=128" doc:"A reference to the input: an event, URL or comment id. Never the text itself."`
 }
 
@@ -162,7 +162,7 @@ type PolicyDecision struct {
 	Seq            int64     `json:"seq" doc:"The decision event's position in the whole log."`
 	ID             int64     `json:"id" doc:"The decision's position in the policy stream; pass as after to page."`
 	Time           time.Time `json:"time" doc:"When it was recorded, UTC."`
-	Outcome        string    `json:"outcome" doc:"allow, deny or require-captain."`
+	Outcome        string    `json:"outcome" doc:"cleared, denied or holding (waiting on the owner)."`
 	Rule           string    `json:"rule" doc:"The rule that decided."`
 	Reason         string    `json:"reason" doc:"Why, in one line."`
 	RuleSetVersion int       `json:"ruleset_version" doc:"The version of the rule set that decided."`
@@ -170,7 +170,7 @@ type PolicyDecision struct {
 	ActionSHA256   string    `json:"action_sha256" doc:"The digest of the action (actor, kind, target) an approval must name."`
 	FactsSHA256    string    `json:"facts_sha256" doc:"The digest of the facts the approver saw (a merge's head SHA, base ref and base SHA; a delete's resolved path; a credential's scope; the default branch for force-push, branch delete and history rewrite) an approval must also name; an approval for the same action under other facts is denied."`
 	Tainted        bool      `json:"tainted" doc:"Whether any input came from an untrusted source."`
-	ApprovalsUsed  []string  `json:"approvals_used,omitempty" doc:"The approval decisions an allow rested on, in the order the rules used them (a fixed-list captain approval before a relayed client confirmation); empty for a deny or require-captain."`
+	ApprovalsUsed  []string  `json:"approvals_used,omitempty" doc:"The approval decisions a clearance rested on, in the order the rules used them (a fixed-list owner approval before a relayed client confirmation); empty when denied or holding."`
 	Actor          string    `json:"actor" doc:"Who asked."`
 	Role           string    `json:"role" doc:"The actor's role."`
 	Kind           string    `json:"kind" doc:"The action."`

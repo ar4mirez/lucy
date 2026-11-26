@@ -2,7 +2,7 @@
 id: D3a
 title: "D3a: berth is the org sandbox, through its API"
 status: accepted
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-SBX-001, LUCY-SBX-003]
 decided: 2026-11-26
@@ -26,7 +26,7 @@ default-deny egress firewall and repo allowlist, plus an HTTP API.
 ## Consequences
 
 - lucy's validation agents run in the org's container too, so none touches the host (LUCY-SBX-001).
-- lucy never restarts or recreates an org container with live sessions without the captain
+- lucy never restarts or recreates an org container with live sessions without the owner
   (LUCY-SBX-003).
 - berth's packages are all `internal/`; a small exported API client in berth would help (a berth change).
 - berth, git and a container runtime become hard dependencies ([D8](D8-built-in-vs-external.md)).

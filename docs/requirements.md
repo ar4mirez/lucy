@@ -13,7 +13,7 @@ generated: true
 Generated from the requirement tables in [docs/prd](prd/README.md). Do not edit by hand:
 run `mise run docs-index` after changing a PRD table. CI fails when this file is stale.
 
-136 requirements (m0: 55, m1: 54, m2: 13, m3: 8, m4: 6). Milestone briefs: [docs/milestones](milestones/README.md).
+136 requirements (m0: 55, m1: 54, m2: 13, m3: 8, m4: 6). Milestone plans: [docs/milestones](milestones/README.md).
 
 ## [foundation](prd/foundation.md)
 
@@ -37,8 +37,8 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 | LUCY-POL-002 | m0 | Models can only request; only decision records made through the API authorize anything |
 | LUCY-POL-003 | m0 | Every allowed action records the rule, actor and decision that allowed it |
 | LUCY-POL-004 | m0 | Outside text is tagged untrusted with its source and can never raise privileges |
-| LUCY-POL-005 | m0 | Merge postures (captain, green with exceptions, client-confirm) are typed data per org and project |
-| LUCY-POL-006 | m0 | The engine is pure and fail-safe: a decision is allow, deny or require-captain with its rule and reason, any evaluation error denies, and the versioned rule set's hash is recorded with every decision |
+| LUCY-POL-005 | m0 | Merge postures (owner, green with exceptions, client-confirm) are typed data per org and project |
+| LUCY-POL-006 | m0 | The engine is pure and fail-safe: a decision is cleared, denied or holding with its rule and reason, any evaluation error denies, and the versioned rule set's hash is recorded with every decision |
 | LUCY-POL-007 | m0 | The destructive-op rule uses a path guard that refuses `/`, `$HOME` and anything outside the declared project and scratch roots after symlink resolution |
 | LUCY-REL-001 | m0 | goreleaser builds static binaries (CGO off) for linux and darwin, amd64 and arm64, with checksums |
 | LUCY-REL-002 | m0 | A keyless cosign signature bundle covers checksums.txt |
@@ -65,8 +65,8 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 | LUCY-BRD-002 | m4 | An Agent Substrate runner on the runner protocol |
 | LUCY-BRD-003 | m4 | ai-memory as an optional, per-org memory provider |
 | LUCY-BRD-004 | m4 | `lucy init` scaffolds this doc structure (full or lite profile) in a project |
-| LUCY-OPS-001 | m1 | `lucy setup` plans first, then installs every external tool from an embedded, pinned manifest through mise in lucy's own space |
-| LUCY-OPS-002 | m1 | `lucy doctor` checks every inventory row, the incident classes and the security invariants, reports conditions and repairs with `--repair` |
+| LUCY-OPS-001 | m1 | `lucy preflight` plans first, then installs every external tool from an embedded, pinned manifest through mise in lucy's own space |
+| LUCY-OPS-002 | m1 | `lucy preflight --check` checks every inventory row, the incident classes and the security invariants, reports conditions and repairs with `--repair` |
 | LUCY-OPS-003 | m1 | lucy takes a daily online database backup into the state dir; `lucy backup --to` copies it off the machine |
 | LUCY-OPS-004 | m1 | OpenTelemetry traces per task, a flight recorder per session and `lucy replay` |
 | LUCY-OPS-005 | m1 | The daemon restarts and upgrades without stopping runners or their sessions |
@@ -75,8 +75,8 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 | LUCY-ORG-002 | m2 | Seat pools, quota-aware placement, twin config dirs, failover and return, hard per-org budget stops |
 | LUCY-ORG-003 | m2 | A resource-aware scheduler: memory caps per runner, per-org concurrency, priorities, preemption |
 | LUCY-ORG-004 | m2 | Typed decisions, preferences and learnings per org, with provenance and expiry, recalled per task |
-| LUCY-ORG-005 | m2 | `lucy import firstmate` carries history, decisions and postures over, with a dry run first |
-| LUCY-ORG-006 | m2 | The client-confirm posture needs the captain's relayed decision through the API |
+| LUCY-ORG-005 | m2 | `lucy import` carries history, decisions and postures over from the existing supervisor, with a dry run first |
+| LUCY-ORG-006 | m2 | The client-confirm posture needs the owner's relayed decision through the API |
 | LUCY-ORG-007 | m2 | An org cuts over only after 20 consecutive tasks on lucy with no lost work |
 
 ## [quality](prd/quality.md)
@@ -84,7 +84,7 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 | ID | Milestone | Requirement |
 |---|---|---|
 | LUCY-CORP-001 | m0 | A corpus harness runs executable scenarios against lucy in the simulation |
-| LUCY-CORP-002 | m0 | Corpus v1 encodes every firstmate safety rule and recorded incident; red is expected in m0 |
+| LUCY-CORP-002 | m0 | Corpus v1 encodes every safety rule and recorded incident of the existing supervisor; red is expected in m0 |
 | LUCY-CORP-003 | m1 | The corpus covers ar4mirez's flows and is green before ar4mirez moves |
 | LUCY-CORP-004 | m2 | The corpus covers each client org's rules and is green before that org moves |
 | LUCY-SIM-001 | m0 | A fake harness, fake forge and fake clock drive the supervisor state machine deterministically |
@@ -109,7 +109,7 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 | LUCY-CRED-002 | m1 | Credentials are encrypted at rest with a key per org |
 | LUCY-CRED-003 | m1 | Capability tokens are scoped to (org, task, action, expiry) |
 | LUCY-CRED-004 | m1 | The gateway denies private, link-local and metadata addresses, fails closed and logs every request to the audit chain |
-| LUCY-CRED-005 | m1 | No token is ever inside a container; `lucy doctor` scans environments and mounts to prove it |
+| LUCY-CRED-005 | m1 | No token is ever inside a container; `lucy preflight --check` scans environments and mounts to prove it |
 | LUCY-CRED-006 | m2 | Offboarding an org provably erases its data and rotates its credentials |
 | LUCY-RUN-001 | m1 | A runner protocol (lease task, stream events, heartbeat, fencing token); this machine is the first runner |
 | LUCY-RUN-002 | m1 | Claude Code runs over its structured protocol; a PTY is only a viewing path or a named, quarantined adapter |
@@ -122,10 +122,10 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 | LUCY-RUN-009 | m1 | Bundled skills carry content hashes and are re-linked and verified at every spawn |
 | LUCY-RUN-010 | m1 | Supervision routes events through rules, then a small model, then a large one; supervisor tokens per org-day are tracked |
 | LUCY-RUN-011 | m1 | Token cost is recorded per task and per step |
-| LUCY-RUN-012 | m1 | Shadow mode, then takeover by task class; `lucy handback` returns a class to firstmate in one command |
+| LUCY-RUN-012 | m1 | Shadow mode, then takeover by task class; `lucy handback` returns a class to the existing supervisor in one command |
 | LUCY-SBX-001 | m1 | Every worker and validation agent runs in its org's berth container through berth's API; idle orgs are stopped |
 | LUCY-SBX-002 | m1 | The runtime is a provider seam, so a cloud runner can be added without changing the core |
-| LUCY-SBX-003 | m1 | lucy never restarts or recreates an org container with live sessions without the captain's confirmation |
+| LUCY-SBX-003 | m1 | lucy never restarts or recreates an org container with live sessions without the owner's confirmation |
 
 ## [security](prd/security.md)
 
@@ -137,7 +137,7 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 | LUCY-SEC-004 | m0 | Vulnerabilities are reported through GitHub private advisories, as SECURITY.md says |
 | LUCY-SEC-005 | m1 | Every delete lucy makes refuses `/`, `$HOME` and anything outside lucy's managed roots |
 | LUCY-SEC-006 | m1 | API rate limits per device and pairing-attempt limits |
-| LUCY-SEC-007 | m1 | `lucy doctor` checks a host baseline: disk encryption, firewall, `/home` snapshots, OS updates |
+| LUCY-SEC-007 | m1 | `lucy preflight --check` checks a host baseline: disk encryption, firewall, `/home` snapshots, OS updates |
 | LUCY-SEC-008 | m1 | Review applies a security lens to security-sensitive diffs; project SAST and dependency scans are hard gates |
 | LUCY-SEC-009 | m2 | Deterministic detection rules over events: token patterns, unexpected egress, repeated denials, cross-org attempts, new devices |
 | LUCY-SEC-010 | m2 | `lucy incident` freezes an org, exports evidence and turns each lesson into a corpus scenario |
@@ -158,26 +158,26 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 | LUCY-SPEC-007 | m0 | Status is reported as conditions (True, False, Unknown with a reason) on every surface |
 | LUCY-SPEC-008 | m0 | Converge loops are level-triggered, idempotent reconcilers with backoff, woken by the event log |
 | LUCY-SPEC-009 | m0 | The audit log is a hash chain (RFC 8785 + SHA-256) that passes the spec's cross-SDK fixture |
-| LUCY-SPEC-010 | m0 | QualityGate and AutonomyPolicy are modelled and validated; the captain is the only override role |
+| LUCY-SPEC-010 | m0 | QualityGate and AutonomyPolicy are modelled and validated; the owner is the only override role |
 | LUCY-SPEC-011 | m0 | The vendored schemas validate the spec's own examples in CI |
 | LUCY-SPEC-012 | m1 | Dispatch is refused until a task has a goal, delivery path, autonomy and acceptance test (readiness check) |
-| LUCY-SPEC-013 | m1 | Captain calls are Decision resources projected from the event log; only the captain's words close them |
-| LUCY-SPEC-014 | m1 | Scout and ship pipelines use FailurePolicy, CredentialPolicy, ApprovalPolicy and PullRequest config; a timeout never approves a merge |
-| LUCY-SPEC-015 | m1 | AgentRole covers supervisor, ship worker, scout and reviewer; blockedPaths feed the delete guard |
+| LUCY-SPEC-013 | m1 | Decisions waiting on the owner are Decision resources projected from the event log; only the owner's words close them |
+| LUCY-SPEC-014 | m1 | Research and ship pipelines use FailurePolicy, CredentialPolicy, ApprovalPolicy and PullRequest config; a timeout never approves a merge |
+| LUCY-SPEC-015 | m1 | AgentRole covers supervisor, ship worker, researcher and reviewer; blockedPaths feed the delete guard |
 | LUCY-SPEC-016 | m1 | AdapterBinding is the provider seam: berth is Sandbox, the gateway is SecretStore, lucy's pipeline is CodeAnalysis |
 | LUCY-SPEC-017 | m1 | lucy passes the spec's Core conformance level; worktree pool and backlog use the spec's schemas |
 | LUCY-SPEC-018 | m2 | AgentRole handoffs, demotion triggers and Adapter conformance |
-| LUCY-SPEC-019 | m3 | lucy proposes autonomy promotions from metrics; only the captain grants one; spec fixes go upstream |
+| LUCY-SPEC-019 | m3 | lucy proposes autonomy promotions from metrics; only the owner grants one; spec fixes go upstream |
 | LUCY-SPEC-020 | m4 | Deferred concepts (Workflow document, complexity routing, priority policy, agentCard, session hierarchy) are priced one by one |
 
 ## [surfaces](prd/surfaces.md)
 
 | ID | Milestone | Requirement |
 |---|---|---|
-| LUCY-CAP-001 | m3 | A Claude Code plugin (MCP server, one skill, a `/lucy` command) makes the first-mate role folder-free |
+| LUCY-CAP-001 | m3 | A Claude Code plugin (MCP server, one skill, a `/lucy` command) lets the owner work from any Claude Code session with no folder |
 | LUCY-CAP-002 | m3 | The full dashboard has structured decision cards and push notifications |
 | LUCY-CAP-003 | m3 | Privileged remote actions (merge, credentials, destructive) need a passkey step-up |
-| LUCY-CAP-004 | m3 | firstmate homes are archived read-only once every org has moved |
+| LUCY-CAP-004 | m3 | The existing supervisor's homes are archived read-only once every org has moved |
 | LUCY-VIEW-001 | m1 | `lucy attach` shows a live session in any terminal, with a detach key |
 | LUCY-VIEW-002 | m1 | A bubbletea TUI shows orgs, tasks, sessions, decisions and events, and hands off to `lucy attach` |
 | LUCY-VIEW-003 | m1 | herdr panes run `lucy attach`; a herdr crash is only a viewer crash |

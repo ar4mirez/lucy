@@ -2,7 +2,7 @@
 id: D1
 title: "D1: Go, headless, Linux and macOS"
 status: accepted
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-REL-001, LUCY-EVT-001]
 decided: 2026-11-26
@@ -22,7 +22,7 @@ lucy does not emulate a terminal and its memory is small next to the agents it r
 - lucy is written in Go and ships as one binary whose modes are the daemon, CLI, MCP server, hook
   entrypoint, runner and gateway.
 - lucy stays headless: herdr, tmux, lucy's own TUI or a dashboard display sessions.
-- Platforms: Linux and macOS. Built and maintained by the captain plus agents.
+- Platforms: Linux and macOS. Built and maintained by the owner plus agents.
 
 ## Consequences
 

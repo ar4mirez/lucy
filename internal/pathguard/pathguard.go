@@ -43,7 +43,7 @@ var (
 )
 
 // RootKind says what a root is for. The destructive-op rule treats them differently: a delete in a
-// task's scratch dir is routine, a delete in a project needs the captain.
+// task's scratch dir is routine, a delete in a project needs the owner.
 type RootKind string
 
 // Root kinds.
@@ -203,7 +203,7 @@ func CheckResolved(home string, roots []Root, requested, resolved string) (Root,
 }
 
 // lookalikes are characters that render like "/", "\" or "." but are ordinary filename
-// characters. A path the captain is asked to approve must read as what it is, so they are refused.
+// characters. A path the owner is asked to approve must read as what it is, so they are refused.
 var lookalikes = map[rune]bool{
 	'\u2215': true, // division slash
 	'\u2044': true, // fraction slash

@@ -57,7 +57,7 @@ func OpenRPC() ([]byte, error) {
 	doc.Info.Title = "lucy API"
 	doc.Info.Description = "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to " + Path +
 		", over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10."
-	doc.Info.Version = strconv.Itoa(Version) + ".0.0"
+	doc.Info.Version = strconv.Itoa(Version) + "." + strconv.Itoa(SchemaRevision) + ".0"
 	doc.Servers = []map[string]string{{"name": "local", "url": "unix:$XDG_RUNTIME_DIR/lucy/lucy.sock" + Path}}
 
 	for _, m := range methods {

@@ -64,6 +64,7 @@ func TestDaemonAndClients(t *testing.T) {
 	sock := filepath.Join(dir, "run", "lucy.sock")
 	db := filepath.Join(dir, "data", "lucy.db")
 	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config")) // no config.toml yet: the defaults
 
 	ctx, cancel := context.WithCancel(context.Background())
 	signalContext = func() (context.Context, context.CancelFunc) { return ctx, cancel }
@@ -86,10 +87,28 @@ func TestDaemonAndClients(t *testing.T) {
 	}
 
 	code, out, errOut := lucy("status", "--socket", sock)
-	for _, want := range []string{"daemon: running\n", "version: 7.7.7-test\n", "api_version: 1\n", "event_head: 1\n", "socket: " + sock + "\n", "caller: local/uid/"} {
+	for _, want := range []string{"daemon: running\n", "version: 7.7.7-test\n", "api_version: 1\n", "event_head: 1\n", "socket: " + sock + "\n", "caller: local/uid/", "you: Owner\n"} {
 		if code != 0 || !strings.Contains(out, want) {
 			t.Errorf("status: code %d, want %q in %q (stderr %q)", code, want, out, errOut)
 		}
+	}
+
+	// The [you] section changes how lucy refers to its owner; a bad file is reported, not ignored.
+	cfgFile := filepath.Join(dir, "config", "lucy", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(cfgFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgFile, []byte("[you]\ntitle = \"Commander\"\nname = \"Ada\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, errOut := lucy("status", "--socket", sock); code != 0 || !strings.HasSuffix(out, "you: Ada (Commander)\n") {
+		t.Errorf("status with a title and name: code %d stdout %q stderr %q", code, out, errOut)
+	}
+	if err := os.WriteFile(cfgFile, []byte("[you]\ntitel = \"Commander\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, errOut := lucy("status", "--socket", sock); code != 2 || out != "" || !strings.Contains(errOut, "line 2: unknown key \"titel\"") {
+		t.Errorf("status with a bad config: code %d stdout %q stderr %q", code, out, errOut)
 	}
 
 	code, out, _ = lucy("events", "--socket", sock)

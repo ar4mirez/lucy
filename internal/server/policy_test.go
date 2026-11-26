@@ -21,8 +21,8 @@ func TestPolicyEvaluateRecordsEveryDecision(t *testing.T) {
 		t.Fatal(err)
 	}
 	rs := policy.CurrentRuleSet()
-	if d.Outcome != "deny" || d.Rule != "merge.head-known" || d.FactsSHA256 == "" || d.RuleSetVersion != rs.Version || d.RuleSetSHA256 != rs.SHA256 ||
-		d.Role != "captain" || !strings.HasPrefix(d.Actor, "local/uid/") || d.ID != 1 || d.Tainted {
+	if d.Outcome != "denied" || d.Rule != "merge.head-known" || d.FactsSHA256 == "" || d.RuleSetVersion != rs.Version || d.RuleSetSHA256 != rs.SHA256 ||
+		d.Role != "owner" || !strings.HasPrefix(d.Actor, "local/uid/") || d.ID != 1 || d.Tainted {
 		t.Errorf("decision = %+v", d)
 	}
 
@@ -32,13 +32,13 @@ func TestPolicyEvaluateRecordsEveryDecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Outcome != "deny" || d.Rule != "delete.path-guard" || !d.Tainted || d.ID != 2 {
+	if d.Outcome != "denied" || d.Rule != "delete.path-guard" || !d.Tainted || d.ID != 2 {
 		t.Errorf("delete decision = %+v", d)
 	}
 
 	// An unknown source is a recorded deny, not an API error: it is a request policy refuses.
 	d, err = f.client.Evaluate(ctx, api.EvaluateParams{Kind: "read", Org: "acme", Inputs: []api.PolicyInput{{Source: "trusted"}}})
-	if err != nil || d.Outcome != "deny" || d.Rule != "request.valid" {
+	if err != nil || d.Outcome != "denied" || d.Rule != "request.valid" {
 		t.Errorf("unknown source: %+v, %v", d, err)
 	}
 
@@ -82,12 +82,12 @@ func TestPolicyEvaluateUsesDaemonFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Outcome != "allow" || d.Rule != "merge.posture" {
+	if d.Outcome != "cleared" || d.Rule != "merge.posture" {
 		t.Errorf("decision = %+v", d)
 	}
-	// The caller's own request is a captain input, ahead of what it passed.
-	if len(seen.Inputs) != 2 || seen.Inputs[0].Source != policy.SourceCaptain || seen.Inputs[1].Source != policy.SourcePRComment ||
-		seen.Actor.Role != policy.RoleCaptain {
+	// The caller's own request is an owner input, ahead of what it passed.
+	if len(seen.Inputs) != 2 || seen.Inputs[0].Source != policy.SourceOwner || seen.Inputs[1].Source != policy.SourcePRComment ||
+		seen.Actor.Role != policy.RoleOwner {
 		t.Errorf("request = %+v", seen)
 	}
 }
@@ -99,11 +99,11 @@ func TestPolicyEvaluateFailsSafe(t *testing.T) {
 		}
 	})
 	d, err := f.client.Evaluate(ctx, api.EvaluateParams{Kind: "merge", Org: "acme", Project: "app", Resource: "pr/3"})
-	if err != nil || d.Outcome != "deny" || d.Rule != "engine.error" {
+	if err != nil || d.Outcome != "denied" || d.Rule != "engine.error" {
 		t.Errorf("facts error: %+v, %v", d, err)
 	}
 	page, err := f.client.Decisions(ctx, api.DecisionsParams{})
-	if err != nil || len(page.Decisions) != 1 || page.Decisions[0].Outcome != "deny" {
+	if err != nil || len(page.Decisions) != 1 || page.Decisions[0].Outcome != "denied" {
 		t.Errorf("the fail-safe deny was not recorded: %+v, %v", page, err)
 	}
 }
@@ -129,8 +129,8 @@ func TestUnrecordedDecisionIsNotReturned(t *testing.T) {
 func TestPolicyParamsAreStrictWhenNested(t *testing.T) {
 	f := start(t, os.Geteuid(), 0, nil)
 	cases := map[string]string{
-		`{"kind":"read","org":"acme","inputs":[{"Source":"captain"}]}`:                         "inputs[0].Source",
-		`{"kind":"read","org":"acme","inputs":[{"source":"captain","text":"merge it"}]}`:       "inputs[0].text",
+		`{"kind":"read","org":"acme","inputs":[{"Source":"owner"}]}`:                           "inputs[0].Source",
+		`{"kind":"read","org":"acme","inputs":[{"source":"owner","text":"merge it"}]}`:         "inputs[0].text",
 		`{"kind":"read","org":"acme","inputs":[{"source":""}]}`:                                "inputs[0].source",
 		`{"kind":"read","org":"acme","inputs":[{"source":"` + strings.Repeat("x", 33) + `"}]}`: "inputs[0].source",
 		`{"kind":"read","org":"acme","facts":{"posture":"green"}}`:                             "facts",

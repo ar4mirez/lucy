@@ -314,7 +314,7 @@ func Requirements(docs []*Doc) ([]Requirement, []error) {
 }
 
 // checkTraceability: every requirement is scheduled in exactly one milestone
-// brief whose name matches its milestone cell, and every ID mentioned
+// plan whose name matches its milestone cell, and every ID mentioned
 // anywhere is defined.
 func checkTraceability(docs []*Doc, reqs []Requirement) []error {
 	var errs []error
@@ -431,7 +431,7 @@ func RenderIndex(reqs []Requirement) string {
 	for _, k := range keys {
 		parts = append(parts, fmt.Sprintf("%s: %d", k, counts[k]))
 	}
-	fmt.Fprintf(&b, "%d requirements (%s). Milestone briefs: [docs/milestones](milestones/README.md).\n", len(reqs), strings.Join(parts, ", "))
+	fmt.Fprintf(&b, "%d requirements (%s). Milestone plans: [docs/milestones](milestones/README.md).\n", len(reqs), strings.Join(parts, ", "))
 	byFile := map[string][]Requirement{}
 	var files []string
 	for _, r := range reqs {

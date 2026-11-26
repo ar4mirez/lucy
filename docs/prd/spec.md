@@ -2,7 +2,7 @@
 id: prd-spec
 title: "PRD: ai-sdlc spec model"
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-SPEC-001, LUCY-SPEC-002, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-006, LUCY-SPEC-007, LUCY-SPEC-008, LUCY-SPEC-009, LUCY-SPEC-010, LUCY-SPEC-011, LUCY-SPEC-012, LUCY-SPEC-013, LUCY-SPEC-014, LUCY-SPEC-015, LUCY-SPEC-016, LUCY-SPEC-017, LUCY-SPEC-018, LUCY-SPEC-019, LUCY-SPEC-020]
 ---
@@ -25,14 +25,14 @@ the Source column below names the spec section, RFC or schema each requirement c
 | LUCY-SPEC-007 | Status is reported as conditions (True, False, Unknown with a reason) on every surface | m0 | spec 6 |
 | LUCY-SPEC-008 | Converge loops are level-triggered, idempotent reconcilers with backoff, woken by the event log | m0 | spec 9 |
 | LUCY-SPEC-009 | The audit log is a hash chain (RFC 8785 + SHA-256) that passes the spec's cross-SDK fixture | m0 | spec 12 |
-| LUCY-SPEC-010 | QualityGate and AutonomyPolicy are modelled and validated; the captain is the only override role | m0 | spec 5.3, 5.4 |
-| LUCY-SPEC-011 | The vendored schemas validate the spec's own examples in CI | m0 | report 9.1b |
+| LUCY-SPEC-010 | QualityGate and AutonomyPolicy are modelled and validated; the owner is the only override role | m0 | spec 5.3, 5.4 |
+| LUCY-SPEC-011 | The vendored schemas validate the spec's own examples in CI | m0 | D3b |
 | LUCY-SPEC-012 | Dispatch is refused until a task has a goal, delivery path, autonomy and acceptance test (readiness check) | m1 | RFC-0011 |
-| LUCY-SPEC-013 | Captain calls are Decision resources projected from the event log; only the captain's words close them | m1 | RFC-0035 |
-| LUCY-SPEC-014 | Scout and ship pipelines use FailurePolicy, CredentialPolicy, ApprovalPolicy and PullRequest config; a timeout never approves a merge | m1 | spec 5.1 |
-| LUCY-SPEC-015 | AgentRole covers supervisor, ship worker, scout and reviewer; blockedPaths feed the delete guard | m1 | spec 5.2 |
+| LUCY-SPEC-013 | Decisions waiting on the owner are Decision resources projected from the event log; only the owner's words close them | m1 | RFC-0035 |
+| LUCY-SPEC-014 | Research and ship pipelines use FailurePolicy, CredentialPolicy, ApprovalPolicy and PullRequest config; a timeout never approves a merge | m1 | spec 5.1 |
+| LUCY-SPEC-015 | AgentRole covers supervisor, ship worker, researcher and reviewer; blockedPaths feed the delete guard | m1 | spec 5.2 |
 | LUCY-SPEC-016 | AdapterBinding is the provider seam: berth is Sandbox, the gateway is SecretStore, lucy's pipeline is CodeAnalysis | m1 | spec 5.5 |
 | LUCY-SPEC-017 | lucy passes the spec's Core conformance level; worktree pool and backlog use the spec's schemas | m1 | spec 11 |
 | LUCY-SPEC-018 | AgentRole handoffs, demotion triggers and Adapter conformance | m2 | spec 5.2, 5.4, 11 |
-| LUCY-SPEC-019 | lucy proposes autonomy promotions from metrics; only the captain grants one; spec fixes go upstream | m3 | spec 5.4, P2-13 |
-| LUCY-SPEC-020 | Deferred concepts (Workflow document, complexity routing, priority policy, agentCard, session hierarchy) are priced one by one | m4 | report 9b |
+| LUCY-SPEC-019 | lucy proposes autonomy promotions from metrics; only the owner grants one; spec fixes go upstream | m3 | spec 5.4, P2-13 |
+| LUCY-SPEC-020 | Deferred concepts (Workflow document, complexity routing, priority policy, agentCard, session hierarchy) are priced one by one | m4 | D3b |

@@ -2,7 +2,7 @@
 id: D8
 title: "D8: built-in vs external inventory; full setup"
 status: accepted
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-OPS-001, LUCY-OPS-002]
 decided: 2026-11-26
@@ -24,11 +24,16 @@ risk. Installing lucy must provide the full installation of lucy plus everything
   chrome-devtools-axi, quota-axi, the no-mistakes skill, ai-memory. Agent Substrate is future.
 - **Built in:** GitHub access (lucy's own API client), quota and usage data, SQLite, sigstore, the
   policy engine, gateway, pipeline, TUI, dashboard and MCP server.
-- `lucy setup` installs everything through mise from a pinned manifest, plan first (LUCY-OPS-001).
-  OS prerequisites are checked, never installed; setup never runs `sudo`.
-- `lucy doctor` checks every row and repairs what it can (LUCY-OPS-002).
+- `lucy preflight` installs everything through mise from a pinned manifest, plan first
+  (LUCY-OPS-001). OS prerequisites are checked, never installed; it never runs `sudo`.
+- `lucy preflight --check` checks every row; `--repair` repairs what it can (LUCY-OPS-002).
 
 ## Consequences
 
 - The full inventory with pins, risks and mitigations lives in [TECH.md](../../TECH.md).
 - lucy writes its pinned toolchain under its own data dir, leaving the user's global mise config alone.
+
+## Revisions
+
+- **v2 (2026-11-26):** setup and its health check became one command, `lucy preflight`, with
+  `--check` and `--repair` ([glossary](../../GLOSSARY.md)).

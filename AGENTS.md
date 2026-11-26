@@ -2,7 +2,7 @@
 id: agents
 title: Instructions for coding agents
 status: active
-version: 2
+version: 3
 owner: ar4mirez
 requirements: [LUCY-REPO-002, LUCY-REPO-004, LUCY-REPO-007]
 ---
@@ -14,7 +14,7 @@ lucy is a Go project. CLAUDE.md imports this file; do not duplicate it there.
 ## Read first
 
 - [AGENTIC.md](AGENTIC.md): working rules and the documentation rules.
-- The milestone brief you are working in, under [docs/milestones](docs/milestones/README.md), and the
+- The milestone plan you are working in, under [docs/milestones](docs/milestones/README.md), and the
   requirement IDs it lists ([index](docs/requirements.md)).
 - [TECH.md](TECH.md) for architecture and layout; [SECURITY.md](SECURITY.md) before touching
   credentials, the API, policy, deletes or CI.

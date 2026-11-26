@@ -2,7 +2,7 @@
 id: D3b
 title: "D3b: adopt as much of the ai-sdlc spec as possible"
 status: accepted
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-SPEC-001, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-012, LUCY-VAL-003, LUCY-VAL-007]
 decided: 2026-11-26
@@ -29,7 +29,7 @@ pinned at commit `b56cecaeef256644c3066fae2106af5c7eaa684a`
 
 ## Adoption map
 
-36 concepts: 17 adopted, 13 adapted to lucy's model (one captain, orgs, explicit autonomy), 6 deferred.
+36 concepts: 17 adopted, 13 adapted to lucy's model (one owner, orgs, explicit autonomy), 6 deferred.
 Deferred: `Pipeline` stages (deprecated by the spec), complexity routing, `agentCard`, the priority
 policy, the session hierarchy, and the Workflow document. The per-concept rows are the `SPEC`
 requirements in [docs/prd/spec.md](../prd/spec.md).
@@ -39,4 +39,4 @@ requirements in [docs/prd/spec.md](../prd/spec.md).
 - The spec is pinned and mapped through an internal model, so a spec bump never breaks an org
   (LUCY-SPEC-005); each later bump is its own small item.
 - The vendored schemas keep their Apache-2.0 licence, with a NOTICE entry when they land.
-- Autonomy is never inferred: lucy may propose a promotion, only the captain grants it.
+- Autonomy is never inferred: lucy may propose a promotion, only the owner grants it.

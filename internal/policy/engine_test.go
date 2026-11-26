@@ -93,15 +93,15 @@ func TestFailSafe(t *testing.T) {
 	r := request(worker, KindRead, "app", "")
 
 	rules = append([]Rule{{"test.panic", "panics", func(*evalCtx) (verdict, bool) { panic("boom") }}}, saved...)
-	if d := Evaluate(r, Facts{}); d.Outcome != Deny || d.Rule != "engine.error" || d.RuleSetSHA256 == "" {
+	if d := Evaluate(r, Facts{}); d.Outcome != Denied || d.Rule != "engine.error" || d.RuleSetSHA256 == "" {
 		t.Errorf("a panicking rule: %+v", d)
 	}
 	rules = append([]Rule{{"test.bogus", "bogus", func(*evalCtx) (verdict, bool) { return verdict{outcome: "maybe"}, true }}}, saved...)
-	if d := Evaluate(r, Facts{}); d.Outcome != Deny || d.Rule != "engine.error" {
+	if d := Evaluate(r, Facts{}); d.Outcome != Denied || d.Rule != "engine.error" {
 		t.Errorf("a bogus outcome: %+v", d)
 	}
 	rules = []Rule{{"test.silent", "no opinion", func(*evalCtx) (verdict, bool) { return pass() }}}
-	if d := Evaluate(r, Facts{}); d.Outcome != Deny || d.Rule != "engine.error" {
+	if d := Evaluate(r, Facts{}); d.Outcome != Denied || d.Rule != "engine.error" {
 		t.Errorf("no rule decided: %+v", d)
 	}
 }
@@ -110,13 +110,13 @@ func TestFailSafe(t *testing.T) {
 // that must hold for every one of them.
 func TestEvaluateProperties(t *testing.T) {
 	_, proj, scratch, facts := deleteTree(t)
-	roles := []Role{RoleCaptain, RoleDaemon, RoleSupervisor, RoleWorker, RoleScout, RoleReviewer, RoleGateway, "admin"}
+	roles := []Role{RoleOwner, RoleDaemon, RoleSupervisor, RoleWorker, RoleResearcher, RoleReviewer, RoleGateway, "admin"}
 	kinds := []Kind{KindRead, KindWrite, KindMerge, KindDelete, KindForcePush, KindBranchDelete, KindHistoryRewrite, KindCredentialUse, "exec"}
-	sources := []Source{SourceCaptain, SourceConfig, SourceDaemon, SourceTask, SourceAgent, SourceToolOutput,
+	sources := []Source{SourceOwner, SourceConfig, SourceDaemon, SourceTask, SourceAgent, SourceToolOutput,
 		SourceRepoContent, SourceIssue, SourcePRBody, SourcePRComment, SourceWeb, SourceEmail, "trusted"}
 	orgs := []string{"acme", "globex", ""}
 	resources := []string{"", "pr/1", "main", "feature/x", "github", "/", proj + "/build", scratch + "/out", proj + "/h", proj, "rel/path"}
-	postures := []Posture{"", PostureCaptain, PostureGreen, PostureClient, "yolo"}
+	postures := []Posture{"", PostureOwner, PostureGreen, PostureClient, "yolo"}
 	checks := []CheckState{"", ChecksGreen, ChecksRed, ChecksPending}
 	pick := func(rng *rand.Rand, n int) int { return rng.IntN(n) }
 	rng := rand.New(rand.NewPCG(7, 11))
@@ -150,13 +150,13 @@ func TestEvaluateProperties(t *testing.T) {
 		}
 		switch pick(rng, 5) {
 		case 0:
-			f.Approvals = []Approval{approval(req, seen, ByCaptain)}
+			f.Approvals = []Approval{approval(req, seen, ByOwner)}
 		case 1:
-			f.Approvals = []Approval{approval(req, seen, ByClientViaCaptain)}
+			f.Approvals = []Approval{approval(req, seen, ByClientViaOwner)}
 		case 2:
-			f.Approvals = []Approval{approval(req, seen, ByCaptain), approval(req, seen, ByClientViaCaptain)}
+			f.Approvals = []Approval{approval(req, seen, ByOwner), approval(req, seen, ByClientViaOwner)}
 		case 3:
-			f.Approvals = []Approval{{Decision: "d/x", By: ByCaptain, ActionSHA256: strings.Repeat("0", 64)}}
+			f.Approvals = []Approval{{Decision: "d/x", By: ByOwner, ActionSHA256: strings.Repeat("0", 64)}}
 		}
 		before := deepCopy(req, f)
 		d := Evaluate(req, f)
@@ -167,7 +167,7 @@ func TestEvaluateProperties(t *testing.T) {
 			t.Fatalf("Evaluate is not deterministic: %+v then %+v", d, d2)
 		}
 		checkInvariants(t, req, f, d)
-		if d.Outcome == Allow {
+		if d.Outcome == Cleared {
 			seenAllow[req.Kind] = true
 		}
 	}
@@ -182,7 +182,7 @@ func checkInvariants(t *testing.T, r Request, f Facts, d Decision) {
 	t.Helper()
 	fail := func(why string) { t.Fatalf("%s\nrequest %+v\nfacts %+v\ndecision %+v", why, r, f, d) }
 	switch d.Outcome {
-	case Allow, Deny, RequireCaptain:
+	case Cleared, Denied, Holding:
 	default:
 		fail("unknown outcome")
 	}
@@ -193,7 +193,7 @@ func checkInvariants(t *testing.T, r Request, f Facts, d Decision) {
 	if !known || d.Reason == "" {
 		fail("the decision names no known rule or no reason")
 	}
-	if orgBound[r.Actor.Role] && r.Actor.Org != r.Target.Org && d.Outcome != Deny {
+	if orgBound[r.Actor.Role] && r.Actor.Org != r.Target.Org && d.Outcome != Denied {
 		fail("a cross-org request was not denied")
 	}
 	approvedBy := func(by ApprovalBy) bool {
@@ -204,8 +204,8 @@ func checkInvariants(t *testing.T, r Request, f Facts, d Decision) {
 		}
 		return false
 	}
-	if d.Outcome != Allow && len(d.ApprovalsUsed) > 0 {
-		fail("a deny or escalation recorded approvals used")
+	if d.Outcome != Cleared && len(d.ApprovalsUsed) > 0 {
+		fail("a denial or a hold recorded approvals used")
 	}
 	for _, id := range d.ApprovalsUsed {
 		matched := false
@@ -216,7 +216,7 @@ func checkInvariants(t *testing.T, r Request, f Facts, d Decision) {
 			fail("the decision used an approval that does not bind to this action and these facts")
 		}
 	}
-	if d.Outcome != Allow {
+	if d.Outcome != Cleared {
 		return
 	}
 	if Privileged(r.Kind) {
@@ -242,10 +242,10 @@ func checkInvariants(t *testing.T, r Request, f Facts, d Decision) {
 		if !mergers[r.Actor.Role] || f.HeadSHA == "" || f.Checks != ChecksGreen || f.RequiredUnreported || f.UnintendedClosing {
 			fail("a merge was allowed by the wrong role, with its head unknown, or without green, fully reported checks")
 		}
-		if len(f.Exceptions) > 0 && !approvedBy(ByCaptain) {
-			fail("a fixed-list merge was allowed without the captain's approval")
+		if len(f.Exceptions) > 0 && !approvedBy(ByOwner) {
+			fail("a fixed-list merge was allowed without the owner's approval")
 		}
-		if (f.Posture == PostureCaptain || f.Posture == "") && !approvedBy(ByCaptain) || f.Posture == PostureClient && !approvedBy(ByClientViaCaptain) {
+		if (f.Posture == PostureOwner || f.Posture == "") && !approvedBy(ByOwner) || f.Posture == PostureClient && !approvedBy(ByClientViaOwner) {
 			fail("a merge was allowed without the approval its posture needs")
 		}
 	case KindDelete:
@@ -253,11 +253,11 @@ func checkInvariants(t *testing.T, r Request, f Facts, d Decision) {
 		if err != nil {
 			fail("a delete the path guard refuses was allowed: " + err.Error())
 		}
-		if root != "scratch" && !approvedBy(ByCaptain) {
+		if root != "scratch" && !approvedBy(ByOwner) {
 			fail("a delete outside the scratch dir was allowed without an approval")
 		}
 	case KindForcePush, KindBranchDelete, KindHistoryRewrite:
-		if !approvedBy(ByCaptain) || f.DefaultBranch == "" || strings.EqualFold(shortBranch(r.Target.Resource), shortBranch(f.DefaultBranch)) || neverWrite[r.Actor.Role] {
+		if !approvedBy(ByOwner) || f.DefaultBranch == "" || strings.EqualFold(shortBranch(r.Target.Resource), shortBranch(f.DefaultBranch)) || neverWrite[r.Actor.Role] {
 			fail("a destructive git action was allowed without an approval, or on the default branch")
 		}
 	default:
@@ -274,9 +274,9 @@ func TestDecisionRecordRegisters(t *testing.T) {
 	}
 	r := request(worker, KindMerge, "app", "pr/3", issueInput, taskInput)
 	f := Facts{Checks: ChecksGreen, HeadSHA: "abc", BaseRef: "main", BaseSHA: "def"}
-	f.Approvals = []Approval{approval(r, f, ByCaptain)}
+	f.Approvals = []Approval{approval(r, f, ByOwner)}
 	rec := NewRecord(r, f, Evaluate(r, f))
-	if rec.Outcome != Deny || rec.Rule != "merge.role" || len(rec.Inputs) != 2 || rec.Inputs[0].Trusted || !rec.Inputs[1].Trusted ||
+	if rec.Outcome != Denied || rec.Rule != "merge.role" || len(rec.Inputs) != 2 || rec.Inputs[0].Trusted || !rec.Inputs[1].Trusted ||
 		len(rec.Facts.Approvals) != 1 || !rec.Tainted || rec.RuleSetSHA256 == "" || rec.FactsSHA256 != FactsDigest(KindMerge, f) ||
 		rec.Facts.HeadSHA != "abc" || rec.Facts.BaseRef != "main" || rec.Facts.BaseSHA != "def" {
 		t.Errorf("record: %+v", rec)
@@ -286,7 +286,7 @@ func TestDecisionRecordRegisters(t *testing.T) {
 	del := request(worker, KindDelete, "app", scratch+"/out")
 	df := facts(scratch + "/out")
 	drec := NewRecord(del, df, Evaluate(del, df))
-	if drec.Outcome != Allow || drec.Facts.Home != df.Home || !reflect.DeepEqual(drec.Facts.Roots, df.Roots) || len(drec.Facts.Roots) != 2 {
+	if drec.Outcome != Cleared || drec.Facts.Home != df.Home || !reflect.DeepEqual(drec.Facts.Roots, df.Roots) || len(drec.Facts.Roots) != 2 {
 		t.Errorf("delete record: %+v", drec)
 	}
 }

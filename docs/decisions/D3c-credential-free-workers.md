@@ -2,7 +2,7 @@
 id: D3c
 title: "D3c: credential-free workers; a runtime seam for cloud orgs"
 status: accepted
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-CRED-001, LUCY-CRED-005, LUCY-SBX-002]
 decided: 2026-11-26
@@ -27,5 +27,5 @@ one 11 GB workstation.
 - A compromised or confused worker has nothing to exfiltrate.
 - **Open risk:** the worker's own model login. The plan is for the gateway to inject it; if Claude
   Code's subscription login cannot work that way, a per-org login file mounted read-only is an
-  explicit exception the captain must approve (tracked in [m1](../milestones/m1.md)).
+  explicit exception the owner must approve (tracked in [m1](../milestones/m1.md)).
 - An Agent Substrate runner is an m4 item (LUCY-BRD-002).

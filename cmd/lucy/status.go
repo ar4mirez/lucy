@@ -10,13 +10,15 @@ import (
 
 	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/api/client"
+	"github.com/ar4mirez/lucy/internal/config"
 )
 
 const statusUsage = `Usage:
   lucy status [--socket <path>]
 
 Shows the running daemon's version, API version, uptime and event log head, through the
-daemon's API. Exits 1 when no daemon is running.
+daemon's API, and how lucy refers to you (the [you] section of config.toml). Exits 1 when no
+daemon is running, 2 when config.toml is invalid.
 `
 
 const eventsUsage = `Usage:
@@ -48,11 +50,17 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return callFailed(err, c, stderr)
 	}
+	cfg, err := config.LoadDefault()
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\nhelp: fix config.toml, or remove it to use the defaults\n", err)
+		return 2
+	}
 	fmt.Fprintf(stdout, "daemon: running\nversion: %s\nclient_version: %s\napi_version: %d\npid: %d\n",
 		st.ServerVersion, version, w.APIVersion, st.PID)
 	fmt.Fprintf(stdout, "started_at: %s\nuptime: %s\nevent_head: %d\nrefused_connections: %d\nsocket: %s\ncaller: %s\n",
 		st.StartedAt.Format(time.RFC3339), time.Duration(st.UptimeSeconds)*time.Second, st.EventHead,
 		st.RefusedConnections, c.Socket(), w.Caller.Actor)
+	fmt.Fprintf(stdout, "you: %s\n", cfg.You.Label())
 	return 0
 }
 

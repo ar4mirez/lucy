@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 2
+version: 3
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -22,10 +22,10 @@ lucy is pre-release (m0): only the `main` branch is supported, and fixes land th
 
 ## Model
 
-lucy runs untrusted agents on behalf of one captain across several isolated orgs. Its design follows
+lucy runs untrusted agents on behalf of one owner across several isolated orgs. Its design follows
 from a STRIDE threat model over seven trust boundaries ([threat model](docs/security/threat-model.md)):
 
-1. Captain surfaces to the daemon (CLI, TUI, dashboard, MCP, paired devices)
+1. Owner surfaces to the daemon (CLI, TUI, dashboard, MCP, paired devices)
 2. The daemon (API, policy engine, event store, vault)
 3. Runners and berth containers
 4. The per-org credential gateway
@@ -48,6 +48,6 @@ The controls that answer most of those threats:
   SBOM per archive, pinned tools, CI actions pinned by SHA with a read-only token (LUCY-REPO-008);
   [verifying a release](docs/runbooks/verify-release.md).
 
-The captain's security checklist (38 items in five areas) is mapped to milestones and owners in the
+The owner's security checklist (38 items in five areas) is mapped to milestones and requirements in the
 [checklist map](docs/security/checklist.md). The threat model is re-checked at every milestone exit
 (LUCY-SEC-003).

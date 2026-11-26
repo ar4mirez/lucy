@@ -3,12 +3,12 @@ package policy
 // This file is part of the rule set: its source is hashed into RuleSetSHA256, so any change here
 // is a new rule set version (see engine.go).
 
-// trusted maps every known source to whether it is trusted. Trusted sources are the captain's own
-// words, the captain's config, lucy's deterministic code and task records made through the API.
+// trusted maps every known source to whether it is trusted. Trusted sources are the owner's own
+// words, the owner's config, lucy's deterministic code and task records made through the API.
 // Everything a model wrote or read from outside is untrusted. A source not in this table is
 // invalid, and a request naming one is denied.
 var trusted = map[Source]bool{
-	SourceCaptain:     true,
+	SourceOwner:       true,
 	SourceConfig:      true,
 	SourceDaemon:      true,
 	SourceTask:        true,
@@ -31,13 +31,13 @@ func KnownSource(s Source) bool {
 	return ok
 }
 
-// orgBound roles act inside exactly one org. The captain and the daemon are not bound to one.
+// orgBound roles act inside exactly one org. The owner and the daemon are not bound to one.
 var orgBound = map[Role]bool{
-	RoleCaptain:    false,
+	RoleOwner:      false,
 	RoleDaemon:     false,
 	RoleSupervisor: true,
 	RoleWorker:     true,
-	RoleScout:      true,
+	RoleResearcher: true,
 	RoleReviewer:   true,
 	RoleGateway:    true,
 }
@@ -60,11 +60,11 @@ func Privileged(k Kind) bool {
 	return p || !ok
 }
 
-// mergers may merge, within the posture. Workers, scouts, reviewers and the gateway never merge.
-var mergers = map[Role]bool{RoleCaptain: true, RoleDaemon: true, RoleSupervisor: true}
+// mergers may merge, within the posture. Workers, researchers, reviewers and the gateway never merge.
+var mergers = map[Role]bool{RoleOwner: true, RoleDaemon: true, RoleSupervisor: true}
 
 // neverWrite roles never change a project, so they never delete or rewrite anything either.
-var neverWrite = map[Role]bool{RoleSupervisor: true, RoleScout: true, RoleReviewer: true, RoleGateway: true}
+var neverWrite = map[Role]bool{RoleSupervisor: true, RoleResearcher: true, RoleReviewer: true, RoleGateway: true}
 
 // exceptions is the fixed list.
 var exceptions = map[Exception]bool{

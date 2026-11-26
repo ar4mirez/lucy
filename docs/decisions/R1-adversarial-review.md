@@ -2,7 +2,7 @@
 id: R1
 title: "R1: adversarial architecture review, adopted"
 status: accepted
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-CORP-001, LUCY-POL-001, LUCY-RUN-002, LUCY-RUN-001, LUCY-API-001, LUCY-SIM-001, LUCY-RUN-012, LUCY-VAL-008, LUCY-REPO-006]
 decided: 2026-11-26
@@ -12,7 +12,7 @@ decided: 2026-11-26
 
 ## Context
 
-An independent review of the design report and decisions D1-D6, by a reviewer who did not write the
+An independent review of the initial design and decisions D1-D6, by a reviewer who did not write the
 design. Every item is adopted.
 
 ## Items
@@ -37,7 +37,7 @@ design. Every item is adopted.
 | P2-16 | Knowledge | Typed, expiring per-org knowledge | m2 |
 | P2-17 | Observability | Traces, flight recorder, replay | m1 |
 | P2-18 | Scope and bus factor | Small core; Lavish and gh-axi stay external; non-goals in the README | m0 |
-| P2-19 | Migration | `lucy import firstmate` with a dry run | m2 |
+| P2-19 | Migration | `lucy import` from the existing supervisor, with a dry run | m2 |
 
 ## Where the review and a decision differ, the decision stands
 
