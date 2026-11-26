@@ -19,12 +19,6 @@ type Clock interface {
 	Now() time.Time
 }
 
-// SystemClock is the real clock, in UTC.
-type SystemClock struct{}
-
-// Now implements Clock.
-func (SystemClock) Now() time.Time { return time.Now().UTC() }
-
 // PilotState is what a Pilot session reports.
 type PilotState string
 

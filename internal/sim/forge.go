@@ -70,6 +70,7 @@ type pullRequest struct {
 	merged    bool
 	mergeSHA  string
 	loseReply bool
+	failMerge bool
 }
 
 func newForge(clock *Clock, rng *rand.Rand) *Forge {
@@ -164,6 +165,16 @@ func (f *Forge) LoseMergeReply(name string, number int) error {
 	return err
 }
 
+// FailMerge is a fault: the next merge of the pull request fails with an error before it
+// happens, as when the forge answers 5xx or the connection drops on the way.
+func (f *Forge) FailMerge(name string, number int) error {
+	_, p, err := f.pr(name, number)
+	if err == nil {
+		p.failMerge = true
+	}
+	return err
+}
+
 // Merges returns every merge the forge performed, in order.
 func (f *Forge) Merges() []Merge { return append([]Merge(nil), f.merges...) }
 
@@ -183,7 +194,9 @@ func (p *pullRequest) checkState(c Check, now time.Time) policy.CheckState {
 	return policy.ChecksGreen
 }
 
-// PullRequest implements tower.Forge.
+// PullRequest implements tower.Forge. A required check that never reported leaves Checks the
+// state of the checks that did, with RequiredUnreported set, as GitHub reports one that never
+// started.
 func (f *Forge) PullRequest(_ context.Context, name string, number int) (tower.PullRequest, error) {
 	r, p, err := f.pr(name, number)
 	if err != nil {
@@ -205,7 +218,7 @@ func (f *Forge) PullRequest(_ context.Context, name string, number int) (tower.P
 	}
 	for _, name := range r.required {
 		if !reported[name] {
-			out.RequiredUnreported, pending = true, true
+			out.RequiredUnreported = true
 		}
 	}
 	switch {
@@ -219,8 +232,12 @@ func (f *Forge) PullRequest(_ context.Context, name string, number int) (tower.P
 	return out, nil
 }
 
-// errReplyLost is what a merge whose reply was lost returns.
-var errReplyLost = errors.New("forge: the connection closed before the merge's reply")
+// errReplyLost is what a merge whose reply was lost returns; errMergeFailed is what a merge that
+// failed before it happened returns.
+var (
+	errReplyLost   = errors.New("forge: the connection closed before the merge's reply")
+	errMergeFailed = errors.New("forge: the merge failed: 502 bad gateway")
+)
 
 // Merge implements tower.Forge: it merges only the head it is given, and only cleanly.
 func (f *Forge) Merge(_ context.Context, name string, number int, head string) (string, error) {
@@ -235,6 +252,9 @@ func (f *Forge) Merge(_ context.Context, name string, number int, head string) (
 		return "", tower.ErrHeadMoved
 	case p.conflict:
 		return "", tower.ErrConflict
+	case p.failMerge:
+		p.failMerge = false
+		return "", errMergeFailed
 	}
 	p.merged, p.mergeSHA = true, f.sha()
 	r.branches[p.base] = p.mergeSHA

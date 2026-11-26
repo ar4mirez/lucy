@@ -239,7 +239,7 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 
 | Path | Contents |
 |---|---|
-| `cmd/lucy/` | The binary's entrypoint: version, help, self-update, `daemon`, `status`, `events`, `config`, `audit`, `sim` |
+| `cmd/lucy/` | The binary's entrypoint: version, help, self-update, `daemon`, `status`, `events`, `config`, `audit` |
 | `internal/api/` | The API's method table, wire format, errors and generated OpenRPC schema (section 4) |
 | `internal/api/client/` | The Go client of the API |
 | `internal/server/` | The API's HTTP handler, peer-credential listener and authorizer seam |

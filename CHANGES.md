@@ -21,7 +21,6 @@ Changes since the last release. When a version is cut, its section moves to
   merge until the owner approves, and the approval lapses when the head or base moves.
 - A simulation harness: a fake Pilot runtime, a fake forge and a virtual clock run whole flights
   deterministically in tests, with fault hooks for daemon restarts and Pilot crashes.
-  `lucy sim [--seed <n>] [--log]` flies a demo airspace in a throwaway temporary directory.
 - Config is ai-sdlc spec resources (spec commit `b56ceca`): `lucy config validate [<dir>]` checks
   every `.yaml`, `.yml` and `.json` file against the vendored draft 2020-12 schemas and prints each
   resource's `Valid` condition and every violation. Unknown fields, a missing

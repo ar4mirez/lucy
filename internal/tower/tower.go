@@ -119,6 +119,7 @@ type flight struct {
 	approvals  []policy.Approval
 	cleared    string // the inputs the last clearance was decided on
 	decision   Cleared
+	unmerged   bool // the last event is a cleared decision whose merge did not reach the forge, or failed with an error
 	reason     string
 }
 
@@ -374,6 +375,11 @@ func (t *Tower) watchPR(ctx context.Context, f *flight) error {
 		return t.record(ctx, f, ActorDaemon, Grounded{Reason: GroundStalled,
 			Detail: "the pull request made no progress toward a clearance for " + t.cfg.Patience.String()})
 	}
+	// A clearance whose merge never reached the forge (the daemon stopped in between) or failed
+	// with an error is merged again: the facts are unchanged, and Merge names the cleared head.
+	if f.unmerged && f.decision.HeadSHA == pr.HeadSHA {
+		return t.merge(ctx, f, f.decision)
+	}
 	return nil
 }
 
@@ -421,19 +427,27 @@ func (t *Tower) clearMerge(ctx context.Context, f *flight) error {
 	if d.Outcome != policy.Cleared {
 		return nil
 	}
-	mergeSHA, err := t.cfg.Forge.Merge(ctx, f.repo(), f.pr, facts.HeadSHA)
+	return t.merge(ctx, f, c)
+}
+
+// merge merges the pull request at the head c cleared, and records the takeoff or the failure.
+func (t *Tower) merge(ctx context.Context, f *flight, c Cleared) error {
+	mergeSHA, err := t.cfg.Forge.Merge(ctx, f.repo(), f.pr, c.HeadSHA)
 	if err != nil {
-		reason := "error"
+		reason := mergeError
 		switch {
 		case errors.Is(err, ErrConflict):
 			reason = "conflict"
 		case errors.Is(err, ErrHeadMoved):
 			reason = "head_moved"
 		}
-		return t.record(ctx, f, ActorDaemon, MergeFailed{PR: f.pr, HeadSHA: facts.HeadSHA, Reason: reason})
+		return t.record(ctx, f, ActorDaemon, MergeFailed{PR: f.pr, HeadSHA: c.HeadSHA, Reason: reason})
 	}
-	return t.record(ctx, f, ActorDaemon, Takeoff{PR: f.pr, HeadSHA: facts.HeadSHA, MergeSHA: mergeSHA, DecisionSeq: c.DecisionSeq})
+	return t.record(ctx, f, ActorDaemon, Takeoff{PR: f.pr, HeadSHA: c.HeadSHA, MergeSHA: mergeSHA, DecisionSeq: c.DecisionSeq})
 }
+
+// mergeError is a MergeFailed reason for an error that is neither a conflict nor a moved head.
+const mergeError = "error"
 
 // Answer passes the owner's answer to the Pilot's question.
 func (t *Tower) Answer(ctx context.Context, id, answer string) error {
@@ -512,6 +526,7 @@ func (f *flight) apply(e eventstore.Event, p eventstore.Payload) {
 			f.state, f.since = s, e.Time
 		}
 	}
+	f.unmerged = false
 	switch p := p.(type) {
 	case Dispatched:
 		enter(StateDispatched)
@@ -541,12 +556,14 @@ func (f *flight) apply(e eventstore.Event, p eventstore.Payload) {
 	case Cleared:
 		f.decision = p
 		f.cleared = f.clearanceKey()
+		f.unmerged = p.Outcome == policy.Cleared
 		if p.Outcome == policy.Holding {
 			enter(StateHolding)
 		} else {
 			enter(StateReview)
 		}
 	case MergeFailed:
+		f.unmerged = p.Reason == mergeError
 		enter(StateReview)
 	case Takeoff:
 		enter(StateTakeoff)

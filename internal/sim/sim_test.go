@@ -197,7 +197,8 @@ func TestRequiredCheckUnreported(t *testing.T) {
 	dispatch(t, w, spec("f1", policy.PostureGreen))
 	run(t, w, RunOptions{})
 	wantState(t, w, "f1", tower.StateGrounded, tower.GroundStalled)
-	if st := state(t, w, "f1"); !st.Observed.RequiredUnreported || len(w.Forge.Merges()) != 0 {
+	wantOutcomes(t, w, "denied:merge.checks-green")
+	if st := state(t, w, "f1"); !st.Observed.RequiredUnreported || st.Observed.Checks != policy.ChecksGreen || len(w.Forge.Merges()) != 0 {
 		t.Fatalf("observed %+v, merges %v", st.Observed, w.Forge.Merges())
 	}
 	checkInvariants(t, w)
@@ -404,9 +405,93 @@ func TestRestartMidMerge(t *testing.T) {
 	checkInvariants(t, w)
 }
 
+// The forge fails the cleared merge before it happens, and the daemon restarts. The restarted
+// Tower merges the cleared head again, once, without a new decision.
+func TestMergeErrorRetriedAfterRestart(t *testing.T) {
+	w := newWorld(t, 18)
+	dispatch(t, w, spec("f1", policy.PostureGreen))
+	armed, restarted := false, false
+	run(t, w, RunOptions{BeforeStep: func(ctx context.Context, w *World, _ int) error {
+		st := state(t, w, "f1")
+		if !armed && st.State == tower.StateReview && st.PR > 0 {
+			armed = true
+			return w.Forge.FailMerge("acme/web", st.PR)
+		}
+		if !restarted && contains(types(t, w, "f1"), "merge_failed") {
+			restarted = true
+			return w.Restart(ctx)
+		}
+		return nil
+	}})
+	wantState(t, w, "f1", tower.StateTakeoff, "")
+	wantOutcomes(t, w, "cleared:merge.posture")
+	if got := strings.Join(types(t, w, "f1"), " "); !restarted || !strings.HasSuffix(got, "clearance merge_failed takeoff") {
+		t.Fatalf("restarted %v, events %s", restarted, got)
+	}
+	if m := w.Forge.Merges(); len(m) != 1 || m[0].HeadSHA != state(t, w, "f1").Observed.HeadSHA {
+		t.Fatalf("merges %+v", m)
+	}
+	checkInvariants(t, w)
+}
+
+// demoOutcomes is how each flight of demo ends: its state, and the grounding reason.
+var demoOutcomes = map[string]string{
+	"a-takeoff": "takeoff", "b-owner": "takeoff", "c-red": "grounded/stalled", "d-flaky": "takeoff",
+	"e-ask": "takeoff", "f-crash": "takeoff", "g-hang": "grounded/pilot_timeout",
+}
+
+// demo flies a busy airspace in w: one flight of each kind (green posture, owner posture, red
+// checks, a flaky check, a Pilot that asks, one that crashes and is replaced, one that hangs),
+// with an owner who answers every question and approves every holding merge. opts applies to
+// every Run, so a fault hook sees the whole demo.
+func demo(ctx context.Context, w *World, opts RunOptions) error {
+	flight := func(id string, posture policy.Posture) tower.Spec {
+		return tower.Spec{ID: id, Org: "acme", Project: "web", Goal: "demo flight " + id, Posture: posture}
+	}
+	w.Runtime.Script("f-crash", Work(7*time.Minute), Crash())
+	w.Runtime.Script("f-crash", DefaultScript()...)
+	for _, d := range []struct {
+		spec  tower.Spec
+		steps []Step
+	}{
+		{flight("a-takeoff", policy.PostureGreen), nil},
+		{flight("b-owner", policy.PostureOwner), []Step{Work(30 * time.Minute), OpenPR(Passing("ci", 10*time.Minute), Passing("lint", time.Minute))}},
+		{flight("c-red", policy.PostureGreen), []Step{Work(time.Hour), OpenPR(Failing("ci", 5*time.Minute))}},
+		{flight("d-flaky", policy.PostureGreen), []Step{Work(15 * time.Minute), OpenPR(Flaky("e2e", 20*time.Minute))}},
+		{flight("e-ask", policy.PostureGreen), []Step{Work(5 * time.Minute), Ask("which region?"), Work(10 * time.Minute), OpenPR(Passing("ci", 3*time.Minute))}},
+		{flight("f-crash", policy.PostureGreen), nil},
+		{flight("g-hang", policy.PostureGreen), []Step{Hang()}},
+	} {
+		if err := w.Dispatch(ctx, d.spec, d.steps...); err != nil {
+			return err
+		}
+	}
+	for range 10 {
+		if err := w.Run(ctx, opts); err != nil {
+			return err
+		}
+		if _, active := w.Tower.NextWake(); !active {
+			return nil
+		}
+		for _, f := range w.Tower.Flights() {
+			var err error
+			switch f.State {
+			case tower.StateAsking:
+				err = w.Tower.Answer(ctx, f.ID, "eu-west")
+			case tower.StateHolding:
+				err = w.Tower.Approve(ctx, f.ID, policy.ByOwner)
+			}
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return errors.New("sim: the demo did not finish")
+}
+
 func TestDemoOutcomes(t *testing.T) {
 	w := newWorld(t, 42)
-	if err := Demo(context.Background(), w, RunOptions{}); err != nil {
+	if err := demo(context.Background(), w, RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range w.Tower.Flights() {
@@ -414,12 +499,12 @@ func TestDemoOutcomes(t *testing.T) {
 		if f.Reason != "" {
 			got += "/" + f.Reason
 		}
-		if got != DemoOutcomes[f.ID] {
-			t.Errorf("flight %s ended %s, want %s", f.ID, got, DemoOutcomes[f.ID])
+		if got != demoOutcomes[f.ID] {
+			t.Errorf("flight %s ended %s, want %s", f.ID, got, demoOutcomes[f.ID])
 		}
 	}
-	if len(w.Tower.Flights()) != len(DemoOutcomes) {
-		t.Errorf("%d flights, want %d", len(w.Tower.Flights()), len(DemoOutcomes))
+	if len(w.Tower.Flights()) != len(demoOutcomes) {
+		t.Errorf("%d flights, want %d", len(w.Tower.Flights()), len(demoOutcomes))
 	}
 	checkInvariants(t, w)
 }
@@ -430,7 +515,7 @@ func TestDeterministic(t *testing.T) {
 	ctx := context.Background()
 	logOf := func(seed uint64, opts RunOptions) ([]Line, string) {
 		w := newWorld(t, seed)
-		if err := Demo(ctx, w, opts); err != nil {
+		if err := demo(ctx, w, opts); err != nil {
 			t.Fatal(err)
 		}
 		log, err := w.Log(ctx)
