@@ -2,7 +2,7 @@
 id: tech-vault
 title: The per-org credential vault
 status: active
-version: 4
+version: 5
 owner: ar4mirez
 requirements: [LUCY-CRED-002]
 ---
@@ -74,6 +74,6 @@ the threat model: [SECURITY.md](../../SECURITY.md).
 ## Not built yet
 
 - TODO(LUCY-CRED-006): rotation, and offboarding that deletes an org's key and every leftover
-  `keys/<org>.key.tmp-*` copy of it (m2).
+  `keys/<org>.wkey.tmp-*` copy of it (m2).
 - TODO(LUCY-CRED-002): changing the vault passphrase (re-wrapping every org key under a new one);
   an OS keystore or a hardware-backed key stays a later option (D14).

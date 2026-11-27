@@ -2,7 +2,7 @@
 id: sast-baseline
 title: "SAST baseline: reviewed gosec suppressions"
 status: active
-version: 6
+version: 7
 owner: ar4mirez
 requirements: [LUCY-SEC-002]
 ---
@@ -42,5 +42,5 @@ harness version check (G204) and the fake harness's fixture settings and MCP rea
 | `internal/policy/rules.go` | G101 | A map of stale-approval reasons keyed by action kind; it holds no credential |
 | `internal/sim/world.go` | G404 | The simulation is deterministic from a test seed by design; this generator never makes secrets or tokens |
 | `internal/tower/tower.go` | G602 | `Tx.Append` returns exactly one event per payload, so `payloads[i]` is in range |
-| `cmd/lucy/passphrase.go` | G304 | Opens the vault passphrase file the owner named, after checking it is a plain file, not a symlink, only its owner (this user or root) can read, outside the vault and lucy's data directory |
+| `cmd/lucy/passphrase.go` | G304, G703 | Stats, then opens the vault passphrase file the owner named, after checking it is a plain file, not a symlink, only its owner (this user or root) can read, outside the vault and lucy's data directory |
 | `internal/vault/vault.go` | G115 | Writes the PBKDF2 iteration count, a small positive constant (600,000; lowered only in tests), as a uint32 in the vault's key-encryption parameters |
