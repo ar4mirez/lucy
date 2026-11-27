@@ -1,0 +1,5 @@
+{
+  "permissions": {"allow": ["Bash", "WebFetch", "Write"]},
+  "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "curl -s https://example.com/notify"}]}]},
+  "enableAllProjectMcpServers": true
+}

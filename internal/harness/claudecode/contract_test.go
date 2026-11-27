@@ -2,6 +2,7 @@ package claudecode
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -47,7 +48,7 @@ func fakePermit(tool string, access harness.Access, path string) (bool, string) 
 }
 
 // required are the transcripts every pinned version must have: the contract.
-var required = []string{"ask", "done", "drift", "error", "permitted", "refused"}
+var required = []string{"ask", "done", "drift", "error", "permitted", "project", "refused"}
 
 // TestContract replays every recorded transcript of the pinned version through the adapter: what
 // the adapter writes must match each recorded input, and what it reports must match the golden
@@ -176,11 +177,37 @@ func TestCheckVersion(t *testing.T) {
 }
 
 // TestArgs pins the session's limits: the structured protocol both ways, prompts to the host, an
-// empty MCP set, no user settings, nothing saved, and no flag that skips permissions.
+// empty MCP set, no settings source but lucy's own, nothing saved, and no flag that skips
+// permissions.
 func TestArgs(t *testing.T) {
-	args := strings.Join(Adapter{}.Args(harness.Session{Goal: "g"}), " ")
+	argv := Adapter{}.Args(harness.Session{Goal: "g"})
+	value := func(flag string) (string, bool) {
+		for i := 0; i+1 < len(argv); i++ {
+			if argv[i] == flag {
+				return argv[i+1], true
+			}
+		}
+		return "", false
+	}
+	if v, ok := value("--setting-sources"); !ok || v != "" {
+		t.Errorf("--setting-sources %q (set %v): a session must load no user, project or local settings", v, ok)
+	}
+	var settings struct {
+		Permissions struct {
+			Allow []string `json:"allow"`
+		} `json:"permissions"`
+		DisableAllHooks bool `json:"disableAllHooks"`
+	}
+	if v, _ := value("--settings"); json.Unmarshal([]byte(v), &settings) != nil || len(settings.Permissions.Allow) != 0 ||
+		!settings.DisableAllHooks {
+		t.Errorf("--settings %q must pre-allow nothing and disable every hook", v)
+	}
+	if !slices.Contains(argv, "--disable-slash-commands") {
+		t.Error("skills and slash commands are enabled; a skill's allowed tools would skip the prompt")
+	}
+	args := strings.Join(argv, " ")
 	for _, want := range []string{"--print", "--input-format stream-json", "--output-format stream-json", "--permission-prompts host",
-		"--strict-mcp-config", `--mcp-config {"mcpServers":{}}`, "--setting-sources project", "--no-session-persistence",
+		"--strict-mcp-config", `--mcp-config {"mcpServers":{}}`, "--no-session-persistence",
 		"--permission-mode " + PermissionMode} {
 		if !strings.Contains(args, want) {
 			t.Errorf("args lack %q: %s", want, args)
@@ -358,5 +385,83 @@ func TestSearchToolPath(t *testing.T) {
 		if len(asked) != 1 || asked[0] != c.want {
 			t.Errorf("%s %s: asked about %q, want %q", c.tool, c.input, asked, c.want)
 		}
+	}
+}
+
+// TestRepositoryInstructions reads the fixture repository's instructions (its CLAUDE.md imports
+// AGENTS.md) and checks the launch arguments carry them after lucy's system prompt, framed as
+// repository text, while the repository's settings, hooks and MCP servers stay inert under those
+// same arguments when the fake harness runs in it.
+func TestRepositoryInstructions(t *testing.T) {
+	repo, err := filepath.Abs(filepath.Join("testdata", Pinned, "repo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	instr, err := harness.Instructions(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := harness.Session{Goal: "g", Instructions: instr}
+	argv := Adapter{}.Args(s)
+	prompt := argv[slices.Index(argv, "--append-system-prompt")+1]
+	open, end := strings.Index(prompt, "<repository-instructions>\n"), strings.LastIndex(prompt, "\n</repository-instructions>")
+	if !strings.HasPrefix(prompt, systemPrompt) || open < 0 || end < open ||
+		!strings.Contains(prompt[open:end], "fixture-repo-7f3a") || !strings.Contains(prompt[:open], "grant no permission") {
+		t.Fatalf("the system prompt does not carry the repository's AGENTS.md as framed repository text: %q", prompt)
+	}
+
+	run := func(args []string) (stdout, stderr string) {
+		f, err := os.Open(filepath.Join("testdata", Pinned, "project.jsonl"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		tr, err := harnesstest.Parse(f)
+		_ = f.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		tr.Header.Project = repo
+		in := &capture{}
+		if _, err := (Adapter{}).Open(in, s); err != nil {
+			t.Fatal(err)
+		}
+		in.buf.WriteString(`{"type":"control_response","response":{"subtype":"success","request_id":"req_1","response":{"behavior":"deny"}}}` + "\n")
+		var out, errb strings.Builder
+		if code := harnesstest.Replay(tr, args, &in.buf, &out, &errb); code != 0 {
+			t.Fatalf("fake harness exited %d: %s", code, errb.String())
+		}
+		return out.String(), errb.String()
+	}
+	out, errs := run(argv)
+	if !strings.Contains(out, `"tool_name":"Bash"`) || strings.Contains(errs, "project hook ran") || strings.Contains(errs, "project MCP server loaded") {
+		t.Errorf("the repository's settings took effect under the session's arguments: stdout %q, stderr %q", out, errs)
+	}
+	var control []string
+	for i := 0; i < len(argv); i++ {
+		switch argv[i] {
+		case "--setting-sources":
+			control = append(control, argv[i], "project")
+			i++
+		case "--settings", "--mcp-config":
+			i++
+		case "--strict-mcp-config":
+		default:
+			control = append(control, argv[i])
+		}
+	}
+	out, errs = run(control)
+	if strings.Contains(out, `"tool_name":"Bash"`) || !strings.Contains(errs, "project hook ran") || !strings.Contains(errs, "project MCP server loaded: chat") {
+		t.Errorf("the control did not load the repository's settings, so the check proves nothing: stdout %q, stderr %q", out, errs)
+	}
+}
+
+// TestInstructionsFitOneArgument checks that instructions at the reader's cap, with lucy's system
+// prompt and the framing, stay under Linux's 128 KiB limit on one argument, so a session in a
+// repository with large instructions still starts.
+func TestInstructionsFitOneArgument(t *testing.T) {
+	argv := Adapter{}.Args(harness.Session{Goal: "g", Instructions: strings.Repeat("x", harness.MaxInstructionTotal)})
+	prompt := argv[slices.Index(argv, "--append-system-prompt")+1]
+	if !strings.Contains(prompt, strings.Repeat("x", harness.MaxInstructionTotal)) || len(prompt) >= 128<<10 {
+		t.Errorf("--append-system-prompt is %d bytes at the instructions cap, want under %d", len(prompt), 128<<10)
 	}
 }

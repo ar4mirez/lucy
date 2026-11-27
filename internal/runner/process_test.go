@@ -93,6 +93,9 @@ func fakeHarness(spec string) int {
 	if version != "-" {
 		tr.Header.Version = version
 	}
+	if tr.Header.Project != "" && !filepath.IsAbs(tr.Header.Project) {
+		tr.Header.Project = filepath.Join(filepath.Dir(path), tr.Header.Project)
+	}
 	return harnesstest.Replay(tr, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
 }
 
@@ -462,5 +465,100 @@ func TestHarnessExecutorTagsEveryRepeat(t *testing.T) {
 	}
 	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7}) {
 		t.Fatalf("result %+v", res)
+	}
+}
+
+// projectSettings is the Claude Code adapter with project settings loaded, no lucy-owned settings
+// and no strict MCP config. It is the control that shows the test below can see a
+// project's settings take effect.
+type projectSettings struct{ claudecode.Adapter }
+
+func (a projectSettings) Args(s harness.Session) []string {
+	var out []string
+	args := a.Adapter.Args(s)
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--setting-sources":
+			out = append(out, args[i], "project")
+			i++
+		case "--settings", "--mcp-config":
+			i++
+		case "--strict-mcp-config":
+		default:
+			out = append(out, args[i])
+		}
+	}
+	return out
+}
+
+// TestHarnessIgnoresProjectSettings runs a session in a fixture repository whose committed
+// .claude/settings.json pre-allows Bash, adds a hook and enables its .mcp.json servers. Under the
+// adapter's arguments none takes effect: Bash is still prompted, so lucy refuses it, the hook never
+// runs and no MCP server loads. The control, with project settings loaded and no strict MCP config,
+// shows all three taking effect.
+func TestHarnessIgnoresProjectSettings(t *testing.T) {
+	run := func(a harness.Adapter) []string {
+		pf := newProc(t)
+		pf.ex.Harness = a
+		x, err := pf.ex.Start(context.Background(), procLease("harness - "+transcript(t, "project")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines, res := drain(t, x)
+		if res.Outcome != OutcomeDone {
+			t.Fatalf("result %+v, events %q", res, lines)
+		}
+		return lines
+	}
+	got := strings.Join(run(claudecode.Adapter{}), "|")
+	if !strings.Contains(got, "refused tool: Bash") || strings.Contains(got, "project hook ran") ||
+		strings.Contains(got, "project MCP server loaded") {
+		t.Errorf("the repository's settings took effect: %s", got)
+	}
+	control := strings.Join(run(projectSettings{}), "|")
+	if strings.Contains(control, "refused tool: Bash") || !strings.Contains(control, "project hook ran") ||
+		!strings.Contains(control, "project MCP server loaded: chat") {
+		t.Errorf("the control did not load the repository's settings, so the test proves nothing: %s", control)
+	}
+}
+
+// recordArgs is the Claude Code adapter, keeping the launch arguments it gave.
+type recordArgs struct {
+	claudecode.Adapter
+	got *[]string
+}
+
+func (a recordArgs) Args(s harness.Session) []string {
+	*a.got = a.Adapter.Args(s)
+	return *a.got
+}
+
+// TestHarnessGetsRepositoryInstructions seeds the run's directory with a CLAUDE.md that imports
+// AGENTS.md and checks the session is launched with the AGENTS.md text in its system prompt.
+func TestHarnessGetsRepositoryInstructions(t *testing.T) {
+	pf := newProc(t)
+	var argv []string
+	pf.ex.Harness = recordArgs{got: &argv}
+	pf.ex.prepare = func(dir string) error {
+		if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("@AGENTS.md\n"), 0o600); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("run-dir-agents-9c1e\n"), 0o600)
+	}
+	x, err := pf.ex.Start(context.Background(), procLease("harness - "+transcript(t, "done")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lines, res := drain(t, x); res.Outcome != OutcomeDone {
+		t.Fatalf("result %+v, events %q", res, lines)
+	}
+	i := slices.Index(argv, "--append-system-prompt")
+	var framed string
+	if i >= 0 && i+1 < len(argv) {
+		_, rest, _ := strings.Cut(argv[i+1], "<repository-instructions>\n")
+		framed, _, _ = strings.Cut(rest, "\n</repository-instructions>")
+	}
+	if !strings.Contains(framed, "run-dir-agents-9c1e") {
+		t.Errorf("the launch arguments lack the run directory's AGENTS.md: %q", argv)
 	}
 }
