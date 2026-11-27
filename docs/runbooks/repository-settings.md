@@ -2,7 +2,7 @@
 id: runbook-repository-settings
 title: GitHub repository settings
 status: active
-version: 3
+version: 4
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-REPO-008, LUCY-SEC-002]
 ---
@@ -19,7 +19,7 @@ agents only check and report.
 | Private vulnerability reporting: on | Settings, Code security | SECURITY.md sends reports there (LUCY-SEC-004) |
 | Dependabot alerts and security updates: on | Settings, Code security | Pairs with `.github/dependabot.yml` |
 | The ruleset for `main` below | Settings, Rules, Rulesets | Nothing lands untested; a red scan stops a merge (LUCY-SEC-002) |
-| Dependency graph: on | Settings, Code security | The `dependency review` check reads it |
+| Dependency graph: on, by enabling vulnerability alerts | Settings, Code security | The `dependency review` check reads it; without vulnerability alerts it fails with `Forbidden` from the dependency-graph compare API |
 | Code scanning: available (it is for every public repository) | Settings, Code security | Scorecard uploads its results there |
 | Actions default token: read-only | Settings, Actions | Matches the workflows' `permissions: contents: read` (LUCY-REPO-008) |
 | Actions: require full-SHA pinning where offered | Settings, Actions | Matches the pinning rule |
@@ -46,6 +46,7 @@ are not required either: they run only after a release is published, on demand, 
 
 ```sh
 gh api repos/ar4mirez/lucy/private-vulnerability-reporting   # want {"enabled":true}
+gh api repos/ar4mirez/lucy/vulnerability-alerts              # want HTTP 204 (enabled)
 gh api repos/ar4mirez/lucy/rules/branches/main               # want the ruleset above
 gh api repos/ar4mirez/lucy/actions/permissions/workflow       # want "default_workflow_permissions":"read"
 ```
