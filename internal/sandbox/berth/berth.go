@@ -217,6 +217,8 @@ func (e *Error) Unwrap() error {
 		return sandbox.ErrRefused
 	case e.Status == http.StatusConflict:
 		return sandbox.ErrState
+	case e.Status >= http.StatusInternalServerError:
+		return sandbox.ErrUnavailable
 	}
 	return nil
 }

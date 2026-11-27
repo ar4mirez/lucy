@@ -247,6 +247,9 @@ func (r *Runner) take(ctx context.Context) error {
 		return err
 	}
 	l, ok, err := r.cfg.Protocol.Lease(ctx, r.cfg.ID, r.cfg.Placement, r.cfg.TTL)
+	if errors.Is(err, ErrSandboxBusy) {
+		return nil // the next Step leases again
+	}
 	if err != nil || !ok {
 		return err
 	}

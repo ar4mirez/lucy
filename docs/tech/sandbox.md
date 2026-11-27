@@ -29,15 +29,28 @@ first provider, is `internal/sandbox/berth` ([D3a](../decisions/D3a-berth-sandbo
   cleared; with live sessions it is holding, and `Confirm` records the owner's confirmation
   (`sandbox.confirmed`, actor `owner`): an approval bound to that operation on that container and
   to exactly the sessions the owner was shown, so a session that starts or ends since makes it
-  lapse, and one confirmation is spent by the operation it cleared. Only the daemon and the owner
-  may ask; an agent's request is denied (LUCY-SBX-003). One operation runs at a time.
+  lapse, and a cleared request retires every earlier confirmation of that operation, used or not.
+  Only the daemon and the owner may ask; an agent's request is denied (LUCY-SBX-003). One operation
+  runs at a time.
+- **The hold.** A cleared `restart` or `down` first holds the container in the runner broker
+  (`runner.Broker.HoldContainer`): one store transaction checks that the container's live sessions
+  are still exactly those decided on and records `container.held` on `container/<org>`. If they
+  changed, nothing is recorded or done and the requester asks again. While held, the broker refuses
+  to lease a run of that org to a runner placed in a container with a typed "sandbox busy" refusal
+  (`runner.ErrSandboxBusy`, `unavailable` on the API), which the runner takes as lease again later;
+  host runners and other orgs are not held. The Sandbox records `container.released` once the
+  provider is done, whether it succeeded or failed. The hold is a projection of the log, so a
+  daemon restart rebuilds it, and it expires after `sandbox.HoldTTL` (15 minutes, which also bounds
+  the provider's operation), so a daemon that dies mid-operation cannot leave it stuck. `up` needs
+  no hold: no runner is inside a stopped container. `sandbox.acted` and the release are recorded
+  even when the request's context ended, since the provider may already have acted.
 - **berth.** The provider talks to berth only through berth's documented HTTP API v1, on its Unix
   socket (no token: only its owner can open it) or over TLS with a bearer token. It reads
   `GET /v1` (`berth.api/v1`) and an org's sheet `GET /v1/orgs/{org}` (`berth.info/v1`: `running` or
   `stopped`), and runs `POST /v1/orgs/{org}/{up,restart,down}` with berth's own confirmation,
   `confirm` set to the org's name, which it sends only when the guard has cleared the operation.
   Failures are `berth.error/v1` documents, mapped onto the sandbox's errors (404 not found, 401 and
-  403 refused, 409 not in a state for this). An answer of another schema version, an unknown state,
+  403 refused, 409 not in a state for this, 5xx unavailable). An answer of another schema version, an unknown state,
   an answer for another org, an error without its document or a body over 1 MiB is refused as a
   contract break, never guessed at. Its binding takes `socket` only, for now.
 - **The contract.** `internal/sandbox/berth/testdata/berth-api-v1.json` is an unchanged excerpt of

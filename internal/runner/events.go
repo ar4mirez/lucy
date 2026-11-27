@@ -74,6 +74,19 @@ type Expired struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+// ContainerHeld records that an operation which stops org's container is under way: until
+// ContainerReleased or ExpiresAt, no run of org is leased to a runner placed in a container. It is
+// on the stream "container/<org>".
+type ContainerHeld struct {
+	Org       string    `json:"org"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// ContainerReleased records that the operation on org's container ended.
+type ContainerReleased struct {
+	Org string `json:"org"`
+}
+
 // EventType and EventVersion implement eventstore.Payload.
 
 func (Queued) EventType() string        { return "run.queued" }
@@ -85,6 +98,9 @@ func (Answered) EventType() string      { return "run.answered" }
 func (Finished) EventType() string      { return "run.finished" }
 func (Expired) EventType() string       { return "run.expired" }
 
+func (ContainerHeld) EventType() string     { return "container.held" }
+func (ContainerReleased) EventType() string { return "container.released" }
+
 func (Queued) EventVersion() int        { return 1 }
 func (Leased) EventVersion() int        { return 1 }
 func (Renewed) EventVersion() int       { return 1 }
@@ -94,9 +110,13 @@ func (Answered) EventVersion() int      { return 1 }
 func (Finished) EventVersion() int      { return 1 }
 func (Expired) EventVersion() int       { return 1 }
 
-// Payloads returns the run events, for the store's registry.
+func (ContainerHeld) EventVersion() int     { return 1 }
+func (ContainerReleased) EventVersion() int { return 1 }
+
+// Payloads returns the run and container hold events, for the store's registry.
 func Payloads() []eventstore.Payload {
-	return []eventstore.Payload{Queued{}, Leased{}, Renewed{}, Streamed{}, StopRequested{}, Answered{}, Finished{}, Expired{}}
+	return []eventstore.Payload{Queued{}, Leased{}, Renewed{}, Streamed{}, StopRequested{}, Answered{}, Finished{}, Expired{},
+		ContainerHeld{}, ContainerReleased{}}
 }
 
 // StreamPrefix starts every run stream.
@@ -104,3 +124,9 @@ const StreamPrefix = "run/"
 
 // Stream returns a run's stream.
 func Stream(org, run string) string { return StreamPrefix + org + "/" + run }
+
+// ContainerStreamPrefix starts every container hold stream.
+const ContainerStreamPrefix = "container/"
+
+// ContainerStream returns the stream of org's container holds.
+func ContainerStream(org string) string { return ContainerStreamPrefix + org }

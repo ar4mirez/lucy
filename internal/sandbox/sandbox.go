@@ -9,15 +9,20 @@
 // facts, records the decision, and only on a clearance calls the provider. With no live session
 // the operation is cleared; with live sessions it is holding until the owner confirms stopping
 // exactly those sessions, recorded through the daemon's own log, and a confirmation lapses when a
-// session starts or ends (LUCY-SBX-003).
+// session starts or ends (LUCY-SBX-003). A cleared restart or down first holds the container in
+// the runner broker, in one transaction with checking that its live sessions are still the ones
+// decided on, so no session is placed in it until the provider is done; the hold is released
+// after, and expires by itself if the daemon dies first.
 package sandbox
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/policy"
@@ -65,11 +70,29 @@ type Provider interface {
 	Do(ctx context.Context, org string, op Op) error
 }
 
-// Sessions lists the sessions live in an org's container: the runner broker's leased runs placed
-// there (runner.Broker.LiveInContainer).
+// Sessions lists the sessions live in an org's container, the runner broker's leased runs placed
+// there, and holds the container so that no new session is placed in it (runner.Broker).
 type Sessions interface {
+	// LiveInContainer lists the sessions live in org's container, sorted.
 	LiveInContainer(ctx context.Context, org string) ([]string, error)
+	// HoldContainer holds org's container for ttl if the sessions live in it are exactly live, in
+	// one step; held is false otherwise.
+	HoldContainer(ctx context.Context, org string, live []string, ttl time.Duration) (held bool, err error)
+	// ReleaseContainer ends the hold.
+	ReleaseContainer(ctx context.Context, org string) error
 }
+
+// HoldTTL bounds a restart or down: the provider is given this long, and the container's hold
+// expires after it, so a daemon that dies mid-operation leaves no hold behind for good.
+const HoldTTL = 15 * time.Minute
+
+// recordTimeout bounds what is recorded after the provider ran, which is recorded even when the
+// request's context has ended: by then the provider may have acted.
+const recordTimeout = 10 * time.Second
+
+// ErrSessionsChanged is Request's error when a session started or ended in the container while
+// the request was being decided. Nothing was recorded or done; ask again.
+var ErrSessionsChanged = errors.New("sandbox: the container's live sessions changed while deciding; ask again")
 
 // ActorOwner is the actor of the owner's confirmations; ActorDaemon of the rest.
 const (
@@ -138,8 +161,10 @@ type Result struct {
 // Request decides op on org's container and, when cleared, runs it. The decision is recorded
 // before the provider is called; an unrecorded decision authorizes nothing. A holding result
 // names the live sessions the owner is asked to confirm stopping (Confirm); the requester asks
-// again once the owner has. A provider failure after a clearance is recorded and returned.
-func (s *Sandbox) Request(ctx context.Context, org string, op Op, by Requester) (Result, error) {
+// again once the owner has. A cleared restart or down holds the container from before the
+// decision is recorded until the provider is done (Sessions.HoldContainer). A provider failure
+// after a clearance is recorded and returned.
+func (s *Sandbox) Request(ctx context.Context, org string, op Op, by Requester) (_ Result, err error) {
 	if err := checkOrg(org); err != nil {
 		return Result{}, err
 	}
@@ -168,6 +193,26 @@ func (s *Sandbox) Request(ctx context.Context, org string, op Op, by Requester) 
 	if res.LiveSessions == nil {
 		res.LiveSessions = []string{}
 	}
+	doCtx := ctx
+	if d.Outcome == policy.Cleared && op != OpUp {
+		var cancel context.CancelFunc
+		doCtx, cancel = context.WithTimeout(ctx, HoldTTL) // ends before the hold does
+		defer cancel()
+		held, herr := s.sessions.HoldContainer(ctx, org, live, HoldTTL)
+		if herr != nil {
+			return Result{}, fmt.Errorf("sandbox: holding %s's container: %w", org, herr)
+		}
+		if !held {
+			return Result{}, fmt.Errorf("%w: %s", ErrSessionsChanged, org)
+		}
+		defer func() {
+			rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
+			defer cancel()
+			if rerr := s.sessions.ReleaseContainer(rctx, org); rerr != nil {
+				err = errors.Join(err, fmt.Errorf("sandbox: releasing %s's container: %w", org, rerr))
+			}
+		}()
+	}
 	err = s.store.Update(ctx, func(tx *eventstore.Tx) error {
 		evs, err := tx.Append(ctx, policy.Stream, eventstore.AnyVersion, by.Actor.ID, policy.NewRecord(req, facts, d))
 		if err != nil {
@@ -186,12 +231,14 @@ func (s *Sandbox) Request(ctx context.Context, org string, op Op, by Requester) 
 	if d.Outcome != policy.Cleared {
 		return res, nil
 	}
-	actErr := s.provider.Do(ctx, org, op)
+	actErr := s.provider.Do(doCtx, org, op)
 	done := Acted{Op: op, DecisionSeq: res.DecisionSeq}
 	if actErr != nil {
 		done.Error = capText(actErr.Error())
 	}
-	if _, err := s.store.Append(ctx, Stream(org), eventstore.AnyVersion, ActorDaemon, done); err != nil {
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
+	defer cancel()
+	if _, err := s.store.Append(rctx, Stream(org), eventstore.AnyVersion, ActorDaemon, done); err != nil {
 		return res, errors.Join(actErr, err)
 	}
 	if actErr != nil {
@@ -242,20 +289,17 @@ const ruleLiveSessions = "container.live-sessions"
 var ErrNothingHeld = errors.New("sandbox: no request is holding for the owner")
 
 // history is what an org's container stream says: its version, the latest holding request per
-// operation, and the owner's confirmations a cleared request has not yet used.
+// operation, and the owner's confirmations no cleared request has retired.
 type history struct {
 	version   int64
 	holding   map[Op]Requested
-	confirmed []policy.Approval
-	spent     map[string]bool
+	confirmed []Confirmed
 }
 
 func (h history) unspent() []policy.Approval {
 	var out []policy.Approval
-	for _, a := range h.confirmed {
-		if !h.spent[a.Decision] {
-			out = append(out, a)
-		}
+	for _, c := range h.confirmed {
+		out = append(out, c.Approval)
 	}
 	if len(out) > policy.MaxFactItems {
 		out = out[len(out)-policy.MaxFactItems:] // the newest; older ones are for sessions long gone
@@ -263,10 +307,11 @@ func (h history) unspent() []policy.Approval {
 	return out
 }
 
-// history reads org's container stream. A request that was decided on an approval spends it, so
-// one confirmation stops the container once.
+// history reads org's container stream. A cleared request for an operation retires every earlier
+// confirmation of that operation, used or not, so one confirmation stops the container once and a
+// confirmation the sessions outlived is never held against later ones.
 func (s *Sandbox) history(ctx context.Context, org string) (history, error) {
-	h := history{version: eventstore.NoStream, holding: map[Op]Requested{}, spent: map[string]bool{}}
+	h := history{version: eventstore.NoStream, holding: map[Op]Requested{}}
 	for after := int64(0); ; {
 		evs, err := s.store.ReadStream(ctx, Stream(org), after, 500)
 		if err != nil {
@@ -285,16 +330,14 @@ func (s *Sandbox) history(ctx context.Context, org string) (history, error) {
 					h.holding[r.Op] = r
 				}
 				if r.Outcome == policy.Cleared {
-					for _, id := range r.ApprovalsUsed {
-						h.spent[id] = true
-					}
+					h.confirmed = slices.DeleteFunc(h.confirmed, func(c Confirmed) bool { return c.Op == r.Op })
 				}
 			case Confirmed{}.EventType():
 				c, err := eventstore.DecodeAs[Confirmed](s.store.Registry(), e)
 				if err != nil {
 					return history{}, err
 				}
-				h.confirmed = append(h.confirmed, c.Approval)
+				h.confirmed = append(h.confirmed, c)
 				delete(h.holding, c.Op)
 			}
 		}

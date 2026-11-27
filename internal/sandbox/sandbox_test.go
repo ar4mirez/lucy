@@ -22,12 +22,27 @@ import (
 // session lives in it unless the owner confirmed stopping exactly those sessions.
 
 type fixture struct {
-	t     *testing.T
-	dir   string
-	berth *berthtest.Server
-	store *eventstore.Store
-	b     *runner.Broker
-	sb    *sandbox.Sandbox
+	t      *testing.T
+	dir    string
+	berth  *berthtest.Server
+	store  *eventstore.Store
+	b      *runner.Broker
+	sb     *sandbox.Sandbox
+	skew   time.Duration                            // the broker's clock runs this far ahead
+	during func(ctx context.Context, op sandbox.Op) // called as the provider starts an operation
+}
+
+// provider calls the fixture's during hook before berth runs an operation.
+type provider struct {
+	sandbox.Provider
+	f *fixture
+}
+
+func (p provider) Do(ctx context.Context, org string, op sandbox.Op) error {
+	if p.f.during != nil {
+		p.f.during(ctx, op)
+	}
+	return p.Provider.Do(ctx, org, op)
 }
 
 func open(t *testing.T) *fixture {
@@ -61,8 +76,8 @@ func (f *fixture) reopen() {
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	f.store, f.b = st, runner.NewBroker(st, nil)
-	if f.sb, err = sandbox.New(st, c, f.b); err != nil {
+	f.store, f.b = st, runner.NewBroker(st, func() time.Time { return time.Now().Add(f.skew) })
+	if f.sb, err = sandbox.New(st, provider{Provider: c, f: f}, f.b); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -308,5 +323,137 @@ func TestStatusIsARead(t *testing.T) {
 	}
 	if f.changes() != 0 || len(f.decisions()) != 0 {
 		t.Error("a status read changed something or asked the policy engine")
+	}
+}
+
+func TestAnUnusedConfirmationIsRetiredByAClearance(t *testing.T) {
+	f := open(t)
+	l := f.live("acme", "f1", runner.PlacementContainer)
+	f.request("acme", sandbox.OpRestart)
+	f.confirm("acme", sandbox.OpRestart)
+	// The session ends before the daemon asks again, so the restart clears without the owner.
+	if err := f.b.Finish(context.Background(), "r1", l.Run, l.Fence, runner.Result{Outcome: runner.OutcomeFailed, Reason: "gave up"}); err != nil {
+		t.Fatal(err)
+	}
+	if res := f.request("acme", sandbox.OpRestart); res.Outcome != policy.Cleared || !res.Acted {
+		t.Fatalf("restart once the session ended: %+v", res)
+	}
+	// A later session is one the owner never saw: the restart waits for the owner again.
+	f.live("acme", "f3", runner.PlacementContainer)
+	res := f.request("acme", sandbox.OpRestart)
+	if res.Outcome != policy.Holding || !res.NeedsOwner || !slices.Equal(res.LiveSessions, []string{"f3#1"}) {
+		t.Fatalf("restart with a session the owner never confirmed: %+v", res)
+	}
+}
+
+// leaseIn submits a run of org and tries to lease it to a runner placed in a container.
+func (f *fixture) leaseIn(ctx context.Context, org, flight string) error {
+	if err := f.b.Submit(ctx, runner.Task{Run: runner.RunID(flight, 1), Org: org, Project: "web", Flight: flight,
+		Generation: 1, Goal: "fix the build"}); err != nil && !errors.Is(err, runner.ErrExists) {
+		return err
+	}
+	_, ok, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, time.Minute)
+	if err == nil && !ok {
+		return errors.New("nothing to lease")
+	}
+	return err
+}
+
+func TestNoSessionIsPlacedWhileTheContainerStops(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		op        sandbox.Op
+		confirmed bool // a live session the owner confirmed stopping
+	}{
+		{"restart", sandbox.OpRestart, false},
+		{"down", sandbox.OpDown, false},
+		{"confirmed restart", sandbox.OpRestart, true},
+		{"confirmed down", sandbox.OpDown, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := open(t)
+			if tc.confirmed {
+				f.live("acme", "f1", runner.PlacementContainer)
+				f.request("acme", tc.op)
+				f.confirm("acme", tc.op)
+			}
+			var during error
+			f.during = func(ctx context.Context, op sandbox.Op) { during = f.leaseIn(ctx, "acme", "f9") }
+			res := f.request("acme", tc.op)
+			if res.Outcome != policy.Cleared || !res.Acted {
+				t.Fatalf("%s: %+v", tc.op, res)
+			}
+			if !errors.Is(during, runner.ErrSandboxBusy) {
+				t.Fatalf("a lease while berth ran %s: %v, want ErrSandboxBusy", tc.op, during)
+			}
+			if live, err := f.b.LiveInContainer(context.Background(), "acme"); err != nil || len(live) != len(res.LiveSessions) {
+				t.Fatalf("live after %s: %v, %v", tc.op, live, err)
+			}
+			f.during = nil
+			if err := f.leaseIn(context.Background(), "acme", "f9"); err != nil {
+				t.Fatalf("a lease once %s ended: %v", tc.op, err)
+			}
+		})
+	}
+}
+
+func TestTheHoldIsReleasedWhenTheProviderFails(t *testing.T) {
+	f := open(t)
+	f.berth.FailNext("acme", berthtest.ErrInjected)
+	if _, err := f.sb.Request(context.Background(), "acme", sandbox.OpDown, sandbox.Daemon("test")); err == nil {
+		t.Fatal("a failed down reported no error")
+	}
+	if err := f.leaseIn(context.Background(), "acme", "f9"); err != nil {
+		t.Fatalf("a lease after a failed down: %v", err)
+	}
+}
+
+func TestHostSessionsAndOtherOrgsAreNotHeld(t *testing.T) {
+	f := open(t)
+	f.during = func(ctx context.Context, _ sandbox.Op) {
+		if err := f.leaseIn(ctx, "beta", "b1"); err != nil {
+			t.Errorf("a lease in another org while acme restarts: %v", err)
+		}
+		if err := f.b.Submit(ctx, runner.Task{Run: runner.RunID("h1", 1), Org: "acme", Project: "web", Flight: "h1",
+			Generation: 1, Goal: "fix the build"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok, err := f.b.Lease(ctx, "r3", runner.PlacementHost, time.Minute); err != nil || !ok {
+			t.Errorf("a host lease while acme restarts: %v, %v", ok, err)
+		}
+	}
+	f.request("acme", sandbox.OpRestart)
+}
+
+func TestAHoldLeftByACrashExpires(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	// The daemon holds acme's container for a restart and dies before releasing it.
+	if held, err := f.b.HoldContainer(ctx, "acme", nil, sandbox.HoldTTL); err != nil || !held {
+		t.Fatalf("hold: %v, %v", held, err)
+	}
+	f.reopen()
+	if err := f.leaseIn(ctx, "acme", "f9"); !errors.Is(err, runner.ErrSandboxBusy) {
+		t.Fatalf("a lease after the restart, inside the hold: %v, want ErrSandboxBusy", err)
+	}
+	f.skew = sandbox.HoldTTL + time.Second
+	f.reopen()
+	if err := f.leaseIn(ctx, "acme", "f9"); err != nil {
+		t.Fatalf("a lease once the hold expired: %v", err)
+	}
+}
+
+func TestAHoldNeedsTheSessionsDecidedOn(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	f.live("acme", "f1", runner.PlacementContainer)
+	if held, err := f.b.HoldContainer(ctx, "acme", nil, sandbox.HoldTTL); err != nil || held {
+		t.Fatalf("hold with a session the decision missed: %v, %v", held, err)
+	}
+	if err := f.leaseIn(ctx, "acme", "f9"); err != nil {
+		t.Fatalf("a refused hold held the container: %v", err)
+	}
+	if held, err := f.b.HoldContainer(ctx, "acme", []string{"f1#1", "f9#1"}, sandbox.HoldTTL); err != nil || !held {
+		t.Fatalf("hold on the live sessions: %v, %v", held, err)
 	}
 }

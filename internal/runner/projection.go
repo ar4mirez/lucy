@@ -37,15 +37,15 @@ type RunInfo struct {
 	QueuedSeq  int64  // the queued event's sequence number: the queue's order
 }
 
-// Projector maintains the runner_runs table from the run streams. Register it with the store
-// that the Broker uses.
+// Projector maintains the runner_runs table from the run streams, and the runner_holds table of
+// held org containers from the container streams. Register it with the store that the Broker uses.
 type Projector struct{}
 
 // Name implements eventstore.Projector.
 func (Projector) Name() string { return "runner_runs" }
 
 // Version implements eventstore.Projector.
-func (Projector) Version() int { return 3 }
+func (Projector) Version() int { return 4 }
 
 // Reset implements eventstore.Projector.
 func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
@@ -78,6 +78,11 @@ func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
 			reason      TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE INDEX runner_runs_state ON runner_runs (state, queued_seq)`,
+		`DROP TABLE IF EXISTS runner_holds`,
+		`CREATE TABLE runner_holds (
+			org        TEXT PRIMARY KEY,
+			expires_ns INTEGER NOT NULL
+		)`,
 	} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return err
@@ -98,6 +103,22 @@ func runOf(stream string) (string, bool) {
 
 // Apply implements eventstore.Projector.
 func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.Event) error {
+	switch e.Type {
+	case ContainerHeld{}.EventType():
+		var p ContainerHeld
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO runner_holds (org, expires_ns) VALUES (?, ?)`, p.Org, p.ExpiresAt.UnixNano())
+		return err
+	case ContainerReleased{}.EventType():
+		var p ContainerReleased
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `DELETE FROM runner_holds WHERE org = ?`, p.Org)
+		return err
+	}
 	if !strings.HasPrefix(e.Type, "run.") {
 		return nil
 	}

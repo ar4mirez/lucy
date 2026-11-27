@@ -209,8 +209,9 @@ func TestErrorsMapOntoTheSandbox(t *testing.T) {
 	f.SetReadOnly(false)
 	f.FailNext("acme", berthtest.ErrInjected)
 	err := c.Do(ctx, "acme", sandbox.OpUp)
-	if err == nil || !strings.Contains(err.Error(), berthtest.ErrInjected.Error()) || errors.Is(err, sandbox.ErrRefused) {
-		t.Errorf("failed operation: %v", err)
+	if err == nil || !strings.Contains(err.Error(), berthtest.ErrInjected.Error()) || errors.Is(err, sandbox.ErrRefused) ||
+		!errors.Is(err, sandbox.ErrUnavailable) {
+		t.Errorf("failed operation: %v, want ErrUnavailable", err)
 	}
 	if f.Running("acme") {
 		t.Error("a failed up left the org running")

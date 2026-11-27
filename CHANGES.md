@@ -23,6 +23,7 @@ Changes since the last release. When a version is cut, its section moves to
   kind with the sessions live in that container as facts (policy rule set version 6, OpenRPC
   revision 8). With none it is cleared; with live sessions it holds until the owner confirms
   stopping exactly those sessions, a confirmation lapses when a session starts or ends and is used
-  once, and no agent may ask. Every decision is recorded before the container is touched, and what
-  berth did after it. The daemon does not use the seam yet, so nothing acts on a live container,
+  once, and no agent may ask. While a cleared restart or stop runs, no new session is placed in that
+  container: a runner in a container is told the sandbox is busy and leases again later. Every
+  decision is recorded before the container is touched, and what berth did after it. The daemon does not use the seam yet, so nothing acts on a live container,
   and the owner's confirmation has no API or command yet.
