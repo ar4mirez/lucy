@@ -23,7 +23,8 @@ the threat model: [SECURITY.md](../../SECURITY.md).
   directory, does not open; nor does one with a single changed bit; nor does anything without its
   org's key. A credential is at most 16 KiB.
 - **Keys.** An org's key is made from the system's random source on its first credential, written
-  once (`O_EXCL`) and never rewritten; a key file that is not exactly 32 bytes, not a plain file
+  whole to a synced temp file, published with a hard link that never replaces a key already there,
+  and never rewritten; a key file that is not exactly 32 bytes, not a plain file
   or readable by anyone else is refused. Keys sit apart from the sealed credentials, so a copy of
   `orgs/` alone reveals nothing; lucy's backups (m2) leave `keys/` out. Deleting an org's key makes
   all of its credentials unrecoverable at once, which offboarding will use (LUCY-CRED-006, m2).

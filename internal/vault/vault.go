@@ -178,27 +178,36 @@ func (v *Vault) readFile(name string, max int) ([]byte, error) {
 // writeFile writes data to name inside the vault: a new 0600 file beside it, synced, then
 // renamed over it, so a reader sees the old file or the new one, never half of one.
 func (v *Vault) writeFile(name string, data []byte) error {
-	var suffix [8]byte
-	if _, err := rand.Read(suffix[:]); err != nil {
-		return err
-	}
-	tmp := fmt.Sprintf("%s.tmp-%x", name, suffix)
-	f, err := v.root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	tmp, err := v.writeTemp(name, data)
 	if err != nil {
-		return fmt.Errorf("vault: %w", err)
-	}
-	_, werr := f.Write(data)
-	serr := f.Sync()
-	cerr := f.Close()
-	if err := errors.Join(werr, serr, cerr); err != nil {
-		_ = v.root.Remove(tmp) // a file this call created inside the vault
-		return fmt.Errorf("vault: %w", err)
+		return err
 	}
 	if err := v.root.Rename(tmp, name); err != nil {
 		_ = v.root.Remove(tmp)
 		return fmt.Errorf("vault: %w", err)
 	}
 	return nil
+}
+
+// writeTemp writes data to a new 0600 file beside name, synced, and returns its name.
+func (v *Vault) writeTemp(name string, data []byte) (string, error) {
+	var suffix [8]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return "", err
+	}
+	tmp := fmt.Sprintf("%s.tmp-%x", name, suffix)
+	f, err := v.root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("vault: %w", err)
+	}
+	_, werr := f.Write(data)
+	serr := f.Sync()
+	cerr := f.Close()
+	if err := errors.Join(werr, serr, cerr); err != nil {
+		_ = v.root.Remove(tmp) // a file this call created inside the vault
+		return "", fmt.Errorf("vault: %w", err)
+	}
+	return tmp, nil
 }
 
 // key returns org's key, creating it when create is true and the org has none.
@@ -209,18 +218,20 @@ func (v *Vault) key(org string, create bool) ([]byte, error) {
 		if _, err := rand.Read(k); err != nil {
 			return nil, err
 		}
-		f, err := v.root.OpenFile(keyPath(org), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-		if errors.Is(err, fs.ErrExist) {
+		tmp, err := v.writeTemp(keyPath(org), k)
+		if err != nil {
+			clear(k)
+			return nil, err
+		}
+		lerr := v.root.Link(tmp, keyPath(org))
+		_ = v.root.Remove(tmp)
+		if errors.Is(lerr, fs.ErrExist) {
 			clear(k)
 			return v.key(org, false) // another writer made it first
 		}
-		if err != nil {
-			return nil, fmt.Errorf("vault: %w", err)
-		}
-		_, werr := f.Write(k)
-		if err := errors.Join(werr, f.Sync(), f.Close()); err != nil {
-			_ = v.root.Remove(keyPath(org)) // the key file this call created, still empty of use
-			return nil, fmt.Errorf("vault: %w", err)
+		if lerr != nil {
+			clear(k)
+			return nil, fmt.Errorf("vault: %w", lerr)
 		}
 		return k, nil
 	}

@@ -215,7 +215,6 @@ func TestRefusesInsecureFiles(t *testing.T) {
 	}
 }
 
-
 func TestRemove(t *testing.T) {
 	v, dir := open(t)
 	if err := v.Set("acme", "github", secret(t)); err != nil {
@@ -238,5 +237,55 @@ func TestRemove(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "keys", "acme.key")); err != nil {
 		t.Errorf("the org's key: %v", err)
+	}
+}
+
+func TestConcurrentFirstSetsShareOneKey(t *testing.T) {
+	for round := range 20 {
+		v, _ := open(t)
+		org := "org-" + strings.Repeat("a", round%5+1)
+		const writers = 8
+		vals := make([][]byte, writers)
+		errs := make(chan error, writers)
+		for i := range writers {
+			vals[i] = secret(t)
+			go func() { errs <- v.Set(org, "cred-"+string(rune('a'+i)), vals[i]) }()
+		}
+		for range writers {
+			if err := <-errs; err != nil {
+				t.Fatalf("round %d: a first Set failed: %v", round, err)
+			}
+		}
+		for i := range writers {
+			got, err := v.Credential(ctx, org, "cred-"+string(rune('a'+i)))
+			if err != nil || !bytes.Equal(got, vals[i]) {
+				t.Fatalf("round %d: credential %d: got %q, %v", round, i, got, err)
+			}
+		}
+	}
+}
+
+func TestLeftoverTempKeyDoesNotBreakTheOrg(t *testing.T) {
+	v, dir := open(t)
+	if err := os.WriteFile(filepath.Join(dir, "keys", "acme.key.tmp-0011223344556677"), []byte("half"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := secret(t)
+	if err := v.Set("acme", "github", s); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := v.Credential(ctx, "acme", "github"); err != nil || !bytes.Equal(got, s) {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	k, err := os.ReadFile(filepath.Join(dir, "keys", "acme.key"))
+	if err != nil || len(k) != vault.KeySize {
+		t.Fatalf("key is %d bytes, %v", len(k), err)
+	}
+	des, err := os.ReadDir(filepath.Join(dir, "keys"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(des) != 2 {
+		t.Fatalf("keys/ holds %d files, want the leftover and the key", len(des))
 	}
 }
