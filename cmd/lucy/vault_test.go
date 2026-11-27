@@ -30,7 +30,17 @@ func withStdin(t *testing.T, in string, args ...string) (int, string, string) {
 // socket.
 func startDaemon(t *testing.T) string {
 	t.Helper()
+	return startDaemonWith(t, nil)
+}
+
+// startDaemonWith starts a daemon as startDaemon does, after seed (when set) has written to its
+// database, which no daemon holds yet.
+func startDaemonWith(t *testing.T, seed func(db string)) string {
+	t.Helper()
 	dir := shortTempDir(t)
+	if seed != nil {
+		seed(filepath.Join(dir, "data", "lucy.db"))
+	}
 	sock := filepath.Join(dir, "run", "lucy.sock")
 	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))

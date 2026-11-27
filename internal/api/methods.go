@@ -54,6 +54,8 @@ const (
 	MethodHostOrg   = "runner.host_org"
 	MethodWtList    = "worktree.list"
 	MethodWtDiscard = "worktree.discard"
+	MethodDecList   = "decisions.list"
+	MethodApprove   = "flights.approve"
 )
 
 var methods = []Method{
@@ -73,6 +75,8 @@ var methods = []Method{
 	{MethodSlot, "How a held run's slot of the worktree pool stands: preparing, ready or failed, and why when failed. It reads only: it neither renews the lease nor records anything, so a runner polls it while the slot is prepared and starts the work as soon as it is ready. Refused with fenced unless the runner holds the run under that fence.", "query", ScopeRun, false, typeOf[SlotParams](), typeOf[SlotResult]()},
 	{MethodFinish, "Finish a leased run with its outcome.", "command", ScopeRun, true, typeOf[FinishParams](), typeOf[FinishResult]()},
 	{MethodPermit, "Ask the policy engine whether a leased run's Pilot may use a prompted file tool; the decision is recorded before it is returned.", "command", ScopeRun, true, typeOf[PermitParams](), typeOf[PermitResult]()},
+	{MethodDecList, "The decisions that wait on the owner, projected from the event log as the spec's Decision resources (RFC-0035): a Pilot's question, a merge holding for approval, a container operation holding for confirmation. Only the owner's recorded word closes one.", "query", ScopeRead, false, typeOf[CatalogParams](), typeOf[CatalogList]()},
+	{MethodApprove, "Approve, as the owner, the merge a flight holds for: the Tower then asks the policy engine again with the approval, bound to the facts it holds now.", "command", ScopeDecide, true, typeOf[ApproveParams](), typeOf[ApproveResult]()},
 	{MethodQuestions, "The Pilots' open questions, as the Tower records them: each flight that is asking, oldest first.", "query", ScopeRead, false, typeOf[NoParams](), typeOf[QuestionsList]()},
 	{MethodAnswer, "Answer a flight's open question; the Tower relays the answer to its Pilot and records only its digest.", "command", ScopeDecide, true, typeOf[AnswerParams](), typeOf[AnswerResult]()},
 	{MethodRuns, "Runs and their leases, in the order they were queued.", "query", ScopeRead, false, typeOf[RunsParams](), typeOf[RunsPage]()},
@@ -661,4 +665,50 @@ type VaultRecordParams struct {
 // VaultRecorded answers vault.record.
 type VaultRecorded struct {
 	Seq int64 `json:"seq" doc:"The recorded event's sequence number."`
+}
+
+// CatalogParams lists the decision catalog.
+type CatalogParams struct {
+	All bool `json:"all,omitempty" doc:"Every decision the log holds, answered, superseded and archived ones too; only the open ones when false."`
+}
+
+// CatalogList answers decisions.list.
+type CatalogList struct {
+	Decisions []CatalogDecision `json:"decisions" doc:"The decisions, oldest first."`
+}
+
+// CatalogDecision is one decision of the catalog.
+type CatalogDecision struct {
+	ID           string          `json:"id" doc:"DEC-<seq>: the sequence number of the event that opened it."`
+	Kind         string          `json:"kind" doc:"question, merge or container."`
+	Org          string          `json:"org" doc:"The org it is about."`
+	Subject      string          `json:"subject" doc:"The flight, or the container operation."`
+	Scope        string          `json:"scope" doc:"flight:<org>/<flight> or container:<org>."`
+	Lifecycle    string          `json:"lifecycle" doc:"open, answered, superseded or archived."`
+	Summary      string          `json:"summary" doc:"What waits on the owner."`
+	Body         string          `json:"body,omitempty" doc:"The Pilot's question, for a question. Untrusted."`
+	Ref          int64           `json:"ref,omitempty" doc:"The policy decision a merge or container decision is about."`
+	Options      []CatalogOption `json:"options" doc:"How the owner settles it: each names the owner's command."`
+	Opened       time.Time       `json:"opened" doc:"When it opened, UTC."`
+	Updated      time.Time       `json:"updated" doc:"When it last changed, UTC."`
+	AnsweredBy   string          `json:"answered_by,omitempty" doc:"When answered: the actor whose recorded word closed it."`
+	AnsweredAt   time.Time       `json:"answered_at,omitempty,omitzero" doc:"When answered, UTC."`
+	SupersededBy string          `json:"superseded_by,omitempty" doc:"When superseded: the decision that replaced it."`
+}
+
+// CatalogOption is one way to settle a decision.
+type CatalogOption struct {
+	ID          string `json:"id" doc:"answer, approve or confirm."`
+	Description string `json:"description" doc:"What it does, and the owner's command for it."`
+}
+
+// ApproveParams approves a flight's merge.
+type ApproveParams struct {
+	Flight string `json:"flight" lucy:"required,maxlen=200" doc:"The flight whose merge holds for the owner."`
+}
+
+// ApproveResult answers flights.approve.
+type ApproveResult struct {
+	Flight string `json:"flight" doc:"The flight approved."`
+	State  string `json:"state" doc:"The flight's state after the approval."`
 }

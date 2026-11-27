@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 23
+version: 24
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-RUN-005, LUCY-OPS-005, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -180,6 +180,22 @@ The Tower's forge is a stub that reads no pull request and merges nothing until 
 slice. The gate is checked again whenever a run is leased: a run whose Runway names a real remote
 gets the gate as its `worktree_error`, with nothing reserved or cloned, and fails without starting.
 The gateway refuses every git push (see [gateway](../tech/gateway.md)).
+
+## Decisions
+
+Everything that waits on you is a decision, projected from the event log into the spec's Decision
+resource (RFC-0035) and closed only by your recorded word:
+
+```sh
+lucy decisions                 # what waits on you, oldest first, with the command that settles each
+lucy decisions --all --json    # every decision, answered, superseded and archived ones too, as spec resources
+lucy approve fix-login         # approve, as you, the merge a flight holds for
+```
+
+A Pilot's question is settled with `lucy answer`, a merge that holds for your approval with
+`lucy approve`, and a container operation that holds for your confirmation with
+`lucy sandbox confirm`. Nothing expires a decision into an answer and no agent can settle one: a
+newer question or request supersedes it, and a flight that ends archives its open decisions.
 
 ## Container operations
 

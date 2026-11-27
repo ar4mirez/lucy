@@ -31,6 +31,8 @@ Usage:
   lucy audit verify
   lucy questions
   lucy answer <flight> <answer>...
+  lucy decisions [--all] [--json]
+  lucy approve <flight>
   lucy sandbox held | confirm <org> <op> <decision>
   lucy gateway --org <org> [--listen <path>]
   lucy vault set|ls|rm --org <org> [<name>]
@@ -51,6 +53,8 @@ Commands:
   config         validate spec resources; show the daemon's view of them
   audit          verify the hash-chained audit log
   runner         run a runner on this machine: lease runs, run a command for each
+  decisions      list the decisions that wait on you
+  approve        approve, as the owner, the merge a flight holds for
   sandbox        list and confirm org container operations that wait on you
   gateway        run an org's credential gateway
   vault          set, list and remove an org's credentials
@@ -96,6 +100,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runQuestions(args[1:], stdout, stderr)
 	case "answer":
 		return runAnswer(args[1:], stdout, stderr)
+	case "decisions":
+		return runDecisions(args[1:], stdout, stderr)
+	case "approve":
+		return runApprove(args[1:], stdout, stderr)
 	case "runner":
 		return runRunner(args[1:], stdout, stderr)
 	case "sandbox":

@@ -82,6 +82,8 @@ type Options struct {
 	// questions.answer serve: the daemon's hosted Tower. Nil means no Tower is hosted: the list is
 	// empty and an answer is unavailable.
 	Questions Questions
+	// Approvals takes the owner's approval of a flight's merge: the hosted Tower. Nil means none.
+	Approvals Approvals
 	// Containers is the guarded view of the org containers, which sandbox.held and
 	// sandbox.confirm serve. Nil means this daemon has no Sandbox binding open: nothing is held
 	// and a confirmation is unavailable. TODO(LUCY-SBX-001): set it once the daemon opens the

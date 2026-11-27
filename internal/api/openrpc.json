@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.15.0"
+    "version": "1.16.0"
   },
   "servers": [
     {
@@ -1498,6 +1498,178 @@
         }
       },
       "x-lucy-scope": "run",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
+    },
+    {
+      "name": "decisions.list",
+      "summary": "The decisions that wait on the owner, projected from the event log as the spec's Decision resources (RFC-0035): a Pilot's question, a merge holding for approval, a container operation holding for confirmation. Only the owner's recorded word closes one.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "all",
+          "description": "Every decision the log holds, answered, superseded and archived ones too; only the open ones when false.",
+          "required": false,
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "decisions": {
+              "description": "The decisions, oldest first.",
+              "items": {
+                "properties": {
+                  "answered_at": {
+                    "description": "When answered, UTC.",
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "answered_by": {
+                    "description": "When answered: the actor whose recorded word closed it.",
+                    "type": "string"
+                  },
+                  "body": {
+                    "description": "The Pilot's question, for a question. Untrusted.",
+                    "type": "string"
+                  },
+                  "id": {
+                    "description": "DEC-\u003cseq\u003e: the sequence number of the event that opened it.",
+                    "type": "string"
+                  },
+                  "kind": {
+                    "description": "question, merge or container.",
+                    "type": "string"
+                  },
+                  "lifecycle": {
+                    "description": "open, answered, superseded or archived.",
+                    "type": "string"
+                  },
+                  "opened": {
+                    "description": "When it opened, UTC.",
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "options": {
+                    "description": "How the owner settles it: each names the owner's command.",
+                    "items": {
+                      "properties": {
+                        "description": {
+                          "description": "What it does, and the owner's command for it.",
+                          "type": "string"
+                        },
+                        "id": {
+                          "description": "answer, approve or confirm.",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "description"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "org": {
+                    "description": "The org it is about.",
+                    "type": "string"
+                  },
+                  "ref": {
+                    "description": "The policy decision a merge or container decision is about.",
+                    "type": "integer"
+                  },
+                  "scope": {
+                    "description": "flight:\u003corg\u003e/\u003cflight\u003e or container:\u003corg\u003e.",
+                    "type": "string"
+                  },
+                  "subject": {
+                    "description": "The flight, or the container operation.",
+                    "type": "string"
+                  },
+                  "summary": {
+                    "description": "What waits on the owner.",
+                    "type": "string"
+                  },
+                  "superseded_by": {
+                    "description": "When superseded: the decision that replaced it.",
+                    "type": "string"
+                  },
+                  "updated": {
+                    "description": "When it last changed, UTC.",
+                    "format": "date-time",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "kind",
+                  "org",
+                  "subject",
+                  "scope",
+                  "lifecycle",
+                  "summary",
+                  "options",
+                  "opened",
+                  "updated"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "decisions"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "read",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
+    },
+    {
+      "name": "flights.approve",
+      "summary": "Approve, as the owner, the merge a flight holds for: the Tower then asks the policy engine again with the approval, bound to the facts it holds now.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "flight",
+          "description": "The flight whose merge holds for the owner.",
+          "required": true,
+          "schema": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "flight": {
+              "description": "The flight approved.",
+              "type": "string"
+            },
+            "state": {
+              "description": "The flight's state after the approval.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "flight",
+            "state"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "decide",
       "x-lucy-mutating": true,
       "x-lucy-group": "command"
     },
