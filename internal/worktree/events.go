@@ -38,6 +38,21 @@ type Released struct {
 	Merge string `json:"merge,omitempty"` // with ProofMerged: the merge commit on the base branch
 }
 
+// ReleaseRefused records a release refused because the slot's work has not landed: the slot stays
+// leased, and this event does not change its state.
+type ReleaseRefused struct {
+	Slot   int    `json:"slot"`
+	Run    string `json:"run"`
+	Head   string `json:"head"`
+	Reason string `json:"reason"` // RefusedUncommitted or RefusedNotLanded
+}
+
+// Why a release was refused.
+const (
+	RefusedUncommitted = "uncommitted changes"
+	RefusedNotLanded   = "commits not landed"
+)
+
 // Broken records a slot that could not be reset or made: it is never leased again.
 type Broken struct {
 	Slot   int    `json:"slot"`
@@ -56,12 +71,16 @@ func (Leased) EventType() string   { return "worktree.leased" }
 func (Released) EventType() string { return "worktree.released" }
 func (Broken) EventType() string   { return "worktree.broken" }
 
+func (ReleaseRefused) EventType() string { return "worktree.release_refused" }
+
 func (Added) EventVersion() int    { return 1 }
 func (Leased) EventVersion() int   { return 1 }
 func (Released) EventVersion() int { return 1 }
 func (Broken) EventVersion() int   { return 1 }
 
+func (ReleaseRefused) EventVersion() int { return 1 }
+
 // Payloads returns a sample of every pool event, for an eventstore.Registry.
 func Payloads() []eventstore.Payload {
-	return []eventstore.Payload{Added{}, Leased{}, Released{}, Broken{}}
+	return []eventstore.Payload{Added{}, Leased{}, Released{}, Broken{}, ReleaseRefused{}}
 }

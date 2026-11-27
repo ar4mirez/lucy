@@ -9,9 +9,11 @@
 //	<org>/<repo>/slot-<n>   slot n: a worktree of base.git
 //
 // The pool runs git with an environment of its own (no user or system configuration, no prompts,
-// only the https, ssh and file transports). It removes no file or directory of its own; the only
-// thing it lets git remove is base.git's stale worktree registrations (git worktree prune), never
-// a slot's directory or any work.
+// only the https, ssh and file transports). It deletes no directory of its own. What it lets git
+// remove is base.git's stale worktree registrations (git worktree prune) and, when a free slot is
+// reset for a new lease, that slot's tracked changes and its untracked and ignored files
+// (checkout --force, reset --hard, clean -ffdx). That is safe only because a slot becomes free
+// only after Release has proven its work landed.
 package worktree
 
 import (
@@ -200,10 +202,11 @@ func (p *Pool) Acquire(ctx context.Context, repo Repo, run, base string) (Lease,
 
 // How a leased slot's worktree is prepared.
 const (
-	resetSlot      = iota // put an existing worktree back at the base
+	resetSlot      = iota // put a free slot\'s worktree back at the base, removing everything else
 	newSlot               // make the worktree, in a directory that must not exist yet
 	remakeSlot            // make a held slot's worktree again: it is missing, or not one of base.git
-	keepSlot              // leave a held slot as it is: it may hold the run's work
+	keepSlot              // leave a held slot as it is: it may hold the run's work, or is ready already
+	rebranchSlot          // put a held slot, clean at its base, on the run's branch, keeping every file
 	remakeOnBranch        // remakeSlot, on the run's branch, which is ahead of the base: never moved
 	checkoutBranch        // put a held slot's clean worktree on the run's branch, ahead of the base: never moved
 )
@@ -222,8 +225,8 @@ func (p *Pool) prepare(ctx context.Context, repo Repo, baseDir string, l Lease, 
 }
 
 // heldPrep says how a slot the run holds already is prepared: made again when its worktree is
-// missing or not a worktree of base.git, reset when it is clean at the lease's base commit (nothing
-// in it is lost), and otherwise kept as it is. When the run's branch has commits beyond the base,
+// missing or not a worktree of base.git, put on the run's branch when it is clean at the lease's
+// base commit (keeping its untracked and ignored files), and otherwise kept as it is. When the run's branch has commits beyond the base,
 // the worktree is made or put on the branch instead, and the branch is never moved.
 func (p *Pool) heldPrep(ctx context.Context, baseDir string, l Lease) (int, error) {
 	how, err := p.heldWorktree(ctx, baseDir, l)
@@ -253,7 +256,7 @@ func branchTip(ctx context.Context, g git, baseDir, branch string) (string, erro
 	return tip, err
 }
 
-// heldWorktree is heldPrep for the worktree alone: remakeSlot, resetSlot or keepSlot.
+// heldWorktree is heldPrep for the worktree alone: remakeSlot, rebranchSlot or keepSlot.
 func (p *Pool) heldWorktree(ctx context.Context, baseDir string, l Lease) (int, error) {
 	g := p.git()
 	if _, err := os.Lstat(l.Path); errors.Is(err, fs.ErrNotExist) {
@@ -279,10 +282,17 @@ func (p *Pool) heldWorktree(ctx context.Context, baseDir string, l Lease) (int, 
 	if err != nil {
 		return 0, err
 	}
-	if dirty == "" && head == l.BaseSHA {
-		return resetSlot, nil
+	if dirty != "" || head != l.BaseSHA {
+		return keepSlot, nil
 	}
-	return keepSlot, nil
+	cur, err := g.run(ctx, l.Path, "branch", "--show-current")
+	if err != nil {
+		return 0, err
+	}
+	if cur == l.Branch {
+		return keepSlot, nil
+	}
+	return rebranchSlot, nil
 }
 
 // samePath reports whether a and b name the same directory, symbolic links resolved.
@@ -295,10 +305,10 @@ func samePath(a, b string) bool {
 	return err == nil && ra == rb
 }
 
-// reset makes the slot's worktree, or puts an existing one back, at the lease's base commit with
-// nothing else in it, on a fresh branch for the run. An existing slot was given back with its
-// work landed (Release), or is held by the run and clean at its base, so nothing in it is lost.
-// A held slot whose branch is ahead of the base is only put on that branch.
+// reset makes the slot's worktree, or puts a free one back, at the lease's base commit with
+// nothing else in it, on a fresh branch for the run. A free slot was given back with its work
+// landed (Release), so nothing in it is lost. A held slot is only put on the run's branch: at the
+// base when the branch is absent or there, else on the branch as it is, with every file kept.
 func (p *Pool) reset(ctx context.Context, baseDir string, l Lease, how int) error {
 	g := p.git()
 	switch how {
@@ -308,6 +318,7 @@ func (p *Pool) reset(ctx context.Context, baseDir string, l Lease, how int) erro
 	case checkoutBranch:
 		_, err := g.run(ctx, l.Path, "checkout", "--quiet", l.Branch)
 		return err
+	case rebranchSlot:
 	case newSlot, remakeSlot:
 		if how == newSlot {
 			if _, err := os.Lstat(l.Path); !errors.Is(err, fs.ErrNotExist) {
@@ -357,16 +368,17 @@ func (p *Pool) Release(ctx context.Context, repo Repo, slot int, run string, pro
 	if _, err := g.run(ctx, baseDir, "fetch", "--prune", "--quiet", "origin"); err != nil {
 		return err
 	}
+	head, err := g.run(ctx, s.Path, "rev-parse", "--verify", "HEAD^{commit}")
+	if err != nil {
+		return err
+	}
 	dirty, err := g.run(ctx, s.Path, "status", "--porcelain", "--untracked-files=all", "--ignored=no")
 	if err != nil {
 		return err
 	}
 	if dirty != "" {
-		return fmt.Errorf("%w: slot %d has uncommitted changes", ErrUnlanded, slot)
-	}
-	head, err := g.run(ctx, s.Path, "rev-parse", "--verify", "HEAD^{commit}")
-	if err != nil {
-		return err
+		return p.refuse(ctx, repo, slot, run, head, RefusedUncommitted,
+			fmt.Errorf("%w: slot %d has uncommitted changes", ErrUnlanded, slot))
 	}
 	baseRef := "refs/remotes/origin/" + s.Base
 	how, merge := "", ""
@@ -380,14 +392,16 @@ func (p *Pool) Release(ctx context.Context, repo Repo, slot int, run string, pro
 	case proof.Head == head:
 		merged, err := g.isAncestor(ctx, s.Path, proof.Merge, baseRef)
 		if err != nil {
-			return fmt.Errorf("%w: the merge commit %s: %w", ErrUnlanded, proof.Merge, err)
+			return p.refuse(ctx, repo, slot, run, head, RefusedNotLanded,
+				fmt.Errorf("%w: the merge commit %s: %w", ErrUnlanded, proof.Merge, err))
 		}
 		if merged {
 			how, merge = ProofMerged, proof.Merge
 		}
 	}
 	if how == "" {
-		return fmt.Errorf("%w: slot %d's head %s is on no base branch and in no merge the forge reported", ErrUnlanded, slot, head)
+		return p.refuse(ctx, repo, slot, run, head, RefusedNotLanded,
+			fmt.Errorf("%w: slot %d's head %s is on no base branch and in no merge the forge reported", ErrUnlanded, slot, head))
 	}
 	return p.Store.Update(ctx, func(tx *eventstore.Tx) error {
 		cur, err := scanSlot(tx.QueryRowContext(ctx, `SELECT `+slotColumns+` FROM worktree_slots WHERE org = ? AND repo = ? AND slot = ?`,
@@ -402,6 +416,15 @@ func (p *Pool) Release(ctx context.Context, repo Repo, slot int, run string, pro
 			Released{Slot: slot, Run: run, Head: head, Proof: how, Merge: merge})
 		return err
 	})
+}
+
+// refuse records why run's release of slot was refused and returns why; the slot stays leased.
+func (p *Pool) refuse(ctx context.Context, repo Repo, slot int, run, head, reason string, why error) error {
+	if _, err := p.Store.Append(context.WithoutCancel(ctx), Stream(repo.Org, repo.Name), eventstore.AnyVersion, "daemon",
+		ReleaseRefused{Slot: slot, Run: run, Head: head, Reason: reason}); err != nil {
+		return errors.Join(why, err)
+	}
+	return why
 }
 
 // Slots returns org's repo's slots, by number.

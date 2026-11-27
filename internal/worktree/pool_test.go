@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -109,6 +110,39 @@ func (f *fixture) head(dir string) string {
 func branch(name, run string) string {
 	sum := sha256.Sum256([]byte(run))
 	return "lucy/" + name + "-" + hex.EncodeToString(sum[:4])
+}
+
+// refusals returns the worktree.release_refused events on the repository's stream, in order.
+func (f *fixture) refusals() []ReleaseRefused {
+	f.t.Helper()
+	events, err := f.store.ReadStream(ctx, Stream("acme", "web"), 0, 1000)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	var out []ReleaseRefused
+	for _, e := range events {
+		if e.Type != (ReleaseRefused{}).EventType() {
+			continue
+		}
+		var r ReleaseRefused
+		if err := json.Unmarshal(e.Payload, &r); err != nil {
+			f.t.Fatal(err)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func equalRefusals(a, b []ReleaseRefused) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (f *fixture) slot(n int) SlotInfo {
@@ -224,6 +258,14 @@ func TestReleaseNeedsLandedWork(t *testing.T) {
 	}
 	if s := f.slot(1); s.State != StateFree || s.Head != head {
 		t.Fatalf("slot %+v", s)
+	}
+	if got, want := f.refusals(), []ReleaseRefused{
+		{Slot: 1, Run: "f1#1", Head: l.BaseSHA, Reason: RefusedUncommitted},
+		{Slot: 1, Run: "f1#1", Head: head, Reason: RefusedNotLanded},
+		{Slot: 1, Run: "f1#1", Head: head, Reason: RefusedNotLanded},
+		{Slot: 1, Run: "f1#1", Head: head, Reason: RefusedNotLanded},
+	}; !equalRefusals(got, want) {
+		t.Fatalf("refusals %+v, want %+v", got, want)
 	}
 
 	// The other run's commit lands on main directly (a fast-forward): its head is on the base.
@@ -482,6 +524,40 @@ func TestAcquireAgainReturnsTheHeldSlot(t *testing.T) {
 	}
 	if slots, err := f.pool.Slots(ctx, "acme", "web"); err != nil || len(slots) != 2 || slots[0].State != StateLeased || slots[1].State != StateLeased {
 		t.Fatalf("slots %+v, %v", slots, err)
+	}
+}
+
+// A run acquiring its held slot again, clean at its base, keeps its ignored files: only a free
+// slot is ever fully reset.
+func TestAcquireAgainKeepsIgnoredFiles(t *testing.T) {
+	f := open(t)
+	f.commit(f.work, ".gitignore", "build/\n")
+	f.must(f.g.run(ctx, f.work, "push", "--quiet", "origin", "HEAD:main"))
+	l, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(l.Path, "build", "out")
+	if err := os.MkdirAll(filepath.Dir(out), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(out, []byte("built"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, setup := range map[string]func(){
+		"on its branch":        func() {},
+		"detached at its base": func() { f.must(f.g.run(ctx, l.Path, "checkout", "--quiet", "--detach", l.BaseSHA)) },
+	} {
+		setup()
+		if again, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main"); err != nil || again != l {
+			t.Fatalf("%s: %+v, %v", name, again, err)
+		}
+		if b, err := os.ReadFile(out); err != nil || string(b) != "built" {
+			t.Fatalf("%s: the ignored file: %q, %v", name, b, err)
+		}
+		if br, _ := f.g.run(ctx, l.Path, "branch", "--show-current"); br != l.Branch {
+			t.Fatalf("%s: branch %q", name, br)
+		}
 	}
 }
 
