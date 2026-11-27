@@ -157,9 +157,10 @@ before returning it. The request model, facts, rule order, decision record and p
   Runtime seam over the protocol: starting a Pilot queues run `<flight>#<generation>`.
   `lucy runner -- <command>` is this machine's runner: a process executor runs the command once per
   run in a fresh scratch directory (its TMPDIR), with only PATH, HOME, TMPDIR and `LUCY_RUN_*` in its
-  environment, and deletes the directory through the path guard. The same binary runs in an org
-  container (`--placement container`) once berth mounts the socket and per-runner credentials exist
-  (m1 slices 3, 4); a cloud runner later speaks the same protocol.
+  environment, in its own process group, which is killed whenever the run ends or is stopped so no
+  descendant outlives it, and deletes the directory through the path guard. The same binary runs in
+  an org container (`--placement container`) once berth mounts the socket and per-runner
+  credentials exist (m1 slices 3, 4); a cloud runner later speaks the same protocol.
 - **Sessions:** structured protocols first (Claude Agent SDK or `claude -p --output-format
   stream-json`; Codex app-server; ACP). Leases with generation and heartbeat; reattach before spawn;
   fence, then replace.

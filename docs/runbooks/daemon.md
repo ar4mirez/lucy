@@ -98,7 +98,9 @@ lucy events --after 0             # run.queued, run.leased, run.event, run.renew
 
 Each run gets a fresh directory under `--root` (default `$XDG_DATA_HOME/lucy/runner`, created 0700),
 deleted through the path guard when the command exits; the command sees only PATH, HOME, TMPDIR
-and the `LUCY_RUN_*` variables. A runner that goes silent for longer than its lease (`--ttl`,
+and the `LUCY_RUN_*` variables. The command runs in its own process group, killed when the run ends
+or stops, so nothing it started outlives the run. Closing the runner's terminal (SIGHUP) stops it
+like Ctrl-C; start it under `nohup` to keep it running past the terminal. A runner that goes silent for longer than its lease (`--ttl`,
 60 s by default) loses the run: the daemon records `run.expired` within 5 s and refuses anything
 the runner sends under that fence afterwards (`fenced`). A runner that gets `fenced` drops the run
 and stops its work; that is expected after a long pause, not an error to retry.
@@ -118,6 +120,7 @@ and stops its work; that is expected after a long pause, not an error to retry.
 | `config loaded ... refused=N` in the log | N documents were refused; `lucy config validate` shows why |
 | `runner dropped a run ... why=fenced` in a runner's log | Its lease expired or was replaced while it was cut off. The Tower has already replaced the Pilot; nothing to do |
 | `runner kept a run's scratch directory` | The path guard refused the delete (the directory left `--root`, or `--root` is `/`, the home directory or one of its parents). Check `--root` and remove the directory by hand |
+| `runner could not kill a run's leftover processes` | Killing the run's process group failed after the command exited. Check with `ps -o pid,pgid,cmd` for processes in that group and stop them by hand |
 
 ## Add an API method
 

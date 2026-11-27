@@ -26,7 +26,9 @@ Changes since the last release. When a version is cut, its section moves to
 - `lucy runner -- <command>`: this machine as the first runner. It runs the command once per leased
   run in a fresh scratch directory, with only PATH, HOME, TMPDIR and the run's `LUCY_RUN_*`
   variables in its environment, streams each line of output, and deletes the directory through the
-  path guard when the command exits.
+  path guard when the command exits. The command runs in its own process group, which is killed when
+  the run ends or stops. Ctrl-C, SIGTERM or a closed terminal (SIGHUP, unless started under `nohup`)
+  stops the runner and its runs.
 - The flight state machine can start Pilots through the runner protocol; simulated flights land
   through it, including a crashed Pilot, a runner cut off past its lease and daemon restarts.
 
