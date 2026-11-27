@@ -111,7 +111,7 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 		"LUCY_RUN_BASE=" + l.Base,
 	}
 	args := slices.Clip(p.Command[1:])
-	session := harness.Session{Goal: l.Goal, Dir: dir}
+	session := harness.Session{Goal: l.Goal}
 	if p.Harness != nil {
 		env = append(env, p.Harness.Env()...)
 		if err := checkHarness(p.Harness, p.Command, dir, env); err != nil {
@@ -144,11 +144,11 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 	if cmd.WaitDelay <= 0 {
 		cmd.WaitDelay = 2 * time.Second
 	}
+	pe.cmd = cmd // before Start: the protocol's reader may stop the program as soon as it runs
 	if err := cmd.Start(); err != nil {
 		pe.cleanup()
 		return nil, err
 	}
-	pe.cmd = cmd
 	go pe.wait()
 	return pe, nil
 }
@@ -167,6 +167,7 @@ type processExecution struct {
 	dropped int
 	pr      int
 	exit    *harness.Exit // with a harness: the session's end, as the protocol reported it
+	asked   bool          // the last event buffered was the open question
 	stopped bool
 	result  *Result
 }
@@ -225,10 +226,17 @@ func (w *protocolLines) flush() {
 }
 
 // harnessLine decodes one protocol message. Decoding may answer the harness on its input, so it
-// runs without the lock.
+// runs without the lock. A session the protocol ends as failed, such as one that reports a
+// version other than the pin, is killed with everything it started, so it carries out nothing
+// more of the goal.
 func (pe *processExecution) harnessLine(b []byte) {
 	evs, exit := pe.conn.Decode(b)
 	pe.message(exit, "")
+	if exit != nil && !exit.OK {
+		if err := killProcessGroup(pe.cmd); err != nil {
+			pe.log.Warn("runner could not kill a failed harness session", "dir", pe.dir, "err", err)
+		}
+	}
 	pe.mu.Lock()
 	defer pe.mu.Unlock()
 	for _, e := range evs {
@@ -249,6 +257,7 @@ func (pe *processExecution) message(exit *harness.Exit, note string) {
 	}
 	if note != "" {
 		pe.push(Event{Kind: KindActivity, Text: note})
+		pe.keepAsking()
 	}
 }
 
@@ -259,6 +268,18 @@ func (pe *processExecution) push(e Event) {
 		return
 	}
 	pe.lines = append(pe.lines, e)
+	pe.asked = e.Kind == KindAsking
+}
+
+// keepAsking buffers the session's open question again after events of lucy's own or the
+// harness's standard error, so the last event streamed stays the question; pe.mu is held.
+func (pe *processExecution) keepAsking() {
+	if pe.conn == nil || pe.asked {
+		return
+	}
+	if q, ok := pe.conn.Asking(); ok {
+		pe.push(Event{Kind: KindAsking, Text: capText(q)})
+	}
 }
 
 // Answer implements Answerer: it gives the harness the owner's answer to its question.
@@ -273,6 +294,7 @@ func (pe *processExecution) Answer(text string) error {
 func (pe *processExecution) Write(b []byte) (int, error) {
 	pe.mu.Lock()
 	defer pe.mu.Unlock()
+	defer pe.keepAsking()
 	pe.partial = append(pe.partial, b...)
 	for {
 		i := bytes.IndexByte(pe.partial, '\n')
@@ -367,6 +389,13 @@ func (pe *processExecution) Poll() Update {
 	if pe.dropped > 0 && len(u.Events) < maxBufferedLines {
 		u.Events = append(u.Events, Event{Kind: KindOutput, Text: fmt.Sprintf("lucy: %d lines of output dropped", pe.dropped)})
 		pe.dropped = 0
+		pe.asked = false
+		if pe.conn != nil {
+			if q, ok := pe.conn.Asking(); ok {
+				u.Events = append(u.Events, Event{Kind: KindAsking, Text: capText(q)})
+				pe.asked = true
+			}
+		}
 	}
 	if pe.result != nil && len(pe.lines) == 0 && pe.dropped == 0 {
 		u.Result = pe.result

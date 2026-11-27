@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +30,14 @@ func TestMain(m *testing.M) {
 func helper(goal string) int {
 	if rest, ok := strings.CutPrefix(goal, "harness "); ok {
 		return fakeHarness(rest)
+	}
+	if rest, ok := strings.CutPrefix(goal, "harness-on "); ok {
+		// a harness that carries on after its input closes, as Claude Code finishes a queued turn
+		code := fakeHarness(rest)
+		if !slices.Contains(os.Args[1:], "--version") {
+			time.Sleep(time.Minute)
+		}
+		return code
 	}
 	switch goal {
 	case "work":
@@ -263,19 +272,22 @@ func TestRemoveScratchStaysInsideRoot(t *testing.T) {
 func TestHarnessExecutorSpeaksTheProtocol(t *testing.T) {
 	for _, c := range []struct {
 		name   string
+		goal   string // the fake harness's mode: "harness" plays the transcript, "harness-on" then carries on
 		want   Result
 		events []string
 	}{
-		{"done", Result{Outcome: OutcomeDone, PR: 42}, []string{"session started: claude-code " + claudecode.Pinned + ", model claude-opus-5-5",
+		{"done", "harness", Result{Outcome: OutcomeDone, PR: 42}, []string{"session started: claude-code " + claudecode.Pinned + ", model claude-opus-5-5",
 			"I will fix the failing test.", "tool: Bash", "tool result", "Opened the pull request.\nlucy:pr=42", "session ended: success after 3 turns"}},
-		{"refused", Result{Outcome: OutcomeDone}, nil},
-		{"error", Result{Outcome: OutcomeFailed, Reason: "error_max_turns: Reached maximum number of turns (50)"}, nil},
-		{"drift", Result{Outcome: OutcomeFailed, Reason: "claude-code reported version 2.1.400, lucy supports " + claudecode.Pinned}, nil},
+		{"refused", "harness", Result{Outcome: OutcomeDone}, nil},
+		{"error", "harness", Result{Outcome: OutcomeFailed, Reason: "error_max_turns: Reached maximum number of turns (50)"}, nil},
+		// the drifted session is killed, not left to carry out the goal: drain gives up long
+		// before the harness would stop on its own
+		{"drift", "harness-on", Result{Outcome: OutcomeFailed, Reason: "claude-code reported version 2.1.400, lucy supports " + claudecode.Pinned}, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			pf := newProc(t)
 			pf.ex.Harness = claudecode.Adapter{}
-			x, err := pf.ex.Start(context.Background(), procLease("harness - "+transcript(t, c.name)))
+			x, err := pf.ex.Start(context.Background(), procLease(c.goal+" - "+transcript(t, c.name)))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -338,6 +350,61 @@ func TestHarnessExecutorAnswers(t *testing.T) {
 			asked = asked || e.Kind == KindAsking
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+	if err := x.(Answerer).Answer("use the staging account"); err != nil {
+		t.Fatal(err)
+	}
+	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7}) {
+		t.Fatalf("result %+v", res)
+	}
+}
+
+// TestHarnessExecutorKeepsTheQuestionOpen: while the session's question waits, a second question
+// the adapter refuses and a line on the harness's standard error are streamed, and the last event
+// is still the open question, so the Tower keeps the flight asking and takes the owner's answer.
+func TestHarnessExecutorKeepsTheQuestionOpen(t *testing.T) {
+	b, err := os.ReadFile(transcript(t, "ask"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const stderr = "warning: the network is slow"
+	var lines []string
+	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		lines = append(lines, l)
+		if strings.Contains(l, `"control_request"`) {
+			lines = append(lines,
+				`{"out":{"type":"control_request","request_id":"req_2","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which region?"}]}}}}`,
+				`{"in":{"type":"control_response","response":{"subtype":"success","request_id":"req_2","response":{"behavior":"deny"}}}}`,
+				`{"stderr":"`+stderr+`"}`)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "ask-busy.jsonl")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pf := newProc(t)
+	pf.ex.Harness = claudecode.Adapter{}
+	x, err := pf.ex.Start(context.Background(), procLease("harness - "+path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const question = "Which account should the migration run against? (staging | production)"
+	var last Event
+	refused, warned := false, false
+	deadline := time.Now().Add(20 * time.Second)
+	for !refused || !warned {
+		if time.Now().After(deadline) {
+			t.Fatalf("refused %v, warned %v", refused, warned)
+		}
+		for _, e := range x.Poll().Events {
+			refused = refused || e.Text == "refused a second question while one waits"
+			warned = warned || e.Text == stderr
+			last = e
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if last.Kind != KindAsking || last.Text != question {
+		t.Fatalf("the last event is %+v, want the open question", last)
 	}
 	if err := x.(Answerer).Answer("use the staging account"); err != nil {
 		t.Fatal(err)

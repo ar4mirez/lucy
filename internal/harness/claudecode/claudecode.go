@@ -213,16 +213,18 @@ type block struct {
 }
 
 type conn struct {
-	mu      sync.Mutex
-	in      io.WriteCloser
-	closed  bool
+	mu     sync.Mutex // guards in and closed
+	in     io.WriteCloser
+	closed bool
+
+	qmu     sync.Mutex // guards pending, never held while writing
 	pending *question
 }
 
 type question struct {
 	requestID string
 	input     map[string]any
-	texts     []string
+	text      string
 }
 
 func (c *conn) write(v any) error {
@@ -258,8 +260,29 @@ func ev(k harness.Kind, text string) harness.Event {
 	return harness.Event{Kind: k, Source: Source, Text: text}
 }
 
-// Decode implements harness.Conn.
+// Decode implements harness.Conn: while a question waits, any other events are followed by the
+// question again, so what the harness says meanwhile never hides that the session is waiting.
 func (c *conn) Decode(line []byte) ([]harness.Event, *harness.Exit) {
+	evs, exit := c.decode(line)
+	if exit == nil && len(evs) > 0 && evs[len(evs)-1].Kind != harness.Asking {
+		if q, ok := c.Asking(); ok {
+			evs = append(evs, ev(harness.Asking, q))
+		}
+	}
+	return evs, exit
+}
+
+// Asking implements harness.Conn.
+func (c *conn) Asking() (string, bool) {
+	c.qmu.Lock()
+	defer c.qmu.Unlock()
+	if c.pending == nil {
+		return "", false
+	}
+	return c.pending.text, true
+}
+
+func (c *conn) decode(line []byte) ([]harness.Event, *harness.Exit) {
 	line = bytes.TrimSpace(line)
 	if len(line) == 0 {
 		return nil, nil
@@ -284,12 +307,12 @@ func (c *conn) Decode(line []byte) ([]harness.Event, *harness.Exit) {
 	case "control_request":
 		return c.control(m), nil
 	case "control_cancel_request":
-		c.mu.Lock()
+		c.qmu.Lock()
 		withdrawn := c.pending != nil && c.pending.requestID == m.RequestID
 		if withdrawn {
 			c.pending = nil
 		}
-		c.mu.Unlock()
+		c.qmu.Unlock()
 		if withdrawn {
 			return []harness.Event{ev(harness.Activity, "the Pilot withdrew its question")}, nil
 		}
@@ -336,18 +359,18 @@ func (c *conn) control(m message) []harness.Event {
 		_ = c.respond(m.RequestID, permission{Behavior: "deny", Message: "lucy: " + tool + " needs a permission this run does not have"})
 		return []harness.Event{ev(harness.Activity, "refused tool: "+tool)}
 	}
-	q := &question{requestID: m.RequestID, input: m.Request.Input, texts: questionTexts(m.Request.Input)}
-	c.mu.Lock()
+	q := &question{requestID: m.RequestID, input: m.Request.Input, text: strings.Join(questionTexts(m.Request.Input), "\n")}
+	c.qmu.Lock()
 	busy := c.pending != nil
 	if !busy {
 		c.pending = q
 	}
-	c.mu.Unlock()
+	c.qmu.Unlock()
 	if busy {
 		_ = c.respond(m.RequestID, permission{Behavior: "deny", Message: "lucy: one question at a time; wait for the answer to the first"})
 		return []harness.Event{ev(harness.Activity, "refused a second question while one waits")}
 	}
-	return []harness.Event{ev(harness.Asking, strings.Join(q.texts, "\n"))}
+	return []harness.Event{ev(harness.Asking, q.text)}
 }
 
 // questionTexts reads AskUserQuestion's questions: each question with its options' labels.
@@ -382,10 +405,10 @@ func questionTexts(input map[string]any) []string {
 // Answer implements harness.Conn: the owner's answer becomes the answer to every question the
 // waiting prompt asked.
 func (c *conn) Answer(text string) error {
-	c.mu.Lock()
+	c.qmu.Lock()
 	q := c.pending
 	c.pending = nil
-	c.mu.Unlock()
+	c.qmu.Unlock()
 	if q == nil {
 		return harness.ErrNotAsking
 	}
@@ -407,9 +430,9 @@ func (c *conn) Answer(text string) error {
 
 func (c *conn) result(m message) ([]harness.Event, *harness.Exit) {
 	_ = c.Close() // the session is over: closing its input lets the harness exit
-	c.mu.Lock()
+	c.qmu.Lock()
 	c.pending = nil
-	c.mu.Unlock()
+	c.qmu.Unlock()
 	evs := []harness.Event{ev(harness.Activity, fmt.Sprintf("session ended: %s after %d turns", capped(m.Subtype, 64), m.NumTurns))}
 	if m.Subtype == "success" && !m.IsError {
 		return evs, &harness.Exit{OK: true, PR: prFrom(m.Result)}

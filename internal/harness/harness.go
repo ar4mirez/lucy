@@ -46,7 +46,6 @@ type Exit struct {
 // Session is what one harness session is started with.
 type Session struct {
 	Goal string // the flight's goal: data for the Pilot to act on
-	Dir  string // the session's working directory
 }
 
 // PRDirective starts the line a Pilot writes to report its pull request: "lucy:pr=<number>".
@@ -86,8 +85,11 @@ type Adapter interface {
 // standard output, in order, from one goroutine; Answer may be called from another.
 type Conn interface {
 	// Decode turns one line of output into events. exit is set when the protocol reports the
-	// session's end; the adapter then closes the program's input.
+	// session's end; the adapter then closes the program's input. While a question waits, the
+	// events end with it, so the last event streamed is always the open question.
 	Decode(line []byte) (events []Event, exit *Exit)
+	// Asking returns the question the session waits on, as its Asking event's text, if any.
+	Asking() (question string, ok bool)
 	// Answer replies to the session's waiting question with the owner's answer.
 	Answer(text string) error
 	// Close ends the program's input.

@@ -181,6 +181,7 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 	}
 	ttl = clampTTL(ttl)
 	var beat Beat
+	var given answer
 	err := b.held(ctx, runner, run, fence, func(tx *eventstore.Tx, ri RunInfo) error {
 		accepted := ri.Accepted
 		var payloads []eventstore.Payload
@@ -203,13 +204,17 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 		if n := len(payloads) - 1; n > 0 {
 			asking = payloads[n-1].(Streamed).Kind == KindAsking
 		}
-		// The answer is taken inside the transaction, which no Answer can interleave with, so the
+		// The answer is read inside the transaction, which no Answer can interleave with, so the
 		// runner sees it together with the asking state it belongs to.
-		beat = Beat{Expires: exp, Stop: ri.Stop, Accepted: accepted, Asking: asking, Answer: b.takeAnswer(run, fence)}
+		given = b.peekAnswer(run, fence)
+		beat = Beat{Expires: exp, Stop: ri.Stop, Accepted: accepted, Asking: asking, Answer: given.text}
 		return nil
 	})
 	if err != nil {
 		return Beat{}, err // a refused heartbeat leaves the holder's answer waiting
+	}
+	if given.text != "" {
+		b.handedOver(run, given) // the heartbeat committed: the answer is delivered once
 	}
 	return beat, nil
 }
@@ -249,16 +254,25 @@ func (b *Broker) Answer(ctx context.Context, run, text string) error {
 	return err
 }
 
-// takeAnswer hands over the answer waiting for run under fence, once.
-func (b *Broker) takeAnswer(run string, fence int64) string {
+// peekAnswer returns the answer waiting for run under fence, leaving it waiting.
+func (b *Broker) peekAnswer(run string, fence int64) answer {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	a, ok := b.answers[run]
 	if !ok || a.fence != fence {
-		return ""
+		return answer{}
 	}
-	delete(b.answers, run)
-	return a.text
+	return a
+}
+
+// handedOver forgets a, the answer a committed heartbeat gave run's runner, unless a newer
+// answer has replaced it since.
+func (b *Broker) handedOver(run string, a answer) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.answers[run] == a {
+		delete(b.answers, run)
+	}
 }
 
 func (b *Broker) dropAnswer(run string) {

@@ -97,7 +97,7 @@ func TestContract(t *testing.T) {
 func replay(t *testing.T, tr harnesstest.Transcript) string {
 	t.Helper()
 	in := &capture{}
-	conn, err := Adapter{}.Open(in, harness.Session{Goal: "make the failing test pass", Dir: "/work/run-1"})
+	conn, err := Adapter{}.Open(in, harness.Session{Goal: "make the failing test pass"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,6 +201,58 @@ func TestAnswerWithoutQuestion(t *testing.T) {
 	}
 	if err := conn.Answer("yes"); !errors.Is(err, harness.ErrNotAsking) {
 		t.Fatalf("Answer after close = %v", err)
+	}
+}
+
+// TestQuestionStaysOpen: while a question waits on the owner, whatever else the harness says,
+// such as a second question it is refused or a line lucy cannot parse, is followed by the open
+// question again, so the session never looks as if it stopped asking; once answered, it is not.
+func TestQuestionStaysOpen(t *testing.T) {
+	in := &capture{}
+	conn, err := Adapter{}.Open(in, harness.Session{Goal: "g"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ask := func(id, q string) []byte {
+		return []byte(`{"type":"control_request","request_id":"` + id + `","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"` + q + `"}]}}}`)
+	}
+	const open = "Which account?"
+	kinds := func(line []byte) string {
+		evs, exit := conn.Decode(line)
+		if exit != nil {
+			t.Fatalf("Decode(%s) ended the session", line)
+		}
+		var b strings.Builder
+		for _, e := range evs {
+			fmt.Fprintf(&b, "%s %q|", e.Kind, e.Text)
+		}
+		return b.String()
+	}
+	for _, c := range []struct {
+		line []byte
+		want string
+	}{
+		{ask("req_1", open), `asking "Which account?"|`},
+		{ask("req_2", "Which region?"), `activity "refused a second question while one waits"|asking "Which account?"|`},
+		{[]byte(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","is_error":true}]}}`), `activity "tool result: error"|asking "Which account?"|`},
+		{[]byte(`not json`), `output "unparsed harness output: not json"|asking "Which account?"|`},
+		{[]byte(`{"type":"keep_alive"}`), ``},
+	} {
+		if got := kinds(c.line); got != c.want {
+			t.Errorf("Decode(%s) = %s, want %s", c.line, got, c.want)
+		}
+	}
+	if q, ok := conn.Asking(); !ok || q != open {
+		t.Fatalf("Asking = %q, %v", q, ok)
+	}
+	if err := conn.Answer("staging"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := conn.Asking(); ok {
+		t.Fatal("still asking after the answer")
+	}
+	if got := kinds([]byte(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result"}]}}`)); got != `activity "tool result"|` {
+		t.Errorf("after the answer, Decode = %s", got)
 	}
 }
 
