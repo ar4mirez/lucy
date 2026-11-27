@@ -41,8 +41,9 @@ With --harness claude-code the runner drives Claude Code (` + "`claude`" + ` unl
 ` + claudecode.Pinned + `, the one this lucy supports, or the run fails without starting. Each session gets no
 MCP servers, no settings file but lucy's own (so neither the user's nor a repository's committed
 .claude settings apply: nothing is pre-allowed, and hooks, skills and slash commands are off) and
-no saved transcript; its question to the owner
-is streamed as asking and answered only with what the Tower relays. A prompted file tool (read,
+no saved transcript. lucy reads the run directory's CLAUDE.md (or AGENTS.md) and the files it
+imports with @path inside that directory, one level deep and size-capped, and appends them to the
+system prompt as repository text, which grants no permission. Its question to the owner is streamed as asking and answered only with what the Tower relays. A prompted file tool (read,
 edit or write) on a path inside the run's directory is decided by the daemon's policy engine, as
 the Pilot; every other permission prompt is refused.
 `

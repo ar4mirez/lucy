@@ -49,6 +49,9 @@ type Exit struct {
 type Session struct {
 	Goal   string // the flight's goal: data for the Pilot to act on
 	Permit Permit // decides the session's prompted file tools; nil refuses them all
+	// Instructions are the repository's agent instructions, as Instructions read them from the
+	// run's directory: repository text the Pilot follows, never the owner's authority.
+	Instructions string
 }
 
 // Access is what a prompted tool asks to do with files.

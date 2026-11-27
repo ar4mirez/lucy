@@ -387,3 +387,70 @@ func TestSearchToolPath(t *testing.T) {
 		}
 	}
 }
+
+// TestRepositoryInstructions reads the fixture repository's instructions (its CLAUDE.md imports
+// AGENTS.md) and checks the launch arguments carry them after lucy's system prompt, framed as
+// repository text, while the repository's settings, hooks and MCP servers stay inert under those
+// same arguments when the fake harness runs in it.
+func TestRepositoryInstructions(t *testing.T) {
+	repo, err := filepath.Abs(filepath.Join("testdata", Pinned, "repo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	instr, err := harness.Instructions(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := harness.Session{Goal: "g", Instructions: instr}
+	argv := Adapter{}.Args(s)
+	prompt := argv[slices.Index(argv, "--append-system-prompt")+1]
+	open, end := strings.Index(prompt, "<repository-instructions>\n"), strings.LastIndex(prompt, "\n</repository-instructions>")
+	if !strings.HasPrefix(prompt, systemPrompt) || open < 0 || end < open ||
+		!strings.Contains(prompt[open:end], "fixture-repo-7f3a") || !strings.Contains(prompt[:open], "grant no permission") {
+		t.Fatalf("the system prompt does not carry the repository's AGENTS.md as framed repository text: %q", prompt)
+	}
+
+	run := func(args []string) (stdout, stderr string) {
+		f, err := os.Open(filepath.Join("testdata", Pinned, "project.jsonl"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		tr, err := harnesstest.Parse(f)
+		_ = f.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		tr.Header.Project = repo
+		in := &capture{}
+		if _, err := (Adapter{}).Open(in, s); err != nil {
+			t.Fatal(err)
+		}
+		in.buf.WriteString(`{"type":"control_response","response":{"subtype":"success","request_id":"req_1","response":{"behavior":"deny"}}}` + "\n")
+		var out, errb strings.Builder
+		if code := harnesstest.Replay(tr, args, &in.buf, &out, &errb); code != 0 {
+			t.Fatalf("fake harness exited %d: %s", code, errb.String())
+		}
+		return out.String(), errb.String()
+	}
+	out, errs := run(argv)
+	if !strings.Contains(out, `"tool_name":"Bash"`) || strings.Contains(errs, "project hook ran") || strings.Contains(errs, "project MCP server loaded") {
+		t.Errorf("the repository's settings took effect under the session's arguments: stdout %q, stderr %q", out, errs)
+	}
+	var control []string
+	for i := 0; i < len(argv); i++ {
+		switch argv[i] {
+		case "--setting-sources":
+			control = append(control, argv[i], "project")
+			i++
+		case "--settings", "--mcp-config":
+			i++
+		case "--strict-mcp-config":
+		default:
+			control = append(control, argv[i])
+		}
+	}
+	out, errs = run(control)
+	if strings.Contains(out, `"tool_name":"Bash"`) || !strings.Contains(errs, "project hook ran") || !strings.Contains(errs, "project MCP server loaded: chat") {
+		t.Errorf("the control did not load the repository's settings, so the check proves nothing: stdout %q, stderr %q", out, errs)
+	}
+}

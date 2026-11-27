@@ -130,6 +130,10 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 			pe.cleanup()
 			return nil, err
 		}
+		if session.Instructions, err = harness.Instructions(dir); err != nil {
+			pe.cleanup()
+			return nil, err
+		}
 		args = append(args, p.Harness.Args(session)...)
 	}
 	cmd := exec.Command(p.Command[0], args...) // #nosec G204 -- the runner's own configured program, never text from a task
