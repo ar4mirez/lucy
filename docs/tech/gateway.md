@@ -32,7 +32,9 @@ How a worker reaches a service without ever holding its credential (TECH.md sect
   rebinding) is never used. Environment proxies are ignored.
 - **Headers.** The worker's own credential and forwarding headers (`Authorization`, `Cookie`,
   `X-Api-Key`, `Proxy-Authorization`, `Forwarded`, `X-Forwarded-*` and the like) and hop-by-hop
-  headers are removed before the route's credential is added.
+  headers are removed before the route's credential is added. So are `Accept-Encoding`, `Range`
+  and `If-Range`, and the upstream is asked for `Accept-Encoding: identity`, so a worker cannot ask
+  for an answer the scrubber cannot read whole.
 - **Policy and audit.** Each forwarded request is a `credential_use` by the org's gateway, decided
   by the policy engine (rule `credential.gateway-only`, the route's scope as a fact, the worker's
   request as an untrusted `agent` input, so the record is marked tainted) and recorded on the
@@ -46,7 +48,9 @@ How a worker reaches a service without ever holding its credential (TECH.md sect
   name.
 - **Echoes are scrubbed** (LUCY-CRED-005). Every copy of the credential in the upstream's headers
   and body is replaced by `<redacted>` as the answer streams, including one split across reads,
-  so an upstream that reflects the request never hands the credential to the worker.
+  so an upstream that reflects the request never hands the credential to the worker. An answer in
+  any content coding but identity is refused with a 502 and recorded as `gateway.completed` with
+  an error; none of it reaches the worker.
 - **Fails closed.** An unknown route, a refused path or address, a credential that cannot be read,
   or a decision that cannot be recorded is a refusal; nothing is forwarded without its record.
 

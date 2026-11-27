@@ -226,6 +226,10 @@ var hopHeaders = []string{"Connection", "Keep-Alive", "Proxy-Connection", "Proxy
 var workerCredentialHeaders = []string{"Authorization", "Cookie", "X-Api-Key", "Api-Key", "Private-Token",
 	"X-Auth-Token", "Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-Ip"}
 
+// workerShapeHeaders would let a worker ask for an answer the scrubber cannot read whole: encoded,
+// or cut into byte ranges that each hold part of an echoed credential.
+var workerShapeHeaders = []string{"Accept-Encoding", "Range", "If-Range"}
+
 // ServeHTTP implements http.Handler.
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -303,6 +307,11 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close() //nolint:errcheck // read fully below
+	if encoded(resp.Header) {
+		g.complete(ctx, Completed{DecisionSeq: seq, Status: resp.StatusCode, Error: "the upstream answered with an encoded body"})
+		http.Error(w, "lucy gateway: the upstream answered with an encoded body", http.StatusBadGateway)
+		return
+	}
 	secrets := [][]byte{secret}
 	scrubbed := 0
 	for k, vs := range resp.Header {
@@ -327,7 +336,8 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // outgoing is the request the upstream gets: the worker's method, path, query and body, the
-// worker's headers less hop-by-hop, credential and forwarding ones, and the route's credential.
+// worker's headers less hop-by-hop, credential, forwarding and answer-shaping ones, an
+// identity-only Accept-Encoding, and the route's credential.
 func (g *Gateway) outgoing(ctx context.Context, r *http.Request, rt route, rest string, addrs []netip.Addr, port string, secret []byte) *http.Request {
 	u := *rt.upstream
 	u.Path = rt.upstream.Path + rest
@@ -338,12 +348,25 @@ func (g *Gateway) outgoing(ctx context.Context, r *http.Request, rt route, rest 
 	context.AfterFunc(ctx, cancel)
 	out := r.Clone(ctx)
 	out.URL, out.Host, out.RequestURI = &u, u.Host, ""
-	for _, h := range append(append([]string{}, hopHeaders...), workerCredentialHeaders...) {
+	for _, h := range slices.Concat(hopHeaders, workerCredentialHeaders, workerShapeHeaders) {
 		out.Header.Del(h)
 	}
+	out.Header.Set("Accept-Encoding", "identity")
 	out.Header.Del(rt.header)
 	out.Header.Set(rt.header, rt.Prefix+string(secret))
 	return out
+}
+
+// encoded reports whether an answer's body is in any content coding but identity.
+func encoded(h http.Header) bool {
+	for _, v := range h.Values("Content-Encoding") {
+		for _, c := range strings.Split(v, ",") {
+			if c = strings.TrimSpace(c); c != "" && !strings.EqualFold(c, "identity") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // complete records how a forwarded request ended. The answer has already gone to the worker, so a

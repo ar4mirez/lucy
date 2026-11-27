@@ -23,7 +23,8 @@ Changes since the last release. When a version is cut, its section moves to
   loopback, link-local, metadata or other non-public address is refused, and the connection goes
   only to the address that was checked. Each forwarded request is decided by the policy engine and
   recorded before anything is sent; a redirect goes back to the worker and is never followed; a
-  credential the upstream echoes back is scrubbed from the answer; and every request, forwarded or
+  credential the upstream echoes back is scrubbed from the answer, which is asked for whole and
+  unencoded (an encoded answer is refused); and every request, forwarded or
   refused, is in the audit chain without its credential. Any failure refuses. A test proves a
   Pilot's environment holds none of the runner's credentials. The gateway does not run as its own
   process yet, and credentials come from the vault in a later change.

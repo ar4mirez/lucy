@@ -2,12 +2,14 @@ package gateway_test
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +20,7 @@ import (
 	"sync"
 	"testing"
 	"testing/iotest"
+	"time"
 
 	"github.com/ar4mirez/lucy/internal/audit"
 	"github.com/ar4mirez/lucy/internal/eventstore"
@@ -275,6 +278,67 @@ func TestScrubsAnEchoedCredential(t *testing.T) {
 	if err != nil || c.Status != 200 || c.Scrubbed != 2 {
 		t.Errorf("completed %+v, %v", c, err)
 	}
+}
+
+// LUCY-CRED-005: a worker cannot ask for the echo in a shape the scrubber cannot read: an encoded
+// body is refused, and a byte range is never asked of the upstream.
+func TestEchoInAnEncodingIsRefused(t *testing.T) {
+	f := open(t, nil)
+	f.up.reply = func(w http.ResponseWriter, r *http.Request) {
+		// An echo upstream that honours whatever encoding it is asked for, and gzips regardless
+		// when asked for nothing it knows.
+		var buf bytes.Buffer
+		zw := gzip.NewWriter(&buf)
+		io.WriteString(zw, "you sent: "+r.Header.Get("Authorization"))
+		zw.Close()
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Write(buf.Bytes())
+	}
+	status, hdr, body := f.call("GET", "/github/echo", http.Header{"Accept-Encoding": {"gzip, br, zstd"}})
+	if got := f.up.last().Header.Values("Accept-Encoding"); len(got) != 1 || got[0] != "identity" {
+		t.Errorf("the upstream was asked for Accept-Encoding %q", got)
+	}
+	if status != http.StatusBadGateway || hdr.Get("Content-Encoding") != "" {
+		t.Fatalf("status %d, Content-Encoding %q", status, hdr.Get("Content-Encoding"))
+	}
+	if strings.Contains(body, f.tok) {
+		t.Fatal("the credential reached the worker")
+	}
+	if zr, err := gzip.NewReader(strings.NewReader(body)); err == nil {
+		if b, _ := io.ReadAll(zr); strings.Contains(string(b), f.tok) {
+			t.Fatal("the credential reached the worker compressed")
+		}
+	}
+	f.events()
+	c, err := eventstore.DecodeAs[gateway.Completed](f.store.Registry(), f.lastGateway())
+	if err != nil || c.Status != 200 || c.Error == "" {
+		t.Errorf("completed %+v, %v", c, err)
+	}
+}
+
+func TestEchoInByteRangesIsNotAsked(t *testing.T) {
+	f := open(t, nil)
+	f.up.reply = func(w http.ResponseWriter, r *http.Request) {
+		// An echo upstream that honours Range, so a slice could split the credential.
+		http.ServeContent(w, r, "", time.Time{}, strings.NewReader("you sent: "+r.Header.Get("Authorization")))
+	}
+	full := len("you sent: Bearer ") + len(f.tok)
+	var got strings.Builder
+	for start := 0; start < full; start += 8 {
+		status, _, body := f.call("GET", "/github/echo", http.Header{"Range": {fmt.Sprintf("bytes=%d-%d", start, start+7)}})
+		if status != 200 {
+			t.Fatalf("bytes from %d: status %d; the range reached the upstream", start, status)
+		}
+		got.WriteString(body)
+	}
+	if strings.Contains(got.String(), f.tok) || strings.Contains(got.String(), f.tok[:len(f.tok)/2]) {
+		t.Fatal("the credential reached the worker in slices")
+	}
+	f.call("GET", "/github/echo", http.Header{"Range": {"bytes=0-7"}, "If-Range": {`"x"`}})
+	if r := f.up.last(); r.Header.Get("Range") != "" || r.Header.Get("If-Range") != "" {
+		t.Errorf("the upstream got Range %q If-Range %q", r.Header.Get("Range"), r.Header.Get("If-Range"))
+	}
+	f.events()
 }
 
 func TestScrubberAcrossReads(t *testing.T) {
