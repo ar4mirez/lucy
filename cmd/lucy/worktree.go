@@ -91,7 +91,12 @@ func runWorktree(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "slots[%d]{slot,state,prep,run,branch,head,reason}:\n", len(list.Slots))
 	for _, s := range list.Slots {
-		fmt.Fprintf(stdout, "  %s,%s,%s,%s,%s,%s,%s\n", s.Slot, s.State, s.Prep, untrusted(s.Run), untrusted(s.Branch), s.Head, csv(untrusted(s.Reason)))
+		fmt.Fprint(stdout, slotRow(s))
 	}
 	return 0
+}
+
+// slotRow is one row of `lucy worktree ls`; untrusted already quotes a field that needs it.
+func slotRow(s api.WorktreeSlot) string {
+	return fmt.Sprintf("  %s,%s,%s,%s,%s,%s,%s\n", s.Slot, s.State, s.Prep, untrusted(s.Run), untrusted(s.Branch), s.Head, untrusted(s.Reason))
 }

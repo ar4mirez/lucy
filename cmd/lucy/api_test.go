@@ -203,6 +203,18 @@ func TestCSV(t *testing.T) {
 	}
 }
 
+func TestWorktreeRowQuotesAReasonOnce(t *testing.T) {
+	for reason, want := range map[string]string{
+		"uncommitted changes": "uncommitted changes",
+		`worktree: invalid: base "main" is not a branch of the remote`: `"worktree: invalid: base ""main"" is not a branch of the remote"`,
+	} {
+		got := slotRow(api.WorktreeSlot{Slot: "acme/web/1", State: "quarantined", Run: "f1#1", Branch: "lucy/f1-1", Head: "abc", Reason: reason})
+		if w := "  acme/web/1,quarantined,,f1#1,lucy/f1-1,abc," + want + "\n"; got != w {
+			t.Errorf("reason %q: got %q, want %q", reason, got, w)
+		}
+	}
+}
+
 func TestQuestionsEscapeUntrustedText(t *testing.T) {
 	since := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
 	var out bytes.Buffer
