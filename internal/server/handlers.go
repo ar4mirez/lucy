@@ -30,6 +30,7 @@ func (s *Server) bindAll() map[string]handler {
 		api.MethodQueued:    bind(s.runnerQueued),
 		api.MethodLease:     bind(s.runnerLease),
 		api.MethodHeartbeat: bind(s.runnerHeartbeat),
+		api.MethodSlot:      bind(s.runnerSlot),
 		api.MethodFinish:    bind(s.runnerFinish),
 		api.MethodPermit:    bind(s.runnerPermit),
 		api.MethodQuestions: bind(s.questions),
@@ -46,6 +47,8 @@ func (s *Server) bindAll() map[string]handler {
 		api.MethodRevoke:    bind(s.capabilityRevoke),
 		api.MethodVaultRec:  bind(s.vaultRecord),
 		api.MethodHostOrg:   bind(s.runnerHostOrg),
+		api.MethodWtList:    bind(s.worktreeList),
+		api.MethodWtDiscard: bind(s.worktreeDiscard),
 	}
 }
 

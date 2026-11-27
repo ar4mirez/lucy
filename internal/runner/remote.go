@@ -60,6 +60,8 @@ func (r Remote) Lease(ctx context.Context, runner string, placement Placement, o
 		Task: Task{Run: l.Run, Org: l.Org, Project: l.Project, Flight: l.Flight, Generation: l.Generation,
 			Goal: l.Goal, Base: l.Base},
 		Runner: runner, Fence: l.Fence, Expires: l.ExpiresAt, Capability: l.Capability,
+		Worktree: l.Worktree, Branch: l.Branch, WorktreeState: l.WorktreeState, WorktreeError: l.WorktreeError,
+		WorktreeDeadline: l.WorktreeDeadline,
 	}, true, nil
 }
 
@@ -74,7 +76,16 @@ func (r Remote) Heartbeat(ctx context.Context, runner, run string, fence int64, 
 		return Beat{}, remoteError(err)
 	}
 	return Beat{Expires: res.ExpiresAt, Stop: res.Stop, Accepted: res.Accepted, Answer: res.Answer, Question: res.Question, Asking: res.Asking,
-		Capability: res.Capability}, nil
+		Capability: res.Capability, WorktreeState: res.WorktreeState, WorktreeError: res.WorktreeError}, nil
+}
+
+// Slot implements SlotReader.
+func (r Remote) Slot(ctx context.Context, runner, run string, fence int64) (state, why string, err error) {
+	res, err := r.Client.RunnerSlot(ctx, api.SlotParams{Runner: runner, Run: run, Fence: fence})
+	if err != nil {
+		return "", "", remoteError(err)
+	}
+	return res.WorktreeState, res.WorktreeError, nil
 }
 
 // Finish implements Protocol.
@@ -95,6 +106,7 @@ func (r Remote) Permit(ctx context.Context, runner, run string, fence int64, p P
 }
 
 var (
-	_ Permitter = Remote{}
-	_ Permitter = (*Broker)(nil)
+	_ Permitter  = Remote{}
+	_ SlotReader = Remote{}
+	_ Permitter  = (*Broker)(nil)
 )

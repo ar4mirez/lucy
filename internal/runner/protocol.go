@@ -168,7 +168,44 @@ type Lease struct {
 	// Capability is the run's capability token for its org's gateway (LUCY-CRED-003), when the
 	// daemon issued one. It is never serialized, logged or given to the work's environment.
 	Capability string `json:"-"`
+	// Worktree is the run's slot of the worktree pool, when it runs on the host and its project
+	// names a repository: the checkout the work runs in, on Branch (LUCY-RUN-007). WorktreeState
+	// is how it stands: WorktreePreparing until a heartbeat reports it ready, and the work starts
+	// only then. WorktreeError is why none could be leased or prepared; the run then fails without
+	// starting.
+	Worktree      string `json:"worktree,omitempty"`
+	Branch        string `json:"branch,omitempty"`
+	WorktreeState string `json:"worktree_state,omitempty"`
+	WorktreeError string `json:"worktree_error,omitempty"`
+	// WorktreeDeadline is when the daemon stops preparing the worktree at the latest. A runner
+	// still waiting WorktreeGrace after it fails the run.
+	WorktreeDeadline time.Time `json:"worktree_deadline,omitzero"`
 }
+
+// SlotReader is a Protocol that reads how a held run's worktree stands without renewing its lease
+// or recording anything (runner.slot). While a run's worktree is being prepared the runner polls it,
+// from SlotPollMin doubling to SlotPollMax, so the work starts soon after the worktree is ready
+// rather than on the lease's next heartbeat. A Protocol without it is answered on heartbeats only.
+type SlotReader interface {
+	Slot(ctx context.Context, runner, run string, fence int64) (state, why string, err error)
+}
+
+// The backoff of a runner's runner.slot polls while a run's worktree is being prepared.
+const (
+	SlotPollMin = 250 * time.Millisecond
+	SlotPollMax = 5 * time.Second
+)
+
+// WorktreeGrace is how long past a preparing worktree's deadline a runner waits for the daemon to
+// report how the preparation ended, before it fails the run.
+const WorktreeGrace = time.Minute
+
+// How a run's worktree stands, as the daemon reports it on the lease and each heartbeat.
+const (
+	WorktreePreparing = "preparing"
+	WorktreeReady     = "ready"
+	WorktreeFailed    = "failed"
+)
 
 // Event is one streamed event. Seq numbers a run's events from 1, without gaps.
 type Event struct {
@@ -201,6 +238,8 @@ type Beat struct {
 	// Capability is the run's renewed capability token, replacing the lease's, when the daemon
 	// issued one. Like Lease.Capability it is kept in memory only.
 	Capability string
+	// WorktreeState and WorktreeError are how the run's worktree stands (Worktree*), when it has one.
+	WorktreeState, WorktreeError string
 }
 
 // RunID returns the run id of a flight's Pilot generation.

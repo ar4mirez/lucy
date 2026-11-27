@@ -88,8 +88,21 @@ type Options struct {
 	// ResourcesDir holds the spec resources the daemon loads at start; config.ResourcesDir when
 	// empty. A missing directory means no resources.
 	ResourcesDir string
-	Version      string       // lucy's version
-	Log          *slog.Logger // slog.Default when nil
+	// WorktreeRoot holds the worktree pool's clones and slots; worktrees/ in lucy's data directory
+	// when empty. WorktreeRemote names a Runway repository's remote (tests point it at local
+	// repositories); https://github.com/<owner>/<name>.git when nil.
+	WorktreeRoot   string
+	WorktreeRemote func(repository string) string
+	// WorktreePrepareTimeout bounds one background preparation or release of a run's slot, apart
+	// from any API call's deadline; worktree.DefaultPrepareTimeout (30 minutes) when zero. They
+	// stop only when this does, or the daemon stops.
+	WorktreePrepareTimeout time.Duration
+	// WorktreeGit is the git program the pool runs; "git" on PATH when empty (tests wrap it).
+	WorktreeGit string
+	// CallTimeout bounds one API call; server.DefaultCallTimeout when zero.
+	CallTimeout time.Duration
+	Version     string       // lucy's version
+	Log         *slog.Logger // slog.Default when nil
 	// OnReady is called once the socket accepts connections.
 	OnReady func(socketPath string)
 }
@@ -170,6 +183,33 @@ func Run(ctx context.Context, opts Options) error {
 		log.Info("runner leases resumed after a restart", "runs", n, "down", time.Since(stoppedAt).Round(time.Millisecond))
 	}
 	caps := &capability.Issuer{Store: store, Leases: broker}
+	wtRoot := opts.WorktreeRoot
+	if wtRoot == "" {
+		data, err := eventstore.DataDir()
+		if err != nil {
+			return err
+		}
+		wtRoot = filepath.Join(data, "worktrees")
+	}
+	if wtRoot, err = filepath.Abs(wtRoot); err != nil {
+		return err
+	}
+	worktrees := &worktree.Source{Pool: &worktree.Pool{Store: store, Root: wtRoot, Git: opts.WorktreeGit}, Remote: opts.WorktreeRemote,
+		Context: ctx, Timeout: opts.WorktreePrepareTimeout, Log: log}
+	worktrees.SetRunways(set.Admitted())
+	defer func() { stop(nil); worktrees.Wait() }()
+	// A preparation or release a stop cut short is settled before anything is leased: a slot left
+	// preparing is recorded as stopped, so its run fails and a retry gets a fresh one, and a
+	// finished run's slot is released (LUCY-RUN-007).
+	if err := worktrees.Recover(ctx, func(ctx context.Context, run string) (bool, error) {
+		ri, err := broker.Run(ctx, run)
+		if errors.Is(err, runner.ErrNoRun) {
+			return true, nil
+		}
+		return err == nil && ri.State.Final(), err
+	}); err != nil {
+		return fmt.Errorf("daemon: recover the worktree pool: %w", err)
+	}
 	gateways.Capabilities = caps
 	srv, err := server.New(server.Options{
 		Store:        store,
@@ -180,6 +220,8 @@ func Run(ctx context.Context, opts Options) error {
 		Runs:         broker,
 		Gateways:     gateways,
 		Capabilities: caps,
+		Worktrees:    worktrees,
+		CallTimeout:  opts.CallTimeout,
 	})
 	if err != nil {
 		return err
@@ -218,6 +260,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	stop(nil)
 	<-expiring
+	worktrees.Wait()
 	if _, err := store.Append(shutdownCtx, DaemonStream, eventstore.AnyVersion, "daemon",
 		Stopped{PID: os.Getpid(), Reason: reason}); err != nil {
 		log.Warn("could not record daemon.stopped", "err", err)

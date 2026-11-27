@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 10
+version: 11
 owner: ar4mirez
 requirements: []
 ---
@@ -147,10 +147,17 @@ slice table, requirement status and exit tests stay in the plan.
   child of the root, never the home. A harness's model login has to be set up in the org home
   (D3c). The worktree pool ([worktree](../tech/worktree.md), `internal/worktree`) has its core:
   slots of a bare clone per org and repository, leased in the store, reset on acquire and freed
-  only once the work landed, including a squash merge the forge reports. Left: runs placed in their
-  slot and the Tower releasing it at takeoff (which also points the harness's instruction reader at
-  the checkout), and `lucy worktree ls`. The path guard's delete executor (`Guard.RemoveAll`,
-  through an `os.Root`) takes every recursive delete; the inventory of deletes is in SECURITY.md.
+  only once the work landed, including a squash merge the forge reports or a pushed branch. A host
+  run of a project whose Runway names a repository has its slot reserved with its lease
+  (`runner.lease`'s `worktree` and `worktree_state`, OpenRPC revision 14) and prepared in the
+  background, outside the call's deadline; the runner starts it once a heartbeat reports the slot
+  ready, and the harness reads the checkout's instructions. A finished run's unlanded slot is
+  quarantined, not counted against the pool's size; `lucy worktree ls` shows it and the owner's
+  `lucy worktree discard` removes it, recorded first, through the path guard. A container run gets
+  no slot until it can be mounted (berth#216). Left: the Tower giving a slot back at takeoff (slice
+  7a) and private repositories (credentials through the gateway). The path guard's delete executor
+  (`Guard.RemoveAll`, through an `os.Root`) takes both recursive deletes; the inventory of deletes
+  is in SECURITY.md. Slice 6 is done but for those two.
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real

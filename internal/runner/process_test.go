@@ -97,6 +97,11 @@ func helper(goal string) int {
 			return 8
 		}
 		return 0
+	case "where":
+		wd, _ := os.Getwd()
+		fmt.Println("cwd", wd)
+		fmt.Println("tmpdir", os.Getenv("TMPDIR"))
+		return 0
 	case "fail":
 		fmt.Println("giving up")
 		return 3
@@ -825,6 +830,84 @@ func TestHarnessGetsRepositoryInstructions(t *testing.T) {
 	}
 	if !strings.Contains(framed, "run-dir-agents-9c1e") {
 		t.Errorf("the launch arguments lack the run directory's AGENTS.md: %q", argv)
+	}
+}
+
+// A run whose lease names a worktree works in it: the program's working directory and the
+// directory its harness reads repository instructions from, while its TMPDIR stays its scratch
+// directory, deleted when it ends, and the worktree is left as it was (LUCY-RUN-007).
+func TestRunsWorkInTheirWorktree(t *testing.T) {
+	pf := newProc(t)
+	wt, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, "README.md"), []byte("checkout"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	l := procLease("where")
+	l.Worktree, l.Branch = wt, "lucy/f1-2-0123abcd"
+	x, err := pf.ex.Start(context.Background(), l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines, res := drain(t, x)
+	if res.Outcome != OutcomeDone {
+		t.Fatalf("%+v %v", res, lines)
+	}
+	got := strings.Join(lines, "\n")
+	if !strings.Contains(got, "cwd "+wt) {
+		t.Fatalf("the run did not work in its worktree:\n%s", got)
+	}
+	root, err := filepath.EvalSymlinks(pf.root) // on macOS /var is a symlink to /private/var
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "tmpdir "+wt) || !strings.Contains(got, "tmpdir "+root) {
+		t.Fatalf("TMPDIR is not the run's scratch directory:\n%s", got)
+	}
+	if b, err := os.ReadFile(filepath.Join(wt, "README.md")); err != nil || string(b) != "checkout" {
+		t.Fatalf("the worktree was touched: %q, %v", b, err)
+	}
+	if left := scratchLeft(t, pf.root); len(left) != 0 {
+		t.Fatalf("scratch left: %v", left)
+	}
+
+	// The harness reads the checkout's instructions.
+	var argv []string
+	pf.ex.Harness = recordArgs{got: &argv}
+	if err := os.WriteFile(filepath.Join(wt, "CLAUDE.md"), []byte("checkout-instructions-5d2a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hl := procLease("harness - " + transcript(t, "done"))
+	hl.Worktree = wt
+	hx, err := pf.ex.Start(context.Background(), hl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lines, res := drain(t, hx); res.Outcome != OutcomeDone {
+		t.Fatalf("result %+v, events %q", res, lines)
+	}
+	if i := slices.Index(argv, "--append-system-prompt"); i < 0 || i+1 >= len(argv) || !strings.Contains(argv[i+1], "checkout-instructions-5d2a") {
+		t.Fatalf("the harness did not get the checkout's instructions: %q", argv)
+	}
+	pf.ex.Harness = nil
+
+	// A worktree that could not be leased fails the run before anything starts; a bad path too.
+	for name, bad := range map[string]Lease{
+		"no slot":   func() Lease { b := procLease("where"); b.WorktreeError = "every slot is in use"; return b }(),
+		"relative":  func() Lease { b := procLease("where"); b.Worktree = "slot-1"; return b }(),
+		"missing":   func() Lease { b := procLease("where"); b.Worktree = filepath.Join(wt, "gone"); return b }(),
+		"not a dir": func() Lease { b := procLease("where"); b.Worktree = filepath.Join(wt, "README.md"); return b }(),
+	} {
+		if x, err := pf.ex.Start(context.Background(), bad); err == nil {
+			x.Stop()
+			drain(t, x)
+			t.Errorf("%s: started", name)
+		}
+	}
+	if left := scratchLeft(t, pf.root); len(left) != 0 {
+		t.Fatalf("a refused start left scratch: %v", left)
 	}
 }
 

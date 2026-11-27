@@ -35,6 +35,7 @@ Usage:
   lucy gateway --org <org> [--listen <path>]
   lucy vault set|ls|rm --org <org> [<name>]
   lucy capability ls | revoke <id>
+  lucy worktree ls | discard <org>/<repo>/<slot> --confirm <org>/<repo>/<slot>
   lucy runner [--socket <path>] [--id <name>] [--root <dir>] -- <command> [<args>...]
 
 Flags:
@@ -54,6 +55,7 @@ Commands:
   gateway        run an org's credential gateway
   vault          set, list and remove an org's credentials
   capability     list and revoke the runs' gateway capability tokens
+  worktree       list the worktree pool's slots; discard a quarantined or broken one
 
 Run ` + "`lucy <command> --help`" + ` for a command's flags.
 
@@ -104,6 +106,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runVault(args[1:], stdout, stderr)
 	case "capability":
 		return runCapability(args[1:], stdout, stderr)
+	case "worktree":
+		return runWorktree(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "error: unknown command or flag %q\nhelp: run `lucy --help`\n", args[0])
 		return 2

@@ -28,6 +28,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/gateway"
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/runner"
+	"github.com/ar4mirez/lucy/internal/worktree"
 )
 
 // Timeouts. They bound how long one slow or stuck client can hold a connection or a handler.
@@ -94,6 +95,26 @@ type Options struct {
 	// Capabilities issues each leased run its capability token and serves capabilities.list and
 	// capability.revoke. Nil means no tokens are issued, so the gateway refuses every request.
 	Capabilities *capability.Issuer
+	// Worktrees reserves each host-placed run a slot of its project's repository when the run is
+	// leased, reports how its preparation stands on each heartbeat, gives it back when the run
+	// finishes, and serves worktree.list and worktree.discard (LUCY-RUN-007). Nil means runs get no
+	// checkout and the pool has no slots.
+	Worktrees Worktrees
+}
+
+// Worktrees places runs in the worktree pool: a *worktree.Source.
+type Worktrees interface {
+	// Acquire reserves run its slot, prepared in the background; ok is false when the project
+	// names no repository.
+	Acquire(ctx context.Context, org, project, run, base string) (l worktree.Lease, ok bool, err error)
+	// State is how the run's slot stands: worktree.Prep*, with why when failed; empty when none.
+	State(ctx context.Context, org, project, run string) (state, reason string, err error)
+	// Release gives the run's slot back, in the background, if its work landed, else quarantines it.
+	Release(ctx context.Context, org, project, run string) error
+	// List returns every slot, of org only when it is not empty.
+	List(ctx context.Context, org string) ([]worktree.SlotInfo, error)
+	// Discard discards a quarantined or broken slot, for by.
+	Discard(ctx context.Context, org, repo string, slot int, by string) (worktree.SlotInfo, error)
 }
 
 // Server is the API's HTTP handler.

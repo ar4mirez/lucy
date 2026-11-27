@@ -207,6 +207,13 @@ func (c *Client) RunnerHeartbeat(ctx context.Context, p api.HeartbeatParams) (ap
 	return r, err
 }
 
+// RunnerSlot calls runner.slot.
+func (c *Client) RunnerSlot(ctx context.Context, p api.SlotParams) (api.SlotResult, error) {
+	var r api.SlotResult
+	err := c.Call(ctx, api.MethodSlot, p, &r)
+	return r, err
+}
+
 // Questions calls questions.list.
 func (c *Client) Questions(ctx context.Context) (api.QuestionsList, error) {
 	var r api.QuestionsList
@@ -286,6 +293,20 @@ func (c *Client) CapabilityRevoke(ctx context.Context, p api.RevokeParams) (api.
 func (c *Client) VaultRecord(ctx context.Context, p api.VaultRecordParams) (api.VaultRecorded, error) {
 	var r api.VaultRecorded
 	err := c.Call(ctx, api.MethodVaultRec, p, &r)
+	return r, err
+}
+
+// Worktrees calls worktree.list.
+func (c *Client) Worktrees(ctx context.Context, org string) (api.WorktreeList, error) {
+	var r api.WorktreeList
+	err := c.Call(ctx, api.MethodWtList, api.WorktreeListParams{Org: org}, &r)
+	return r, err
+}
+
+// WorktreeDiscard calls worktree.discard.
+func (c *Client) WorktreeDiscard(ctx context.Context, p api.WorktreeDiscardParams) (api.WorktreeSlot, error) {
+	var r api.WorktreeSlot
+	err := c.Call(ctx, api.MethodWtDiscard, p, &r)
 	return r, err
 }
 

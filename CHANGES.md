@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 26
+version: 27
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -16,21 +16,39 @@ Changes since the last release. When a version is cut, its section moves to
 
 ### Added
 
+- Runs work in their own checkout: a run placed on the host, of a project whose Runway names a
+  `repository`, gets a slot of the daemon's worktree pool, reset to the Runway's `defaultBranch` on
+  a branch of its own, and the runner runs the work there (its working directory, where its file
+  tools are allowed and where its harness reads the repository's instructions), keeping the run's
+  scratch directory as its TMPDIR. `runner.lease` reserves the slot at once, without running git,
+  and returns its `worktree`, `branch` and `worktree_state: preparing`; the daemon prepares it in
+  the background (bounded by 30 minutes, apart from the call's deadline, so a slow first clone no
+  longer fails the run), `runner.heartbeat` reports `worktree_state` (`ready` or `failed`, with
+  `worktree_error`), as does `runner.slot`, a read-only query the runner polls (from 250 ms up to
+  5 s) so the work starts within about a second of the slot being ready (OpenRPC revisions 14 and
+  15). A stopped or timed-out preparation never breaks a slot. A run placed in its org's container
+  gets no slot yet and works in its scratch directory. Only public repositories can be fetched for now.
+- A finished run's slot is given back when its work has landed, now including a branch pushed to
+  the remote; otherwise it is quarantined, its work kept, and no longer counts against the pool's
+  size, so the next run gets a new slot. `lucy worktree ls [--org <org>]` (`worktree.list`) shows
+  every slot and why a quarantined one is held; `lucy worktree discard <org>/<repo>/<slot> --confirm
+  <org>/<repo>/<slot>` (`worktree.discard`, the owner only) removes a quarantined or broken slot,
+  recorded first, through the path guard, keeping its branch in the clone until git gc.
+
 - The path guard's delete executor: every recursive delete lucy makes now deletes only a path
   strictly inside a declared root, never `/`, your home or a root itself, through an `os.Root` on
-  that root, so a symlink, the one asked for or one inside, is removed and never followed. A
-  run's scratch directory, the one recursive delete, goes through it. SECURITY.md lists every
-  delete lucy makes.
+  that root, so a symlink, the one asked for or one inside, is removed and never followed. Both
+  recursive deletes, a run's scratch directory and a discarded worktree slot, go through it.
+  SECURITY.md lists every delete lucy makes.
 
 - The worktree pool's core (`internal/worktree`): per org and repository, `git worktree` slots of a
   bare clone of the remote, each leased by one run, recorded in the event store before git touches
-  it (`worktree.added`, `worktree.leased`, `worktree.released`, `worktree.release_refused`,
-  `worktree.broken`), reset to the freshly fetched base branch on acquire, and given back only
-  when the work in it has landed: no commit beyond its base, a head on the base branch, or the
-  forge's merge of exactly its head. A slot holding uncommitted changes or unmerged commits stays
-  leased, and the refusal is recorded. git runs with no user or
-  system configuration and only the https, ssh and file transports. Runs are not placed in their
-  slot yet.
+  it (`worktree.added`, `worktree.leased`, `worktree.prepared`, `worktree.prepare_failed`,
+  `worktree.released`, `worktree.quarantined`, `worktree.broken`, `worktree.discarded`), reset to
+  the freshly fetched base branch, and given back only when the work in it has landed: no commit
+  beyond its base, a head on the base branch, the forge's merge of exactly its head, or every
+  commit on a ref of the remote. git runs with no user or system configuration and only the https,
+  ssh and file transports.
 
 ### Changed
 

@@ -75,10 +75,16 @@ const (
 // prDirective is the line a program writes to report its pull request.
 const prDirective = harness.PRDirective
 
-// Start implements Executor.
+// Start implements Executor. A run whose lease names a worktree works in it: the program's working
+// directory, the directory its prompted file tools are allowed in and the one its harness reads
+// repository instructions from (LUCY-RUN-007); its TMPDIR stays its scratch directory. A run whose
+// worktree could not be leased fails without starting.
 func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 	if len(p.Command) == 0 || p.Command[0] == "" {
 		return nil, errors.New("runner: the process executor has no command")
+	}
+	if l.WorktreeError != "" {
+		return nil, fmt.Errorf("runner: the run's worktree could not be leased: %s", l.WorktreeError)
 	}
 	if !filepath.IsAbs(p.Root) || filepath.Clean(p.Root) != p.Root {
 		return nil, fmt.Errorf("runner: the process executor's root %q is not absolute and clean", p.Root)
@@ -121,8 +127,15 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 		log = slog.Default()
 	}
 	pe := &processExecution{guard: guard, dir: dir, log: log}
+	work := dir
+	if l.Worktree != "" {
+		if work, err = checkWorktree(l.Worktree); err != nil {
+			pe.cleanup()
+			return nil, err
+		}
+	}
 	if p.prepare != nil {
-		if err := p.prepare(dir); err != nil {
+		if err := p.prepare(work); err != nil {
 			pe.cleanup()
 			return nil, err
 		}
@@ -154,24 +167,24 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 		if p.Harness != nil {
 			protected = p.Harness.Protected()
 		}
-		session.Permit = permitFor(dir, protected, l, p.Permitter, log)
+		session.Permit = permitFor(work, protected, l, p.Permitter, log)
 	}
 	if p.Harness != nil {
 		env = append(env, p.Harness.Env()...)
-		if err := checkHarness(p.Harness, p.Command, dir, env); err != nil {
+		if err := checkHarness(p.Harness, p.Command, work, env); err != nil {
 			pe.cleanup()
 			return nil, err
 		}
-		// TODO(LUCY-RUN-007): the run's directory is an empty scratch dir until runs are placed in
-		// their worktree slot; the reader then reads that checkout.
-		if session.Instructions, err = harness.Instructions(dir); err != nil {
+		// The repository's instructions come from the run's checkout; a run with none (its project
+		// names no repository) has an empty scratch directory, and nothing is injected.
+		if session.Instructions, err = harness.Instructions(work); err != nil {
 			pe.cleanup()
 			return nil, err
 		}
 		args = append(args, p.Harness.Args(session)...)
 	}
 	cmd := exec.Command(p.Command[0], args...) // #nosec G204 -- the runner's own configured program, never text from a task
-	cmd.Dir = dir
+	cmd.Dir = work
 	cmd.Env = env
 	cmd.Stdout = pe
 	cmd.Stderr = pe
@@ -591,4 +604,21 @@ func insideDir(dir, path string) (string, bool) {
 		return "", false
 	}
 	return path, true
+}
+
+// checkWorktree checks the run's worktree, as the daemon named it: an absolute, clean path to a
+// directory that is not a symlink, and returns it with its symlinks resolved, so the path its file
+// tools are checked against is the one its program runs in.
+func checkWorktree(path string) (string, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return "", fmt.Errorf("runner: the run's worktree %q is not an absolute, clean path", path)
+	}
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return "", fmt.Errorf("runner: the run's worktree: %w", err)
+	}
+	if !fi.IsDir() {
+		return "", fmt.Errorf("runner: the run's worktree %s is not a directory (a symlink is refused)", path)
+	}
+	return filepath.EvalSymlinks(path)
 }
