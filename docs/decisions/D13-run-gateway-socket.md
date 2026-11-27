@@ -36,7 +36,7 @@ Options considered:
 ## Decision
 
 A run reaches its org's gateway only through a per-run socket its runner fronts (option 3).
-The token never enters the Pilot's process, environment or files. Renewal stays inside the runner:
+The runner never puts the token in the Pilot's process, environment or files. Renewal stays inside the runner:
 each heartbeat's new token replaces the old one in the forwarder. The socket closes when the run
 ends.
 
@@ -56,13 +56,19 @@ runs are therefore the only runs on the host at any time.
 
 ## Consequences
 
-- The token cannot be read, copied or printed by the run, and a call that reaches the org's
+- The runner gives the run no token to read, copy or print, and a call that reaches the org's
   gateway any other way carries no token and is refused.
+- **Open gap, [#36](https://github.com/ar4mirez/lucy/issues/36):** a Pilot on the host runs as the daemon's uid, and the daemon grants
+  every scope to that uid, so a Pilot can still call the daemon API with full authority for its
+  own org, including `runner.lease`, which hands out a run's token. That holds until runs get an
+  OS boundary of their own (#36, LUCY-RUN-006, berth#216). Isolation between orgs is unaffected:
+  the host serves one org, and container placement is refused until proven. No Pilot runs real
+  work on the host before #36 lands ([m1](../milestones/m1.md) step 13).
 - **Residual risk:** any process of the run can act with the run's token for as long as the run
   lives, through its socket, within the run's org, the org's routes and the lease. That is the
   authority the token grants anyway; the socket only keeps the token itself out of reach. A
   compromised Pilot can make requests the policy engine allows for its org, and every one is
-  decided and recorded, but it cannot carry the token out of the run.
+  decided and recorded; the socket gives it no token to carry out of the run (but see #36).
 - A Unix socket path is at most 107 bytes on Linux and 103 on macOS, so the runner refuses to start
   under a root too long for a run's socket.
 - Still to build: pointing the worker's tools (git, the forge CLI, the harness) at the socket

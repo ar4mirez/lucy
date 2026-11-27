@@ -93,8 +93,12 @@ compares it in constant time; a token is refused once revoked, past its expiry, 
 route, or once its run's lease has ended or been replaced. The daemon checks it before the gateway
 reads any credential or resolves any upstream, and again when deciding. The gateway never
 forwards it. A Pilot reaches the gateway through a socket the runner opens in its scratch
-directory, which adds the token on the Pilot's behalf, so no token is ever in a Pilot's process,
-environment or files ([D13](docs/decisions/D13-run-gateway-socket.md)). Any process of the run can
+directory, which adds the token on the Pilot's behalf, so the runner never puts a token in a
+Pilot's process, environment or files ([D13](docs/decisions/D13-run-gateway-socket.md)). That is
+not a boundary against the Pilot itself: a Pilot on the host runs as the daemon's uid, which the
+daemon grants every scope, so it can reach the daemon API with full authority for its own org,
+`runner.lease` and the token it returns included, until runs get an OS boundary of their own
+([#36](https://github.com/ar4mirez/lucy/issues/36), LUCY-RUN-006, berth#216). No Pilot runs real work on the host before then. Any process of the run can
 still act with its token, through that socket, for the run's life and within its org, routes and
 lease. Isolation between orgs holds across containers or uids, not within one: the socket's modes
 keep out other users, but every process of the same uid can reach every other's socket. So the

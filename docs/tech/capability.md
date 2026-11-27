@@ -47,15 +47,18 @@ is `internal/capability`; the gateway checks tokens through the daemon
   in `LUCY_RUN_GATEWAY`: the runner forwards each request on it to the org's gateway socket
   (`lucy runner --gateway-dir`, the runtime directory's `gateway/` by default), drops any
   capability or forwarding header the run sent, and adds the run's current token, renewed after
-  each heartbeat. So the token never enters the Pilot's process: its environment and the files in
-  its directory hold none, which runner tests check, and a call that reaches the org's gateway any
+  each heartbeat. So the runner never puts the token in the Pilot's process: its environment and
+  the files in its directory hold none, which runner tests check, and a call that reaches the org's gateway any
   other way carries no token and is refused. The socket closes when the run ends. Why a socket and
 not a credential helper, a token file or an environment variable, and the risk left, is
 [D13](../decisions/D13-run-gateway-socket.md). Isolation between orgs holds across containers or
 uids: a process of the same uid can open any run socket of that uid, so the daemon serves one host
 org and refuses host leases for any other (`host_org`). Container placement is refused
 (`placement_proof`) until the Sandbox provider can issue a placement proof (berth#216), and every
-runner names its org, so no runner root spans orgs.
+runner names its org, so no runner root spans orgs. Open gap ([#36](https://github.com/ar4mirez/lucy/issues/36)): a Pilot on the host
+shares the daemon's uid, so it can still reach the daemon API with full authority for its own org,
+`runner.lease` and its token included, until runs get an OS boundary of their own (#36,
+LUCY-RUN-006, berth#216).
 
 ## Not built yet
 

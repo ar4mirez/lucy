@@ -18,8 +18,8 @@ import (
 
 // The run's gateway socket (LUCY-CRED-003, LUCY-CRED-005): a Pilot reaches its org's credential
 // gateway through a Unix socket the runner opens in the run's scratch directory, and the runner
-// adds the run's capability token to every request it forwards. So the token never enters the
-// Pilot's process, environment or files: the Pilot is told only the socket's path, in
+// adds the run's capability token to every request it forwards. So the runner never puts the token
+// in the Pilot's process, environment or files: the Pilot is told only the socket's path, in
 // LUCY_RUN_GATEWAY, and whatever capability header it sends is dropped.
 
 // RunGatewaySocket is the socket's name in the run's scratch directory.

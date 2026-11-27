@@ -19,7 +19,8 @@ Changes since the last release. When a version is cut, its section moves to
 - Each run reaches its org's credential gateway through its own gateway socket, opened by the
   runner in the run's directory and named in `LUCY_RUN_GATEWAY`: the runner forwards each request
   with the run's capability token added, renewed after each heartbeat, and drops any token the run
-  sent, so the token never enters the Pilot's process, environment or files. `lucy runner
+  sent, so the runner never puts the token in the Pilot's process, environment or files. A Pilot
+  on the host still shares the daemon's uid and so its API authority for its own org (#36). `lucy runner
   --gateway-dir` names where the orgs' gateway sockets are (`gateway/` in lucy's runtime directory
   by default). The design and its residual risk are recorded as decision D13. The runner refuses to
   start under a `--root` too long for a run's socket, symlinks resolved, naming the longest it

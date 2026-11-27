@@ -54,7 +54,7 @@ Each leased run carries a capability token for its org's credential gateway. The
 in memory and opens the run its own gateway socket, .lucy-gateway.sock in the run's directory and
 named in LUCY_RUN_GATEWAY, which forwards to the org's gateway socket in --gateway-dir (gateway/
 in lucy's runtime directory by default, where lucy gateway listens) with the token added and any
-the run sent dropped. The token itself is never in the run's environment or files. A Unix socket
+the run sent dropped. The runner never puts the token itself in the run's environment or files. A Unix socket
 path is at most 107 bytes on Linux and 103 on macOS, so the runner refuses to start under a
 --root too long for a run's socket, once symlinks in it are resolved, and names the longest it
 can take.
