@@ -25,7 +25,7 @@ One Go binary ([D1](docs/decisions/D1-language-go.md)); every box is a mode of i
 | `lucy runner` | Owns agent processes on one machine or inside one org container; speaks the runner protocol |
 | `lucy gateway` | Per-org egress credential gateway, a separate process outside the agents' container |
 | `lucy mcp` | MCP server for Claude chat; `--remote` forwards to a daemon over the tailnet |
-| `lucy hook <event>` | Harness hook entrypoint; posts typed events |
+| `lucy hook <event>` | Hook entrypoint for harnesses with only command hooks; not built yet (Claude Code hooks arrive as stream-json host callbacks: [harness](docs/tech/harness.md)) |
 | CLI, TUI, `lucy attach` | Thin clients of the API |
 
 ```
