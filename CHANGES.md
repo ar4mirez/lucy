@@ -18,7 +18,8 @@ Changes since the last release. When a version is cut, its section moves to
 
 - `lucy questions` lists the Pilots' open questions as the Tower records them, and
   `lucy answer <flight> <answer>` answers one through the Tower, which relays it to the Pilot and
-  records only its digest. The API gains `questions.list` (read) and `questions.answer` (decide)
+  records only its digest. Each row prints on one line with control, format and bidi characters
+  escaped, so a question cannot rewrite the terminal. The API gains `questions.list` (read) and `questions.answer` (decide)
   (OpenRPC revision 7). The daemon does not host the Tower yet (m1 slice 7a), so in production
   the list is empty and an answer is reported unavailable.
 - Harness hooks are typed events: a Claude Code session registers lucy, its host, for a callback

@@ -51,16 +51,20 @@ func runQuestions(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return callFailed(err, c, stderr)
 	}
-	if len(list.Questions) == 0 {
-		fmt.Fprint(stdout, "questions[0]: no Pilot is asking\n")
-		return 0
-	}
-	fmt.Fprintf(stdout, "questions[%d]{flight,org,project,since,question}:\n", len(list.Questions))
-	for _, q := range list.Questions {
-		fmt.Fprintf(stdout, "  %s,%s,%s,%s,%s\n", csv(q.Flight), csv(q.Org), csv(q.Project), q.Since.Format(time.RFC3339), csv(q.Question))
-	}
-	fmt.Fprint(stdout, "help: run `lucy answer <flight> <answer>` to answer one\n")
+	writeQuestions(stdout, list)
 	return 0
+}
+
+func writeQuestions(w io.Writer, list api.QuestionsList) {
+	if len(list.Questions) == 0 {
+		fmt.Fprint(w, "questions[0]: no Pilot is asking\n")
+		return
+	}
+	fmt.Fprintf(w, "questions[%d]{flight,org,project,since,question}:\n", len(list.Questions))
+	for _, q := range list.Questions {
+		fmt.Fprintf(w, "  %s,%s,%s,%s,%s\n", untrusted(q.Flight), untrusted(q.Org), untrusted(q.Project), q.Since.Format(time.RFC3339), untrusted(q.Question))
+	}
+	fmt.Fprint(w, "help: run `lucy answer <flight> <answer>` to answer one\n")
 }
 
 func runAnswer(args []string, stdout, stderr io.Writer) int {
