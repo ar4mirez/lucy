@@ -2,7 +2,7 @@
 id: readme
 title: lucy
 status: active
-version: 8
+version: 9
 owner: ar4mirez
 requirements: [LUCY-REPO-001, LUCY-REPO-006]
 ---
@@ -17,15 +17,16 @@ deterministic policy decides what actually happens.
 
 ## Status
 
-**m0 (foundation) done; m1 (ar4mirez end to end) in progress, released as 0.4.0.** This repository
+**m0 (foundation) done; m1 (ar4mirez end to end) in progress, released as 0.5.0.** This repository
 holds the skeleton, the signed release pipeline, the event store, the first part of the typed API
 with `lucy daemon`, the policy engine, the ai-sdlc spec model and the design docs; the binary prints
 its version and help, updates itself, validates config (`lucy config validate`), and runs a daemon
 that `lucy status`, `lucy events`, `lucy config status` and `lucy audit verify` talk to over a local
 socket. `lucy runner` takes runs from the daemon under a lease and runs them on this machine, and
 `lucy runner --harness claude-code` drives a pinned Claude Code version over its stream-json
-protocol. See the [milestones](docs/milestones/README.md) for what lands
-next and [PRODUCT.md](PRODUCT.md) for the plan.
+protocol, with a Pilot's file, shell and fetch prompts decided by the policy engine; `lucy questions`
+and `lucy answer` show and answer the Pilots' questions through the Tower. See the
+[milestones](docs/milestones/README.md) for what lands next and [PRODUCT.md](PRODUCT.md) for the plan.
 
 ## Install
 
