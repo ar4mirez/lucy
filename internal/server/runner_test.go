@@ -42,7 +42,7 @@ func TestRunnerOverTheSocket(t *testing.T) {
 	if err := f.srv.opts.Runs.Submit(ctx, runner.Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}); err != nil {
 		t.Fatal(err)
 	}
-	r, err := runner.New(runner.Config{ID: "local", Protocol: runner.Remote{Client: f.client}, Executor: oneShotExecutor{},
+	r, err := runner.New(runner.Config{ID: "local", Org: "acme", Protocol: runner.Remote{Client: f.client}, Executor: oneShotExecutor{},
 		Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +91,7 @@ func TestRunnerOverTheSocket(t *testing.T) {
 	if err := (runner.Remote{Client: f.client}).Finish(ctx, "local", "f1#1", got.Fence, runner.Result{Outcome: runner.OutcomeDone, PR: 5}); !errors.Is(err, runner.ErrFenced) {
 		t.Fatalf("remote finish: %v", err)
 	}
-	if ok, err := f.client.RunnerLease(ctx, api.LeaseParams{Runner: "local"}); err != nil || ok.Leased {
+	if ok, err := f.client.RunnerLease(ctx, api.LeaseParams{Runner: "local", Org: "acme"}); err != nil || ok.Leased {
 		t.Fatalf("lease from an empty queue: %+v, %v", ok, err)
 	}
 }
@@ -106,6 +106,14 @@ func TestRunnerMethodRefusals(t *testing.T) {
 	wantCode(t, err, api.CodeInvalidParams)
 	_, err = f.client.RunnerLease(ctx, api.LeaseParams{Runner: "local", Placement: "moon"})
 	wantCode(t, err, api.CodeInvalidParams)
+	// A runner on the host leases for one org, which it names.
+	_, err = f.client.RunnerLease(ctx, api.LeaseParams{Runner: "local"})
+	if ae := wantCode(t, err, api.CodeRunnerOrg); ae.Data.Field != "org" {
+		t.Fatalf("a host lease without an org: %+v", ae)
+	}
+	if _, _, err := (runner.Remote{Client: f.client}).Lease(ctx, "local", runner.PlacementHost, "", 0); !errors.Is(err, runner.ErrRunnerOrg) {
+		t.Fatalf("a remote host lease without an org: %v, want ErrRunnerOrg", err)
+	}
 	many := make([]api.RunEvent, 33)
 	for i := range many {
 		many[i] = api.RunEvent{Seq: int64(i + 1), Kind: "output"}
@@ -144,7 +152,7 @@ func TestRunnerPermitOverTheSocket(t *testing.T) {
 	if err := f.srv.opts.Runs.Submit(ctx, runner.Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}); err != nil {
 		t.Fatal(err)
 	}
-	l, err := f.client.RunnerLease(ctx, api.LeaseParams{Runner: "local"})
+	l, err := f.client.RunnerLease(ctx, api.LeaseParams{Runner: "local", Org: "acme"})
 	if err != nil || !l.Leased {
 		t.Fatalf("lease %+v, %v", l, err)
 	}
@@ -168,7 +176,7 @@ func TestRunnerPermitRedactsExecAndFetch(t *testing.T) {
 	if err := f.srv.opts.Runs.Submit(ctx, runner.Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}); err != nil {
 		t.Fatal(err)
 	}
-	l, err := f.client.RunnerLease(ctx, api.LeaseParams{Runner: "local"})
+	l, err := f.client.RunnerLease(ctx, api.LeaseParams{Runner: "local", Org: "acme"})
 	if err != nil || !l.Leased {
 		t.Fatalf("lease %+v, %v", l, err)
 	}
@@ -218,7 +226,7 @@ func TestContainerRunnerWaitsOutAHeldContainer(t *testing.T) {
 		t.Fatalf("hold: %v, %v", held, err)
 	}
 	remote := runner.Remote{Client: f.client}
-	if _, _, err := remote.Lease(ctx, "box", runner.PlacementContainer, time.Minute); !errors.Is(err, runner.ErrSandboxBusy) {
+	if _, _, err := remote.Lease(ctx, "box", runner.PlacementContainer, "", time.Minute); !errors.Is(err, runner.ErrSandboxBusy) {
 		t.Fatalf("a container lease while acme is held: %v, want ErrSandboxBusy", err)
 	}
 	r, err := runner.New(runner.Config{ID: "box", Placement: runner.PlacementContainer, Protocol: remote, Executor: oneShotExecutor{},

@@ -47,7 +47,7 @@ func TestSandboxHeldAndConfirmed(t *testing.T) {
 	if err := broker.Submit(ctx, runner.Task{Run: runner.RunID("f1", 1), Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "fix"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, err := broker.Lease(ctx, "r1", runner.PlacementContainer, time.Minute); err != nil || !ok {
+	if _, ok, err := broker.Lease(ctx, "r1", runner.PlacementContainer, "", time.Minute); err != nil || !ok {
 		t.Fatalf("lease: %v %v", ok, err)
 	}
 	first, err := sb.Request(ctx, "acme", sandbox.OpRestart, sandbox.Daemon("test"))

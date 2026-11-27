@@ -175,49 +175,76 @@ func (b *Broker) OrgActivity(ctx context.Context, org string) (busy bool, last t
 	return n > 0, last, nil
 }
 
-// Queued returns how many runs wait for a runner placed at placement (PlacementHost when empty).
-// It is a read: a runner polls it, and leases only when there is something to lease, so an idle
-// runner adds nothing to the log. A runner placed in a container is not counted the runs of an org
-// whose container is held, as Lease would not give it them.
-func (b *Broker) Queued(ctx context.Context, placement Placement) (int, error) {
+// Queued returns how many runs wait for a runner placed at placement (PlacementHost when empty),
+// of org only when org is not empty. It is a read: a runner polls it, and leases only when there
+// is something to lease, so an idle runner adds nothing to the log. A runner placed in a container
+// is not counted the runs of an org whose container is held, as Lease would not give it them.
+func (b *Broker) Queued(ctx context.Context, placement Placement, org string) (int, error) {
 	if placement == "" {
 		placement = PlacementHost
 	}
 	if !placement.Valid() {
 		return 0, fmt.Errorf("%w: placement %q", ErrInvalid, placement)
 	}
+	if org != "" {
+		if err := checkOrg(org); err != nil {
+			return 0, err
+		}
+	}
 	var n int
 	err := b.store.QueryRowContext(ctx, `SELECT count(*) FROM runner_runs WHERE state = ? AND `+leasable,
-		string(StateQueued), string(placement), string(PlacementContainer), b.now().UnixNano()).Scan(&n)
+		string(StateQueued), org, org, string(placement), string(PlacementContainer), b.now().UnixNano()).Scan(&n)
 	return n, err
 }
 
-// leasable is the condition on a queued run that a runner may be leased it: its placement, then
-// PlacementContainer, then the time in Unix nanoseconds are its arguments.
-const leasable = `(? != ? OR org NOT IN (SELECT org FROM runner_holds WHERE expires_ns > ?))`
+// leasable is the condition on a queued run that a runner may be leased it: the runner's org
+// (empty for any) twice, its placement, then PlacementContainer, then the time in Unix nanoseconds
+// are its arguments.
+const leasable = `(? = '' OR org = ?) AND (? != ? OR org NOT IN (SELECT org FROM runner_holds WHERE expires_ns > ?))`
 
-// Lease gives runner the oldest queued run, under a new fence that expires after ttl (clamped to
-// MinTTL..MaxTTL; DefaultTTL when zero). ok is false when nothing is queued. A runner placed in a
-// container is given the oldest queued run whose org's container is not held, and is refused
+// Lease gives runner the oldest queued run, of org only when org is not empty, under a new fence
+// that expires after ttl (clamped to MinTTL..MaxTTL; DefaultTTL when zero). ok is false when
+// nothing is queued. A runner placed on the host leases for exactly one org: it is refused
+// (ErrRunnerOrg) when it names none, or names another than that of a run it holds. A runner placed
+// in a container is given the oldest queued run whose org's container is not held, and is refused
 // (ErrSandboxBusy) when every queued run's is.
-func (b *Broker) Lease(ctx context.Context, runner string, placement Placement, ttl time.Duration) (l Lease, ok bool, err error) {
+func (b *Broker) Lease(ctx context.Context, runner string, placement Placement, org string, ttl time.Duration) (l Lease, ok bool, err error) {
 	if err := CheckRunnerID(runner); err != nil {
 		return Lease{}, false, err
 	}
 	if !placement.Valid() {
 		return Lease{}, false, fmt.Errorf("%w: placement %q", ErrInvalid, placement)
 	}
+	switch {
+	case placement == PlacementHost && org == "":
+		return Lease{}, false, fmt.Errorf("%w: runner %q names no org", ErrRunnerOrg, runner)
+	case org != "":
+		if err := checkOrg(org); err != nil {
+			return Lease{}, false, err
+		}
+	}
 	ttl = clampTTL(ttl)
 	err = b.store.Update(ctx, func(tx *eventstore.Tx) error {
 		now := b.now()
+		if placement == PlacementHost {
+			var others int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runner_runs WHERE state = ? AND runner = ? AND org != ?`,
+				string(StateLeased), runner, org).Scan(&others); err != nil {
+				return err
+			}
+			if others > 0 {
+				return fmt.Errorf("%w: runner %q holds a run of another org than %q", ErrRunnerOrg, runner, org)
+			}
+		}
 		ri, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runner_runs WHERE state = ?
-			AND `+leasable+` ORDER BY queued_seq LIMIT 1`, string(StateQueued), string(placement), string(PlacementContainer), now.UnixNano()))
+			AND `+leasable+` ORDER BY queued_seq LIMIT 1`, string(StateQueued), org, org, string(placement), string(PlacementContainer), now.UnixNano()))
 		if errors.Is(err, ErrNoRun) {
 			if placement != PlacementContainer {
 				return nil
 			}
 			var queued int
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runner_runs WHERE state = ?`, string(StateQueued)).Scan(&queued); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runner_runs WHERE state = ? AND (? = '' OR org = ?)`,
+				string(StateQueued), org, org).Scan(&queued); err != nil {
 				return err
 			}
 			if queued > 0 {

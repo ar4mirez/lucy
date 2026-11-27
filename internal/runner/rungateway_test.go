@@ -222,3 +222,89 @@ func shortDir(t *testing.T) string {
 }
 
 func nopLog() *slog.Logger { return slog.New(slog.DiscardHandler) }
+
+// A runner root too long for a run's gateway socket is refused up front, and a run's socket path
+// past the limit is refused before listening, naming the limit.
+func TestRunGatewaySocketPathLength(t *testing.T) {
+	short := "/tmp/lucy/runner/acme"
+	if err := CheckRunGatewayRoot(short); err != nil {
+		t.Fatalf("a short root: %v", err)
+	}
+	long := "/" + strings.Repeat("r", maxSocketPath()-runSocketSuffix)
+	if err := CheckRunGatewayRoot(long); err == nil || !strings.Contains(err.Error(), "--root") {
+		t.Fatalf("a root past the limit: %v", err)
+	}
+	if err := CheckRunGatewayRoot(long[:len(long)-1]); err != nil {
+		t.Fatalf("a root at the limit: %v", err)
+	}
+	dir := shortDir(t)
+	deep := filepath.Join(dir, strings.Repeat("d", maxSocketPath()-len(dir)))
+	if err := os.Mkdir(deep, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := startRunGateway(deep, filepath.Join(dir, "acme.sock"), "lcap_x", nopLog())
+	if err == nil || !strings.Contains(err.Error(), "--root") {
+		t.Fatalf("a run socket past the limit: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(deep, RunGatewaySocket)); !os.IsNotExist(err) {
+		t.Fatalf("a socket was made past the limit: %v", err)
+	}
+}
+
+// withToken is the broker as a daemon that issues capabilities serves it: each lease carries one.
+type withToken struct{ *Broker }
+
+func (p withToken) Lease(ctx context.Context, r string, pl Placement, org string, ttl time.Duration) (Lease, bool, error) {
+	l, ok, err := p.Broker.Lease(ctx, r, pl, org, ttl)
+	if ok {
+		l.Capability = "lcap_" + l.Org
+	}
+	return l, ok, err
+}
+
+// acme's runner on the host is never leased beta's run, so its root holds acme's run sockets only:
+// no beta socket exists under it for an acme run to open.
+func TestAHostRunnersRootHoldsOnlyItsOrgsSockets(t *testing.T) {
+	ctx := context.Background()
+	f := open(t)
+	if err := f.b.Submit(ctx, Task{Run: "b#1", Org: "beta", Project: "web", Flight: "b", Generation: 1, Goal: "gateway"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.b.Submit(ctx, Task{Run: "a#1", Org: "acme", Project: "web", Flight: "a", Generation: 1, Goal: "gateway"}); err != nil {
+		t.Fatal(err)
+	}
+	gwDir := shortDir(t)
+	g := startFakeOrgGateway(t, gwDir, "lcap_acme")
+	pf := newProc(t)
+	pf.ex.Root = filepath.Join(shortDir(t), "acme")
+	pf.ex.GatewayDir = gwDir
+	r := newRunner(t, f, "r1", pf.ex, withToken{f.b})
+	defer r.Shutdown(ctx, 5*time.Second)
+	for range 2 {
+		if err := r.Step(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if held := r.Held(); len(held) != 1 || held[0].Run != "a#1" {
+		t.Fatalf("acme's runner holds %+v", held)
+	}
+	if f.run("b#1").State != StateQueued {
+		t.Fatal("beta's run left the queue for acme's runner")
+	}
+	var sockets []string
+	err := filepath.WalkDir(pf.ex.Root, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.Type()&fs.ModeSocket != 0 {
+			sockets = append(sockets, p)
+		}
+		return err
+	})
+	if err != nil || len(sockets) != 1 {
+		t.Fatalf("sockets under acme's runner root: %q, %v", sockets, err)
+	}
+	if status, _ := get(t, unixClient(sockets[0]), "/github/x", nil); status != 200 || g.last().Get(capabilityHeader) != "lcap_acme" {
+		t.Fatalf("the one socket: %d, sent %q", status, g.last().Get(capabilityHeader))
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(sockets[0]), "release"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}

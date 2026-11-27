@@ -47,7 +47,7 @@ func TestPilotReachesTheOwnerOnlyThroughTheTower(t *testing.T) {
 	}
 	home := t.TempDir()
 	p := &loseOneAnswer{socket: socket{w}}
-	r, err := runner.New(runner.Config{ID: "local", Protocol: p, Now: w.sim.Clock.Now, TTL: 3 * time.Minute,
+	r, err := runner.New(runner.Config{ID: "local", Org: "acme", Protocol: p, Now: w.sim.Clock.Now, TTL: 3 * time.Minute,
 		Executor: &runner.ProcessExecutor{Root: filepath.Join(t.TempDir(), "runner"), Home: home, Command: []string{exe},
 			Harness: claudecode.Adapter{}, StopGrace: time.Second},
 		Log: slog.New(slog.DiscardHandler)})

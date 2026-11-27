@@ -90,7 +90,7 @@ func (f *fixture) live(org, flight string, placement runner.Placement) runner.Le
 		Generation: 1, Goal: "fix the build"}); err != nil {
 		f.t.Fatal(err)
 	}
-	l, ok, err := f.b.Lease(ctx, "r1", placement, time.Minute)
+	l, ok, err := f.b.Lease(ctx, "r1", placement, org, time.Minute)
 	if err != nil || !ok {
 		f.t.Fatalf("lease: %v %v", ok, err)
 	}
@@ -363,7 +363,7 @@ func (f *fixture) leaseIn(ctx context.Context, org, flight string) error {
 		Generation: 1, Goal: "fix the build"}); err != nil && !errors.Is(err, runner.ErrExists) {
 		return err
 	}
-	_, ok, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, time.Minute)
+	_, ok, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, "", time.Minute)
 	if err == nil && !ok {
 		return errors.New("nothing to lease")
 	}
@@ -429,7 +429,7 @@ func TestHostSessionsAndOtherOrgsAreNotHeld(t *testing.T) {
 			Generation: 1, Goal: "fix the build"}); err != nil {
 			t.Fatal(err)
 		}
-		if _, ok, err := f.b.Lease(ctx, "r3", runner.PlacementHost, time.Minute); err != nil || !ok {
+		if _, ok, err := f.b.Lease(ctx, "r3", runner.PlacementHost, "acme", time.Minute); err != nil || !ok {
 			t.Errorf("a host lease while acme restarts: %v, %v", ok, err)
 		}
 	}
@@ -483,17 +483,17 @@ func TestAHeldOrgDoesNotHoldUpAnotherOrgsRun(t *testing.T) {
 	if held, err := f.b.HoldContainer(ctx, "acme", nil, sandbox.HoldTTL); err != nil || !held {
 		t.Fatalf("hold: %v, %v", held, err)
 	}
-	l, ok, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, time.Minute)
+	l, ok, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, "", time.Minute)
 	if err != nil || !ok || l.Org != "beta" {
 		t.Fatalf("a container lease with acme held: %+v, %v, %v; want beta's run", l, ok, err)
 	}
-	if _, _, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, time.Minute); !errors.Is(err, runner.ErrSandboxBusy) {
+	if _, _, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, "", time.Minute); !errors.Is(err, runner.ErrSandboxBusy) {
 		t.Fatalf("a container lease with only acme's run queued: %v, want ErrSandboxBusy", err)
 	}
-	if l, ok, err := f.b.Lease(ctx, "r3", runner.PlacementHost, time.Minute); err != nil || !ok || l.Org != "acme" {
+	if l, ok, err := f.b.Lease(ctx, "r3", runner.PlacementHost, "acme", time.Minute); err != nil || !ok || l.Org != "acme" {
 		t.Fatalf("a host lease with acme held: %+v, %v, %v", l, ok, err)
 	}
-	if _, ok, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, time.Minute); err != nil || ok {
+	if _, ok, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, "", time.Minute); err != nil || ok {
 		t.Fatalf("a container lease with nothing queued: %v, %v", ok, err)
 	}
 }

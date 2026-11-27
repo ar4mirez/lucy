@@ -86,7 +86,7 @@ func (f *fixture) submit(runs ...string) {
 
 func (f *fixture) lease(runner string, ttl time.Duration) Lease {
 	f.t.Helper()
-	l, ok, err := f.b.Lease(context.Background(), runner, PlacementHost, ttl)
+	l, ok, err := f.b.Lease(context.Background(), runner, PlacementHost, "acme", ttl)
 	if err != nil || !ok {
 		f.t.Fatalf("lease: ok %v, err %v", ok, err)
 	}
@@ -127,11 +127,11 @@ func evs(from, to int64) []Event {
 func TestLeaseHeartbeatFinish(t *testing.T) {
 	ctx := context.Background()
 	f := open(t)
-	if _, ok, err := f.b.Lease(ctx, "r1", PlacementHost, 0); ok || err != nil {
+	if _, ok, err := f.b.Lease(ctx, "r1", PlacementHost, "acme", 0); ok || err != nil {
 		t.Fatalf("lease from an empty queue: ok %v, err %v", ok, err)
 	}
 	f.submit("a#1", "b#1")
-	if n, err := f.b.Queued(ctx, PlacementHost); n != 2 || err != nil {
+	if n, err := f.b.Queued(ctx, PlacementHost, ""); n != 2 || err != nil {
 		t.Fatalf("queued %d, %v", n, err)
 	}
 	la := f.lease("r1", 0)
@@ -316,8 +316,8 @@ func TestRefusals(t *testing.T) {
 		"generation 0":      f.b.Submit(ctx, Task{Run: "x#0", Org: "acme", Project: "web", Flight: "x", Goal: "g"}),
 		"slash in org":      f.b.Submit(ctx, Task{Run: "x#1", Org: "a/b", Project: "web", Flight: "x", Generation: 1, Goal: "g"}),
 		"slash in run":      f.b.Submit(ctx, Task{Run: "x/1", Org: "acme", Project: "web", Flight: "x", Generation: 1, Goal: "g"}),
-		"bad runner id":     second(f.b.Lease(ctx, "Runner One", PlacementHost, 0)),
-		"bad placement":     second(f.b.Lease(ctx, "r1", "cloud", 0)),
+		"bad runner id":     second(f.b.Lease(ctx, "Runner One", PlacementHost, "acme", 0)),
+		"bad placement":     second(f.b.Lease(ctx, "r1", "cloud", "acme", 0)),
 		"too many events":   first(f.b.Heartbeat(ctx, "r1", "a#1", 1, 0, evs(1, MaxBatch+1), "")),
 		"unknown kind":      first(f.b.Heartbeat(ctx, "r1", "a#1", 1, 0, []Event{{Seq: 1, Kind: "shout"}}, "")),
 		"event 0":           first(f.b.Heartbeat(ctx, "r1", "a#1", 1, 0, []Event{{Seq: 0, Kind: KindOutput}}, "")),
@@ -325,8 +325,8 @@ func TestRefusals(t *testing.T) {
 		"PR on a failure":   f.b.Finish(ctx, "r1", "a#1", 1, Result{Outcome: OutcomeFailed, PR: 3}),
 		"negative PR":       f.b.Finish(ctx, "r1", "a#1", 1, Result{Outcome: OutcomeDone, PR: -1}),
 		"stop an unknown":   f.b.Stop(ctx, "nope"),
-		"runner id length":  second(f.b.Lease(ctx, string(make([]byte, 64)), PlacementHost, 0)),
-		"runner id leading": second(f.b.Lease(ctx, "-r", PlacementHost, 0)),
+		"runner id length":  second(f.b.Lease(ctx, string(make([]byte, 64)), PlacementHost, "acme", 0)),
+		"runner id leading": second(f.b.Lease(ctx, "-r", PlacementHost, "acme", 0)),
 	} {
 		if err == nil {
 			t.Errorf("%s: accepted", name)
@@ -365,4 +365,44 @@ func equal(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// A runner on the host leases the runs of exactly one org: it is never leased another org's run,
+// which stays queued for that org's runner, and it is refused when it names no org, or names
+// another org than that of a run it holds.
+func TestAHostRunnerLeasesOneOrg(t *testing.T) {
+	ctx := context.Background()
+	f := open(t)
+	if err := f.b.Submit(ctx, Task{Run: "b#1", Org: "beta", Project: "web", Flight: "b", Generation: 1, Goal: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	f.submit("a#1")
+	if _, _, err := f.b.Lease(ctx, "r1", PlacementHost, "", 0); !errors.Is(err, ErrRunnerOrg) {
+		t.Fatalf("a host lease without an org: %v, want ErrRunnerOrg", err)
+	}
+	if n, err := f.b.Queued(ctx, PlacementHost, "acme"); n != 1 || err != nil {
+		t.Fatalf("acme's queued runs: %d, %v", n, err)
+	}
+	l, ok, err := f.b.Lease(ctx, "r1", PlacementHost, "acme", 0)
+	if err != nil || !ok || l.Run != "a#1" || l.Org != "acme" {
+		t.Fatalf("acme's runner leased %+v, %v, %v; want a#1, past beta's older run", l, ok, err)
+	}
+	if _, ok, err := f.b.Lease(ctx, "r1", PlacementHost, "acme", 0); ok || err != nil {
+		t.Fatalf("acme's runner with only beta's run queued: ok %v, err %v", ok, err)
+	}
+	if f.run("b#1").State != StateQueued {
+		t.Fatal("beta's run left the queue for acme's runner")
+	}
+	if _, _, err := f.b.Lease(ctx, "r1", PlacementHost, "beta", 0); !errors.Is(err, ErrRunnerOrg) {
+		t.Fatalf("acme's runner, holding a#1, naming beta: %v, want ErrRunnerOrg", err)
+	}
+	if f.run("b#1").State != StateQueued {
+		t.Fatal("a runner holding acme's run was leased beta's")
+	}
+	if l, ok, err := f.b.Lease(ctx, "r2", PlacementHost, "beta", 0); err != nil || !ok || l.Run != "b#1" {
+		t.Fatalf("beta's runner leased %+v, %v, %v", l, ok, err)
+	}
+	if _, _, err := f.b.Lease(ctx, "r3", PlacementHost, "a/b", 0); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("an org that is not a name: %v, want ErrInvalid", err)
+	}
 }

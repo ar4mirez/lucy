@@ -30,10 +30,12 @@ func runnerError(err error) error {
 		return api.FieldError(api.CodeInvalidParams, "run", "no such run")
 	case errors.Is(err, runner.ErrSequence):
 		return api.FieldError(api.CodeInvalidParams, "events", "number a run's events from 1 without gaps; resend from the accepted number")
+	case errors.Is(err, runner.ErrRunnerOrg):
+		return api.FieldError(api.CodeRunnerOrg, "org", "a runner on the host names the one org whose runs it leases, and only the org of the runs it holds")
 	case errors.Is(err, runner.ErrSandboxBusy):
 		return api.NewError(api.CodeSandboxBusy, "every queued run's org container is being restarted or stopped; lease again later")
 	case errors.Is(err, runner.ErrInvalid), errors.Is(err, runner.ErrExists):
-		return api.NewError(api.CodeInvalidParams, "check the runner id, placement, event kinds and outcome")
+		return api.NewError(api.CodeInvalidParams, "check the runner id, placement, org, event kinds and outcome")
 	}
 	return err
 }
@@ -43,7 +45,7 @@ func (s *Server) runnerQueued(ctx context.Context, p *api.QueuedParams) (api.Que
 	if err != nil {
 		return api.QueuedResult{}, err
 	}
-	n, err := b.Queued(ctx, runner.Placement(p.Placement))
+	n, err := b.Queued(ctx, runner.Placement(p.Placement), p.Org)
 	if err != nil {
 		return api.QueuedResult{}, runnerError(err)
 	}
@@ -59,7 +61,7 @@ func (s *Server) runnerLease(ctx context.Context, p *api.LeaseParams) (api.Lease
 	if placement == "" {
 		placement = runner.PlacementHost
 	}
-	l, ok, err := b.Lease(ctx, p.Runner, placement, time.Duration(p.TTLSeconds)*time.Second)
+	l, ok, err := b.Lease(ctx, p.Runner, placement, p.Org, time.Duration(p.TTLSeconds)*time.Second)
 	if err != nil {
 		return api.LeaseResult{}, runnerError(err)
 	}

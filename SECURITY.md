@@ -94,7 +94,13 @@ route, or once its run's lease has ended or been replaced. The daemon checks it 
 reads any credential or resolves any upstream, and again when deciding. The gateway never
 forwards it. A Pilot reaches the gateway through a socket the runner opens in its scratch
 directory, which adds the token on the Pilot's behalf, so no token is ever in a Pilot's process,
-environment or files.
+environment or files ([D13](docs/decisions/D13-run-gateway-socket.md)). Any process of the run can
+still act with its token, through that socket, for the run's life and within its org, routes and
+lease. The socket's modes keep out other users but not the runner's own uid, so a runner on the
+host leases the runs of exactly one org (`lucy runner --org`, required there): the daemon refuses a
+host lease that names no org, or names another org than that of a run the runner holds
+(`runner_org`). By default each org's runs also get their own runner root. A Pilot of one org thus
+never shares a runner, a socket directory or a token holder with another org.
 
 ## Audit and log data
 

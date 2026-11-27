@@ -66,7 +66,7 @@ func (f *fixture) lease(org, flight string, routes ...string) (runner.Lease, str
 	if err := f.b.Submit(ctx, runner.Task{Run: runner.RunID(flight, 1), Org: org, Project: "web", Flight: flight, Generation: 1, Goal: "g"}); err != nil {
 		f.t.Fatal(err)
 	}
-	l, ok, err := f.b.Lease(ctx, "r1", runner.PlacementContainer, time.Minute)
+	l, ok, err := f.b.Lease(ctx, "r1", runner.PlacementContainer, "", time.Minute)
 	if err != nil || !ok {
 		f.t.Fatalf("lease: %v %v", ok, err)
 	}

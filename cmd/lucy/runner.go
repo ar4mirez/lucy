@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,15 +22,21 @@ import (
 )
 
 const runnerUsage = `Usage:
-  lucy runner [--socket <path>] [--id <name>] [--root <dir>] [--placement host|container]
-              [--ttl <seconds>] [--gateway-dir <dir>] -- <command> [<args>...]
+  lucy runner --org <org> [--socket <path>] [--id <name>] [--root <dir>]
+              [--placement host|container] [--ttl <seconds>] [--gateway-dir <dir>]
+              -- <command> [<args>...]
   lucy runner [flags as above] --harness claude-code [-- <harness program> [<args>...]]
 
 Runs a runner in the foreground: it leases runs from the daemon over the runner protocol,
 runs <command> once per leased run, streams each line of its output into the daemon's event
 log, renews the lease at a third of its life and reports the outcome (exit status 0 is done;
-a line "lucy:pr=<n>" reports the pull request). Each run gets a fresh directory under --root
-($XDG_DATA_HOME/lucy/runner by default) as its working directory and TMPDIR, and an
+a line "lucy:pr=<n>" reports the pull request). A runner on the host (the default placement)
+leases the runs of exactly one org, which --org names and which it requires: it is never leased
+another org's run, and the daemon refuses it (runner_org) if it names none. Run one runner per
+org, so no two orgs' runs share a runner, its directory, its gateway sockets or the tokens it
+holds. A runner placed in a container may leave --org out to lease any org's runs. Each run gets
+a fresh directory under --root ($XDG_DATA_HOME/lucy/runner/<org> by default, so each org's runs
+have their own) as its working directory and TMPDIR, and an
 environment of only PATH, HOME, TMPDIR and LUCY_RUN, LUCY_RUN_ORG, LUCY_RUN_PROJECT,
 LUCY_RUN_FLIGHT, LUCY_RUN_GENERATION, LUCY_RUN_GOAL and LUCY_RUN_BASE; the directory is
 deleted when the command exits. A lease not renewed within --ttl (60 s by default) expires:
@@ -41,7 +48,9 @@ Each leased run carries a capability token for its org's credential gateway. The
 in memory and opens the run its own gateway socket, .lucy-gateway.sock in the run's directory and
 named in LUCY_RUN_GATEWAY, which forwards to the org's gateway socket in --gateway-dir (gateway/
 in lucy's runtime directory by default, where lucy gateway listens) with the token added and any
-the run sent dropped. The token itself is never in the run's environment or files.
+the run sent dropped. The token itself is never in the run's environment or files. A Unix socket
+path is at most 107 bytes on Linux and 103 on macOS, so the runner refuses to start under a
+--root too long for a run's socket and names the longest it can take.
 
 With --harness claude-code the runner drives Claude Code (` + "`claude`" + ` unless a program follows
 --) over its stream-json protocol instead of streaming lines: the harness must report version
@@ -76,6 +85,7 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(io.Discard)
 	sock := fs.String("socket", "", "")
 	id := fs.String("id", "local", "")
+	org := fs.String("org", "", "")
 	root := fs.String("root", "", "")
 	placement := fs.String("placement", string(runner.PlacementHost), "")
 	ttl := fs.Int("ttl", int(runner.DefaultTTL/time.Second), "")
@@ -114,6 +124,14 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "error: --placement must be host or container, not %q\nhelp: run `lucy runner --help`\n", *placement)
 		return 2
 	}
+	if *org == "" && runner.Placement(*placement) == runner.PlacementHost {
+		fmt.Fprint(stderr, "error: a runner on the host needs --org: it leases the runs of exactly one org\nhelp: run `lucy runner --help`; run one runner per org\n")
+		return 2
+	}
+	if *org != "" && (*org != filepath.Base(*org) || strings.HasPrefix(*org, ".") || strings.Contains(*org, "#") || len(*org) > 200) {
+		fmt.Fprintf(stderr, "error: --org %q is not an org name\nhelp: run `lucy runner --help`\n", *org)
+		return 2
+	}
 	dir := *root
 	if dir == "" {
 		data, err := eventstore.DataDir()
@@ -121,12 +139,16 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "error: %v\n", err)
 			return 1
 		}
-		dir = filepath.Join(data, "runner")
+		dir = filepath.Join(data, "runner", *org)
 	}
 	dir, err := filepath.Abs(dir)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
+	}
+	if err := runner.CheckRunGatewayRoot(dir); err != nil {
+		fmt.Fprintf(stderr, "error: %v\nhelp: run `lucy runner --help`\n", err)
+		return 2
 	}
 	gwDir := *gatewayDir
 	if gwDir == "" {
@@ -148,7 +170,7 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 	defer c.Close()
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	r, err := runner.New(runner.Config{
-		ID: *id, Placement: runner.Placement(*placement), Protocol: runner.Remote{Client: c},
+		ID: *id, Placement: runner.Placement(*placement), Org: *org, Protocol: runner.Remote{Client: c},
 		Executor: &runner.ProcessExecutor{Root: dir, Command: command, Harness: adapter, Permitter: runner.Remote{Client: c}, Log: log,
 			GatewayDir: gwDir},
 		TTL: time.Duration(*ttl) * time.Second, Log: log,

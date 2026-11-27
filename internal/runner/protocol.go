@@ -125,6 +125,10 @@ var (
 	// ErrSandboxBusy refuses a lease to a runner placed in a container when every queued run's org
 	// container is being restarted or stopped. The runner leases again later.
 	ErrSandboxBusy = errors.New("runner: sandbox busy: every queued run's org container is being restarted or stopped")
+	// ErrRunnerOrg refuses a lease to a runner placed on the host that names no org, or names an
+	// org other than that of a run it holds: a host runner leases the runs of exactly one org, so
+	// no two orgs' runs share its directory, its gateway sockets or the tokens it holds.
+	ErrRunnerOrg = errors.New("runner: a host runner leases the runs of exactly one org: name it, and only the org of the runs it holds")
 )
 
 // Task is one run of work, as a runner is leased it: a flight's Pilot generation.
@@ -209,6 +213,14 @@ func checkTask(t Task) error {
 		return bad("a task's run, org, project and flight are at most 200 bytes")
 	case strings.ContainsAny(t.Org, "/#") || strings.ContainsRune(t.Run, '/'):
 		return bad("an org may not contain '/' or '#', a run may not contain '/'")
+	}
+	return nil
+}
+
+// checkOrg reports whether org can name an org: what checkTask accepts, and not empty.
+func checkOrg(org string) error {
+	if org == "" || len(org) > maxIDBytes || strings.ContainsAny(org, "/#") {
+		return fmt.Errorf("%w: an org is 1-200 bytes without '/' or '#'", ErrInvalid)
 	}
 	return nil
 }

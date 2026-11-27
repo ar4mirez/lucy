@@ -2,7 +2,7 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 24
+version: 25
 owner: ar4mirez
 requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-001, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-009, LUCY-SIM-001, LUCY-SIM-002, LUCY-RUN-001, LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-013, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007, LUCY-SEC-002]
 ---
@@ -125,8 +125,8 @@ Operations: [daemon runbook](docs/runbooks/daemon.md).
   headers, 15 s per request body, 30 s to write, 60 s idle, 10 s per call; 64 connections. Params
   are decoded strictly: no unknown, duplicate or case-folded members, bounds from struct tags.
 - **Errors** (LUCY-API-008): JSON-RPC codes plus lucy's (-32001 forbidden, -32002 unsupported
-  version, -32003 too large, -32004 unavailable, -32005 timeout, -32006 fenced, -32007 sandbox busy), one fixed message and `kind` per
-  code; internal errors are logged with a correlation id, which is all the caller sees.
+  version, -32003 too large, -32004 unavailable, -32005 timeout, -32006 fenced, -32007 sandbox busy, -32008 runner org), one fixed message and `kind` per
+  code; an internal error is logged; the caller sees only its correlation id.
 - **Remote transport (m1).** The handler is transport-neutral; HTTPS needs only a TLS listener and a
   device authenticator. No network listener exists in m0: remote HTTPS with device pairing, scoped
   credentials and TLS lands in m1 (LUCY-VIEW-006).

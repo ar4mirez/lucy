@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"time"
 )
@@ -23,6 +24,28 @@ import (
 
 // RunGatewaySocket is the socket's name in the run's scratch directory.
 const RunGatewaySocket = ".lucy-gateway.sock"
+
+// runSocketSuffix is the most a run's gateway socket adds to the runner's root: "/run-" and
+// os.MkdirTemp's random part, at most 10 digits, then "/" and RunGatewaySocket.
+const runSocketSuffix = len("/run-") + 10 + len("/"+RunGatewaySocket)
+
+// maxSocketPath is the longest Unix socket path the kernel takes: sun_path less its NUL.
+func maxSocketPath() int {
+	if runtime.GOOS == "linux" {
+		return 107
+	}
+	return 103
+}
+
+// CheckRunGatewayRoot reports whether every run under the runner's root can have its gateway
+// socket, whose path would otherwise be too long to listen on.
+func CheckRunGatewayRoot(root string) error {
+	if n := len(root) + runSocketSuffix; n > maxSocketPath() {
+		return fmt.Errorf("runner: a run's gateway socket under %s would be up to %d bytes, past the %d a Unix socket path may be; choose a runner root (--root) at most %d bytes long",
+			root, n, maxSocketPath(), maxSocketPath()-runSocketSuffix)
+	}
+	return nil
+}
 
 // capabilityHeader is the gateway's header for the token (gateway.CapabilityHeader).
 const capabilityHeader = "X-Lucy-Capability"
@@ -77,6 +100,10 @@ func startRunGateway(dir, upstream, token string, log *slog.Logger) (*runGateway
 		return nil, errors.New("runner: a run gateway needs the run's capability")
 	}
 	socket := filepath.Join(dir, RunGatewaySocket)
+	if len(socket) > maxSocketPath() {
+		return nil, fmt.Errorf("runner: the run's gateway socket %s is %d bytes, past the %d a Unix socket path may be; choose a shorter runner root (--root)",
+			socket, len(socket), maxSocketPath())
+	}
 	ln, err := net.Listen("unix", socket)
 	if err != nil {
 		return nil, fmt.Errorf("runner: the run's gateway socket: %w", err)

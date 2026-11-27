@@ -51,6 +51,7 @@ func TestUsageErrors(t *testing.T) {
 	for _, args := range [][]string{
 		{"status", "extra"}, {"events", "--limit", "x"}, {"daemon", "--nope"}, {"daemon", "stop", "x"},
 		{"runner"}, {"runner", "--id", "Bad Id", "--", "true"}, {"runner", "--placement", "moon", "--", "true"}, {"runner", "--nope"}, {"runner", "--harness", "nope"},
+		{"runner", "--", "true"}, {"runner", "--org", "../etc", "--", "true"}, {"runner", "--org", "acme", "--root", "/" + strings.Repeat("r", 200), "--", "true"},
 		{"questions", "extra"}, {"answer"}, {"answer", "f1"},
 		{"sandbox"}, {"sandbox", "nope"}, {"sandbox", "held", "extra"}, {"sandbox", "confirm", "acme", "restart"},
 		{"sandbox", "confirm", "acme", "restart", "x"}, {"sandbox", "confirm", "acme", "restart", "0"},

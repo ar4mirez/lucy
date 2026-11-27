@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.12.0"
+    "version": "1.13.0"
   },
   "servers": [
     {
@@ -917,7 +917,7 @@
     },
     {
       "name": "runner.queued",
-      "summary": "How many runs wait for a runner placed at placement. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log. A runner placed in a container is not counted the runs of an org whose container is being restarted or stopped.",
+      "summary": "How many runs wait for a runner placed at placement, of the runner's org when it names one. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log. A runner placed in a container is not counted the runs of an org whose container is being restarted or stopped.",
       "paramStructure": "by-name",
       "params": [
         {
@@ -926,6 +926,15 @@
           "required": false,
           "schema": {
             "maxLength": 16,
+            "type": "string"
+          }
+        },
+        {
+          "name": "org",
+          "description": "The asking runner's org: when set, only that org's runs are counted.",
+          "required": false,
+          "schema": {
+            "maxLength": 200,
             "type": "string"
           }
         }
@@ -952,7 +961,7 @@
     },
     {
       "name": "runner.lease",
-      "summary": "Lease the oldest queued run under a new fencing token. A runner placed in a container is never leased a run whose org's container is being restarted or stopped; when every queued run is such a run, it is refused with sandbox_busy and leases again later.",
+      "summary": "Lease the oldest queued run under a new fencing token. A runner placed on the host leases the runs of exactly one org, which it names; one that names none, or names another org than that of a run it holds, is refused with runner_org. A runner placed in a container is never leased a run whose org's container is being restarted or stopped; when every queued run is such a run, it is refused with sandbox_busy and leases again later.",
       "paramStructure": "by-name",
       "params": [
         {
@@ -971,6 +980,15 @@
           "required": false,
           "schema": {
             "maxLength": 16,
+            "type": "string"
+          }
+        },
+        {
+          "name": "org",
+          "description": "The one org whose runs the runner leases. Required on the host: a host runner that names none, or names another org than that of a run it holds, is refused with runner_org. A runner in a container may leave it empty to lease any org's runs.",
+          "required": false,
+          "schema": {
+            "maxLength": 200,
             "type": "string"
           }
         },
@@ -2486,6 +2504,10 @@
       "parse_error": {
         "code": -32700,
         "message": "parse error"
+      },
+      "runner_org": {
+        "code": -32008,
+        "message": "a host runner leases for one org"
       },
       "sandbox_busy": {
         "code": -32007,

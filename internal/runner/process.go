@@ -413,7 +413,6 @@ func (pe *processExecution) wait() {
 	pe.mu.Unlock()
 }
 
-// cleanup deletes the run's scratch directory through the path guard.
 // Renew implements Renewer: the run's gateway socket adds the renewed token from now on.
 func (pe *processExecution) Renew(capability string) {
 	if pe.gw != nil {
@@ -421,6 +420,7 @@ func (pe *processExecution) Renew(capability string) {
 	}
 }
 
+// cleanup deletes the run's scratch directory through the path guard.
 func (pe *processExecution) cleanup() {
 	if pe.gw != nil {
 		pe.gw.close()

@@ -49,7 +49,10 @@ is `internal/capability`; the gateway checks tokens through the daemon
   capability or forwarding header the run sent, and adds the run's current token, renewed after
   each heartbeat. So the token never enters the Pilot's process: its environment and the files in
   its directory hold none, which runner tests check, and a call that reaches the org's gateway any
-  other way carries no token and is refused. The socket closes when the run ends.
+  other way carries no token and is refused. The socket closes when the run ends. Why a socket and
+not a credential helper, a token file or an environment variable, and the risk left, is
+[D13](../decisions/D13-run-gateway-socket.md). A runner on the host leases one org's runs only
+(`lucy runner --org`), so no run can open another org's socket.
 
 ## Not built yet
 
