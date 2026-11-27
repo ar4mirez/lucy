@@ -390,10 +390,23 @@ func (p *Pool) Release(ctx context.Context, repo Repo, slot int, run string, pro
 	case onBase:
 		how = ProofAncestor
 	case proof.Head == head:
-		merged, err := g.isAncestor(ctx, s.Path, proof.Merge, baseRef)
-		if err != nil {
+		_, err := g.run(ctx, s.Path, "rev-parse", "--verify", "--quiet", "--end-of-options", proof.Merge+"^{commit}")
+		var ee *exec.ExitError
+		switch {
+		case ctx.Err() != nil:
+			return ctx.Err()
+		case errors.As(err, &ee) && ee.ExitCode() == 1:
 			return p.refuse(ctx, repo, slot, run, head, RefusedNotLanded,
-				fmt.Errorf("%w: the merge commit %s: %w", ErrUnlanded, proof.Merge, err))
+				fmt.Errorf("%w: the merge commit %s is unknown", ErrUnlanded, proof.Merge))
+		case err != nil:
+			return err
+		}
+		merged, err := g.isAncestor(ctx, s.Path, proof.Merge, baseRef)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			return err
 		}
 		if merged {
 			how, merge = ProofMerged, proof.Merge

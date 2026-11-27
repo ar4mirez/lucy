@@ -527,6 +527,46 @@ func TestAcquireAgainReturnsTheHeldSlot(t *testing.T) {
 	}
 }
 
+// A release cancelled while the forge's merge is checked records no refusal: the slot stays leased.
+func TestCancelledReleaseRecordsNoRefusal(t *testing.T) {
+	f := open(t)
+	l, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := f.commit(l.Path, "draft.txt", "work")
+	f.must(f.g.run(ctx, f.work, "checkout", "--quiet", "-b", "side"))
+	side := f.commit(f.work, "side.txt", "side")
+	f.must(f.g.run(ctx, f.work, "push", "--quiet", "origin", "side"))
+	marker := filepath.Join(f.dir, "checking")
+	script := filepath.Join(f.dir, "git-slow-merge-check")
+	body := "#!/bin/sh\ncase \"$*\" in *\"merge-base --is-ancestor --end-of-options " + side + "\"*) : > " +
+		strconv.Quote(marker) + "; exec sleep 30;; esac\nexec git \"$@\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f.pool.Git = script
+	cctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		for cctx.Err() == nil {
+			if _, err := os.Lstat(marker); err == nil {
+				cancel()
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	if err := f.pool.Release(cctx, f.repo, l.Slot, "f1#1", Proof{Head: head, Merge: side}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a cancelled release: %v", err)
+	}
+	if got := f.refusals(); len(got) != 0 {
+		t.Fatalf("refusals %+v", got)
+	}
+	if s := f.slot(1); s.State != StateLeased || s.Run != "f1#1" {
+		t.Fatalf("slot %+v", s)
+	}
+}
+
 // A run acquiring its held slot again, clean at its base, keeps its ignored files: only a free
 // slot is ever fully reset.
 func TestAcquireAgainKeepsIgnoredFiles(t *testing.T) {
