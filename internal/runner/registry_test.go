@@ -11,7 +11,7 @@ import (
 // entry nobody holds (its runner died, and its pid may be another process's now) is never
 // listed, and releasing removes the entry.
 func TestRegistry(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "runners")
+	dir := filepath.Join(t.TempDir(), "rt", "runners")
 	release, err := Register(dir, "acme-host-1", "acme")
 	if err != nil {
 		t.Fatal(err)
@@ -63,12 +63,20 @@ func TestRegisterRefuses(t *testing.T) {
 	if err := os.Chmod(open, 0o755); err != nil { // past the umask
 		t.Fatal(err)
 	}
+	openParent := filepath.Join(t.TempDir(), "rt")
+	if err := os.Mkdir(openParent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(openParent, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	link := filepath.Join(t.TempDir(), "link")
 	if err := os.Symlink(t.TempDir(), link); err != nil {
 		t.Fatal(err)
 	}
 	for name, c := range map[string]struct{ dir, id, org string }{
 		"a registry open to others": {open, "r1", "acme"},
+		"a parent open to others":   {filepath.Join(openParent, "runners"), "r1", "acme"},
 		"a symlinked registry":      {link, "r1", "acme"},
 		"a relative registry":       {"runners", "r1", "acme"},
 		"a bad id":                  {filepath.Join(t.TempDir(), "r"), "../x", "acme"},
@@ -78,5 +86,49 @@ func TestRegisterRefuses(t *testing.T) {
 			_ = release()
 			t.Errorf("%s: registered", name)
 		}
+	}
+}
+
+// A registry that it or its parent is open to others is refused rather than listed, since another
+// user could have planted entries in it naming this user's processes.
+func TestRegisteredRefuses(t *testing.T) {
+	for name, mode := range map[string]struct{ parent, dir os.FileMode }{
+		"a registry open to others": {0o700, 0o755},
+		"a parent open to others":   {0o755, 0o700},
+	} {
+		parent := filepath.Join(t.TempDir(), "rt")
+		dir := filepath.Join(parent, "runners")
+		release, err := Register(dir, "r1", "acme")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(dir, mode.dir); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(parent, mode.parent); err != nil {
+			t.Fatal(err)
+		}
+		if live, err := Registered(dir); err == nil {
+			t.Errorf("%s: listed %+v", name, live)
+		}
+		if err := os.Chmod(parent, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if live, err := Registered(dir); err != nil || len(live) != 1 {
+			t.Errorf("%s, once closed: %+v, %v", name, live, err)
+		}
+		if err := release(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(t.TempDir(), link); err != nil {
+		t.Fatal(err)
+	}
+	if live, err := Registered(link); err == nil {
+		t.Errorf("a symlinked registry: listed %+v", live)
 	}
 }

@@ -116,6 +116,19 @@ func TestRunnerDrain(t *testing.T) {
 		t.Fatalf("signalled %v, output %q", signalled, out.String())
 	}
 
+	// A runner that exited between the listing and the signal: reported, not waited for.
+	drainSignal = func(pid int) error { return syscall.ESRCH }
+	out.Reset()
+	errb.Reset()
+	if code := runRunner([]string{"drain", "--org", "acme"}, &out, &errb); code != 0 ||
+		!strings.Contains(out.String(), "runner acme-1 already exited") || !strings.Contains(out.String(), "runner acme-2 already exited") {
+		t.Fatalf("already exited: %d, %q, %q", code, out.String(), errb.String())
+	}
+	drainSignal = func(pid int) error { return syscall.EPERM }
+	if code := runRunner([]string{"drain", "--org", "acme"}, &out, &errb); code != 1 || !strings.Contains(errb.String(), "drain runner acme-1") {
+		t.Fatalf("a signal error: %d, %q", code, errb.String())
+	}
+
 	errb.Reset()
 	if code := runRunner([]string{"drain", "--org", "gamma"}, &out, &errb); code != 1 || !strings.Contains(errb.String(), "no live runner matches") {
 		t.Fatalf("no match: %d, %q", code, errb.String())

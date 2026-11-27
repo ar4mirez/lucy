@@ -373,18 +373,23 @@ func runRunnerDrain(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	var drained []runner.Registration
+	matched := false
 	for _, r := range live {
 		if (*org != "" && r.Org != *org) || (*id != "" && r.ID != *id) {
 			continue
 		}
-		if err := drainSignal(r.PID); err != nil {
+		matched = true
+		if err := drainSignal(r.PID); errors.Is(err, syscall.ESRCH) {
+			fmt.Fprintf(stdout, "runner %s already exited\n", r.ID)
+			continue
+		} else if err != nil {
 			fmt.Fprintf(stderr, "error: drain runner %s (pid %d): %v\n", r.ID, r.PID, err)
 			return 1
 		}
 		fmt.Fprintf(stdout, "draining runner %s of org %s (pid %d)\n", r.ID, r.Org, r.PID)
 		drained = append(drained, r)
 	}
-	if len(drained) == 0 {
+	if !matched {
 		fmt.Fprint(stderr, "error: no live runner matches\nhelp: lucy runner drain finds the runners running on this machine as this user\n")
 		return 1
 	}

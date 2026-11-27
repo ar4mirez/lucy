@@ -12,11 +12,13 @@ import (
 	"syscall"
 )
 
-// A runner process registers itself in a registry directory (registry/ in lucy's runtime
+// A runner process registers itself in a registry directory (runners/ in lucy's runtime
 // directory) while it runs, so `lucy runner drain` finds it: one file <id>.pid holding its pid and
 // org, locked for the process's life. Only a locked file names a live runner: a runner that died
 // released its lock, so its pid, which the OS may have given another process since, is never
-// signalled.
+// signalled. The registry and its parent must be real directories owned by this user and closed to
+// others, and only entries this user owns are read, so a registry planted in a shared /tmp by
+// another user never names a process to signal.
 
 // Registration is a live runner process.
 type Registration struct {
@@ -28,8 +30,8 @@ type Registration struct {
 // ErrRegistered refuses a runner whose id a live runner already registered.
 var ErrRegistered = errors.New("runner: a live runner already uses this id")
 
-// Register records this process as runner id of org in dir (created 0700; refused when it is a
-// symlink or open to others) until release, which removes the entry. A second live runner with
+// Register records this process as runner id of org in dir (created 0700; refused when it or its
+// parent is a symlink, another user's, or open to others) until release, which removes the entry. A second live runner with
 // the same id is refused (ErrRegistered).
 func Register(dir, id, org string) (release func() error, err error) {
 	if err := CheckRunnerID(id); err != nil {
@@ -71,12 +73,19 @@ func writeRegistration(f *os.File, pid int, org string) error {
 	return err
 }
 
-// Registered returns the live runners registered in dir, by id. A missing dir has none.
+// Registered returns the live runners registered in dir, by id. A missing dir has none; a dir that
+// fails Register's checks is refused.
 func Registered(dir string) ([]Registration, error) {
-	entries, err := os.ReadDir(dir)
-	if errors.Is(err, fs.ErrNotExist) {
+	if !filepath.IsAbs(dir) {
+		return nil, fmt.Errorf("runner: the registry %q is not absolute", dir)
+	}
+	if _, err := os.Lstat(dir); errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
+	if err := checkPrivateDirs(dir); err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +118,11 @@ func readRegistration(path string) (Registration, bool, error) {
 		return Registration{}, false, err
 	}
 	defer f.Close() //nolint:errcheck // read-only
+	if fi, err := f.Stat(); err != nil {
+		return Registration{}, false, err
+	} else if !fi.Mode().IsRegular() || !ownedByMe(fi) {
+		return Registration{}, false, nil
+	}
 	err = syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB)
 	if err == nil {
 		return Registration{}, false, nil // nobody holds it: its runner is gone (closing unlocks)
@@ -136,12 +150,25 @@ func prepareRegistry(dir string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	fi, err := os.Lstat(dir)
-	if err != nil {
-		return err
-	}
-	if !fi.IsDir() || fi.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("runner: the registry %s must be a directory of mode 0700, not a symlink (it is %v)", dir, fi.Mode())
+	return checkPrivateDirs(dir)
+}
+
+// checkPrivateDirs refuses dir unless it and its parent are real directories (not symlinks) owned
+// by this user with no group or other permissions.
+func checkPrivateDirs(dir string) error {
+	for _, d := range []string{filepath.Dir(dir), dir} {
+		fi, err := os.Lstat(d)
+		if err != nil {
+			return err
+		}
+		if !fi.IsDir() || fi.Mode().Perm()&0o077 != 0 || !ownedByMe(fi) {
+			return fmt.Errorf("runner: %s must be a directory of mode 0700 owned by uid %d, not a symlink (it is %v)", d, os.Geteuid(), fi.Mode())
+		}
 	}
 	return nil
+}
+
+func ownedByMe(fi fs.FileInfo) bool {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	return ok && int(st.Uid) == os.Geteuid()
 }
