@@ -36,8 +36,8 @@ func RecordedResource(k Kind, resource string) string {
 }
 
 var (
-	// An Authorization or Cookie header's value, up to a quote or the end of the line.
-	headerSecret = regexp.MustCompile(`(?i)\b((?:proxy-)?authorization|(?:set-)?cookie)(\s*[:=]\s*)[^'"\r\n]*`)
+	// An Authorization or Cookie header's value, also under a quoted key, up to a quote or the end of the line.
+	headerSecret = regexp.MustCompile(`(?i)\b((?:proxy-)?authorization|(?:set-)?cookie)(["']?\s*[:=]\s*["']?)[^'"\r\n]*`)
 	// The userinfo of a URL (user:pass@ or token@).
 	urlUserinfo = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.\-]*://)[^/\s@'"?#]+@`)
 	// The value of a query parameter named like a credential.

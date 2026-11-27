@@ -11,6 +11,8 @@ import (
 var secretShapes = []struct{ Text, Secret string }{
 	{`curl -H 'Authorization: Bearer abc.def.ghi' https://api.example.com`, "abc.def.ghi"},
 	{`curl -H "Cookie: session=s3ssionvalue" https://example.com`, "s3ssionvalue"},
+	{`python3 -c 'import requests; requests.get(u, headers={"Authorization": "Bearer pydict.bearer.v"})'`, "pydict.bearer.v"},
+	{`curl -d '{"Authorization":"Bearer json.bearer.v"}' https://example.com`, "json.bearer.v"},
 	{`git clone https://alice:hunter2pw@example.com/r.git`, "hunter2pw"},
 	{`https://example.com/x?access_token=tok123value&page=2`, "tok123value"},
 	{`https://example.com/x?sig=signature9&q=1`, "signature9"},
