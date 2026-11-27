@@ -83,9 +83,10 @@ type Flag struct {
 // project or local settings file is read, and a repository's committed .claude settings can never
 // pre-allow a tool or add a hook. --strict-mcp-config with an empty --mcp-config is what keeps a
 // repository's .mcp.json servers out. Nothing is pre-allowed, so every prompted
-// tool still comes to the adapter; all hooks are off. Slash commands and skills are disabled too,
-// since a skill's allowed tools would skip the prompt.
-const SessionSettings = `{"permissions":{"allow":[]},"disableAllHooks":true}`
+// tool still comes to the adapter. The settings define no hooks, and no settings file loads to add
+// any, so the only hooks a session runs are the callbacks lucy registers as host (see initialize).
+// Slash commands and skills are disabled too, since a skill's allowed tools would skip the prompt.
+const SessionSettings = `{"permissions":{"allow":[]}}`
 
 // Adapter is the Claude Code adapter. Its zero value is ready to use.
 type Adapter struct{}
@@ -181,8 +182,8 @@ const hookPrefix = "lucy_hook_"
 const initRequestID = "lucy_init"
 
 // initialize registers lucy, the session's host, for a callback on every lifecycle hook, as the
-// Agent SDK does over stream-json. The settings' hooks stay off (disableAllHooks); these callbacks
-// only report: lucy records each as a typed hook event and lets the session go on.
+// Agent SDK does over stream-json. No settings file loads, so these are the session's only hooks;
+// they only report: lucy records each as a typed hook event and lets the session go on.
 func initialize() controlRequest {
 	hooks := map[string][]hookMatcher{}
 	for _, h := range harness.Hooks {

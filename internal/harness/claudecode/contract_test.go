@@ -200,11 +200,11 @@ func TestArgs(t *testing.T) {
 		Permissions struct {
 			Allow []string `json:"allow"`
 		} `json:"permissions"`
-		DisableAllHooks bool `json:"disableAllHooks"`
+		Hooks map[string]any `json:"hooks"`
 	}
 	if v, _ := value("--settings"); json.Unmarshal([]byte(v), &settings) != nil || len(settings.Permissions.Allow) != 0 ||
-		!settings.DisableAllHooks {
-		t.Errorf("--settings %q must pre-allow nothing and disable every hook", v)
+		settings.Hooks != nil {
+		t.Errorf("--settings %q must pre-allow nothing and define no hooks of its own", v)
 	}
 	if !slices.Contains(argv, "--disable-slash-commands") {
 		t.Error("skills and slash commands are enabled; a skill's allowed tools would skip the prompt")

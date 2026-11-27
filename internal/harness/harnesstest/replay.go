@@ -36,7 +36,7 @@ type Header struct {
 	// settings rules on it, so a test sees what a project's committed settings would do: its
 	// .claude/settings.json loads when --setting-sources is absent or names "project"; a tool its
 	// permissions.allow lists runs without the transcript's permission prompt; and its hooks run,
-	// each writing "project hook ran" to standard error, unless --settings sets disableAllHooks.
+	// each writing "project hook ran" to standard error.
 	// When the loaded project settings set enableAllProjectMcpServers, every server in the
 	// project's .mcp.json is made available, each writing "project MCP server loaded: <name>" to
 	// standard error, unless the harness is started with --strict-mcp-config and an --mcp-config
@@ -56,13 +56,11 @@ func rules(h Header, args []string) projectRules {
 	if h.Project == "" {
 		return r
 	}
-	sources, sourcesSet, settings, mcpConfig := "", false, "", ""
+	sources, sourcesSet, mcpConfig := "", false, ""
 	for i := 0; i+1 < len(args); i++ {
 		switch args[i] {
 		case "--setting-sources":
 			sources, sourcesSet = args[i+1], true
-		case "--settings":
-			settings = args[i+1]
 		case "--mcp-config":
 			mcpConfig = args[i+1]
 		}
@@ -87,11 +85,7 @@ func rules(h Header, args []string) projectRules {
 	for _, t := range project.Permissions.Allow {
 		r.preallowed[t] = true
 	}
-	var cli struct {
-		DisableAllHooks bool `json:"disableAllHooks"`
-	}
-	_ = json.Unmarshal([]byte(settings), &cli)
-	r.hooks = len(project.Hooks) > 0 && !cli.DisableAllHooks
+	r.hooks = len(project.Hooks) > 0
 	var strict struct {
 		MCPServers map[string]any `json:"mcpServers"`
 	}

@@ -17,7 +17,7 @@ Claude Code adapter is `internal/harness/claudecode`; `lucy runner --harness cla
   program's structured output into events tagged with their source (LUCY-RUN-002, LUCY-RUN-003).
 - **Session limits.** `claudecode` runs `claude --print` over stream-json both ways, with an empty
   MCP set (`--strict-mcp-config`), no settings file but lucy's own (no user, project or local
-  source; nothing pre-allowed; hooks, skills and slash commands off), no saved session, and every
+  source; nothing pre-allowed; no hooks of its own; skills and slash commands off), no saved session, and every
   permission prompt sent to the adapter. The run directory's CLAUDE.md, or AGENTS.md, is appended
   to the system prompt as framed repository text that grants no permission; the directory is
   empty until slice 6 puts the checkout there.
@@ -31,7 +31,9 @@ Claude Code adapter is `internal/harness/claudecode`; `lucy runner --harness cla
   activity, and an answer a restart lost was never acknowledged, so the runner asks again.
 - **Hooks.** The adapter registers lucy, the session's host, for a callback on every lifecycle hook
   over stream-json; each callback is recorded as a `hook` run event naming it and is never acted
-  on. The settings' own hooks stay off.
+  on. No settings file loads, so these callbacks are the session's only hooks. The hook events
+  are tested against protocol transcripts only, and are unverified against a real Claude Code
+  2.1.332 session until real captures land (D3c).
 - **Contract.** The recorded transcripts under `testdata/<pinned version>` are replayed in CI by
   `harnesstest`, which plays the harness's side and follows its documented settings rules;
   `harness-check.yml` checks the newest release nightly and reports it ready or held. Transcripts
