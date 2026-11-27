@@ -282,6 +282,13 @@ func (c *Client) CapabilityRevoke(ctx context.Context, p api.RevokeParams) (api.
 	return r, err
 }
 
+// VaultRecord calls vault.record.
+func (c *Client) VaultRecord(ctx context.Context, p api.VaultRecordParams) (api.VaultRecorded, error) {
+	var r api.VaultRecorded
+	err := c.Call(ctx, api.MethodVaultRec, p, &r)
+	return r, err
+}
+
 // RunnerPermit calls runner.permit.
 func (c *Client) RunnerPermit(ctx context.Context, p api.PermitParams) (api.PermitResult, error) {
 	var r api.PermitResult

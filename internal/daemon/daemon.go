@@ -29,6 +29,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/sandbox"
 	"github.com/ar4mirez/lucy/internal/server"
 	"github.com/ar4mirez/lucy/internal/spec"
+	"github.com/ar4mirez/lucy/internal/vault"
 )
 
 // DaemonStream is the event stream daemon lifecycle events are appended to.
@@ -63,7 +64,7 @@ func (Stopped) EventVersion() int { return 1 }
 func Registry() (*eventstore.Registry, error) {
 	payloads := append(spec.Payloads(), Started{}, Stopped{}, server.CommandEvent{}, policy.DecisionRecord{})
 	payloads = append(append(append(payloads, runner.Payloads()...), sandbox.Payloads()...), gateway.Payloads()...)
-	payloads = append(payloads, capability.Payloads()...)
+	payloads = append(append(payloads, capability.Payloads()...), vault.Payloads()...)
 	return eventstore.NewRegistry(payloads...)
 }
 
