@@ -49,7 +49,8 @@ const Version = 1
 // Revision 14 added the worktree pool: runner.lease's worktree, branch, worktree_state and
 // worktree_error, runner.heartbeat's worktree_state and worktree_error, worktree.list and
 // worktree.discard.
-const SchemaRevision = 14
+// Revision 15 added runner.slot: a read-only query of a held run's worktree state.
+const SchemaRevision = 15
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"

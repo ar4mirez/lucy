@@ -24,9 +24,10 @@ Changes since the last release. When a version is cut, its section moves to
   and returns its `worktree`, `branch` and `worktree_state: preparing`; the daemon prepares it in
   the background (bounded by 30 minutes, apart from the call's deadline, so a slow first clone no
   longer fails the run), `runner.heartbeat` reports `worktree_state` (`ready` or `failed`, with
-  `worktree_error`), and the runner starts the work only once it is ready (OpenRPC revision 14). A
-  stopped or timed-out preparation never breaks a slot. A run placed in its org's container gets
-  no slot yet and works in its scratch directory. Only public repositories can be fetched for now.
+  `worktree_error`), as does `runner.slot`, a read-only query the runner polls (from 250 ms up to
+  5 s) so the work starts within about a second of the slot being ready (OpenRPC revisions 14 and
+  15). A stopped or timed-out preparation never breaks a slot. A run placed in its org's container
+  gets no slot yet and works in its scratch directory. Only public repositories can be fetched for now.
 - A finished run's slot is given back when its work has landed, now including a branch pushed to
   the remote; otherwise it is quarantined, its work kept, and no longer counts against the pool's
   size, so the next run gets a new slot. `lucy worktree ls [--org <org>]` (`worktree.list`) shows

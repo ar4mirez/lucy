@@ -182,6 +182,20 @@ type Lease struct {
 	WorktreeDeadline time.Time `json:"worktree_deadline,omitzero"`
 }
 
+// SlotReader is a Protocol that reads how a held run's worktree stands without renewing its lease
+// or recording anything (runner.slot). While a run's worktree is being prepared the runner polls it,
+// from SlotPollMin doubling to SlotPollMax, so the work starts soon after the worktree is ready
+// rather than on the lease's next heartbeat. A Protocol without it is answered on heartbeats only.
+type SlotReader interface {
+	Slot(ctx context.Context, runner, run string, fence int64) (state, why string, err error)
+}
+
+// The backoff of a runner's runner.slot polls while a run's worktree is being prepared.
+const (
+	SlotPollMin = 250 * time.Millisecond
+	SlotPollMax = 5 * time.Second
+)
+
 // WorktreeGrace is how long past a preparing worktree's deadline a runner waits for the daemon to
 // report how the preparation ended, before it fails the run.
 const WorktreeGrace = time.Minute

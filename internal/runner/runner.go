@@ -87,6 +87,10 @@ type held struct {
 	heard    bool   // the broker has reported question as asking
 	answered string // the id of the question whose answer the work took last
 	ack      string // the id to acknowledge on the next heartbeat
+	// While its worktree is prepared: when to poll it next (SlotReader), and the poll's backoff,
+	// from SlotPollMin doubling to SlotPollMax.
+	slotAt   time.Time
+	slotWait time.Duration
 }
 
 // New returns a Runner.
@@ -182,6 +186,21 @@ func (r *Runner) tend(ctx context.Context, h *held) error {
 	if h.exec == nil && h.result == nil && !h.lease.WorktreeDeadline.IsZero() && now.After(h.lease.WorktreeDeadline.Add(WorktreeGrace)) {
 		h.result = &Result{Outcome: OutcomeFailed, Reason: "the run's worktree was still being prepared past its deadline"}
 	}
+	if sr, ok := r.cfg.Protocol.(SlotReader); ok && h.exec == nil && h.result == nil && !now.Before(h.slotAt) {
+		h.slotWait = min(max(h.slotWait*2, SlotPollMin), SlotPollMax)
+		h.slotAt = now.Add(h.slotWait)
+		state, why, err := sr.Slot(ctx, r.cfg.ID, h.lease.Run, h.lease.Fence)
+		switch {
+		case errors.Is(err, ErrFenced):
+			r.drop(h, "fenced")
+			return nil
+		case err != nil:
+			// The heartbeat still carries the state; the next poll asks again.
+			r.cfg.Log.Warn("runner could not read a run's worktree state", "run", h.lease.Run, "err", err)
+		default:
+			r.await(ctx, h, false, state, why)
+		}
+	}
 	for len(h.pending) > 0 || !now.Before(h.beatAt) {
 		batch := h.pending[:min(len(h.pending), MaxBatch)]
 		acked := h.ack
@@ -224,7 +243,7 @@ func (r *Runner) tend(ctx context.Context, h *held) error {
 			h.queue(*h.question)
 		}
 		if h.exec == nil && h.result == nil {
-			r.await(ctx, h, beat)
+			r.await(ctx, h, beat.Stop, beat.WorktreeState, beat.WorktreeError)
 		}
 		if beat.Stop && !h.stopping && h.exec != nil {
 			h.exec.Stop()
@@ -242,15 +261,15 @@ func (r *Runner) tend(ctx context.Context, h *held) error {
 	return nil
 }
 
-// await starts the work of a run whose worktree was being prepared once the heartbeat reports it
-// ready, and finishes the run as failed when it reports it failed, or none, and as stopped when
-// the Tower asked for the run to stop first.
-func (r *Runner) await(ctx context.Context, h *held, beat Beat) {
+// await starts the work of a run whose worktree was being prepared once a heartbeat or a slot poll
+// reports it ready, and finishes the run as failed when it reports it failed, or none, and as
+// stopped when the Tower asked for the run to stop first.
+func (r *Runner) await(ctx context.Context, h *held, stop bool, state, why string) {
 	switch {
-	case beat.Stop:
+	case stop:
 		h.result, h.stopping = &Result{Outcome: OutcomeStopped, Reason: "stopped while its worktree was being prepared"}, true
-	case beat.WorktreeState == WorktreePreparing:
-	case beat.WorktreeState == WorktreeReady:
+	case state == WorktreePreparing:
+	case state == WorktreeReady:
 		h.lease.WorktreeState = WorktreeReady
 		exec, err := r.cfg.Executor.Start(ctx, h.lease)
 		if err != nil {
@@ -260,7 +279,6 @@ func (r *Runner) await(ctx context.Context, h *held, beat Beat) {
 		}
 		h.exec = exec
 	default:
-		why := beat.WorktreeError
 		if why == "" {
 			why = "the daemon reports no worktree for the run"
 		}
@@ -307,9 +325,9 @@ func (r *Runner) drop(h *held, why string) {
 }
 
 // take leases the oldest queued run and starts its work, or, while its worktree is being prepared,
-// holds it until a heartbeat, on the lease's usual schedule, reports the worktree ready, failing it
-// once WorktreeGrace has passed the worktree's deadline. A run whose work cannot start is finished
-// as failed.
+// holds it until a slot poll (SlotReader) or a heartbeat, on the lease's usual schedule, reports
+// the worktree ready, failing it once WorktreeGrace has passed the worktree's deadline. A run
+// whose work cannot start is finished as failed.
 func (r *Runner) take(ctx context.Context) error {
 	n, err := r.cfg.Protocol.Queued(ctx, r.cfg.Placement, r.cfg.Org)
 	if err != nil || n == 0 {
@@ -323,7 +341,8 @@ func (r *Runner) take(ctx context.Context) error {
 		return err
 	}
 	if l.WorktreeState == WorktreePreparing {
-		r.runs[l.Run] = &held{lease: l, next: 1, beatAt: r.cfg.Now().Add(r.cfg.TTL / 3)}
+		now := r.cfg.Now()
+		r.runs[l.Run] = &held{lease: l, next: 1, beatAt: now.Add(r.cfg.TTL / 3), slotAt: now.Add(SlotPollMin)}
 		return nil
 	}
 	exec, err := r.cfg.Executor.Start(ctx, l)
@@ -375,15 +394,31 @@ func (r *Runner) Shutdown(ctx context.Context, grace time.Duration) error {
 	return errors.Join(errs...)
 }
 
-// Run calls Step every interval until ctx ends, then shuts down with a 5 s grace, or until the
-// runner, draining, holds no run, and then returns nil. A Step's error is logged, not fatal: the
-// daemon may be restarting, and a lease outlives a short outage. The one exceptions are ErrHostOrg
-// and ErrPlacementProof, which no retry clears: Run shuts down and returns them.
+// nextStep is how long Run waits before its next Step: interval, or less when a slot poll of a run
+// whose worktree is being prepared falls due sooner.
+func (r *Runner) nextStep(interval time.Duration) time.Duration {
+	if _, ok := r.cfg.Protocol.(SlotReader); !ok {
+		return interval
+	}
+	now := r.cfg.Now()
+	for _, h := range r.runs {
+		if h.exec == nil && h.result == nil {
+			interval = min(interval, max(h.slotAt.Sub(now), 0))
+		}
+	}
+	return interval
+}
+
+// Run calls Step every interval, or sooner when a slot poll is due (nextStep), until ctx ends,
+// then shuts down with a 5 s grace, or until the runner, draining, holds no run, and then returns
+// nil. A Step's error is logged, not fatal: the daemon may be restarting, and a lease outlives a
+// short outage. The one exceptions are ErrHostOrg and ErrPlacementProof, which no retry clears:
+// Run shuts down and returns them.
 func (r *Runner) Run(ctx context.Context, interval time.Duration) error {
 	if interval <= 0 {
 		interval = time.Second
 	}
-	t := time.NewTicker(interval)
+	t := time.NewTimer(interval)
 	defer t.Stop()
 	for {
 		if err := r.Step(ctx); err != nil && ctx.Err() == nil {
@@ -398,6 +433,7 @@ func (r *Runner) Run(ctx context.Context, interval time.Duration) error {
 			r.cfg.Log.Info("runner drained: every held run ended")
 			return nil
 		}
+		t.Reset(r.nextStep(interval))
 		select {
 		case <-ctx.Done():
 			sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)

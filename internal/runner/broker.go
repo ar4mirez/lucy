@@ -374,6 +374,19 @@ func (b *Broker) SetHostOrg(ctx context.Context, org, actor string) error {
 	})
 }
 
+// Holds returns run if runner holds it under fence and the lease is live, and ErrFenced if not. It
+// only reads: unlike held it records nothing, not even a lease it finds past its expiry.
+func (b *Broker) Holds(ctx context.Context, runner, run string, fence int64) (RunInfo, error) {
+	ri, err := b.Run(ctx, run)
+	if err != nil {
+		return RunInfo{}, err
+	}
+	if ri.State != StateLeased || ri.Runner != runner || ri.Fence != fence || !b.now().Before(ri.Expires) {
+		return RunInfo{}, ErrFenced
+	}
+	return ri, nil
+}
+
 // held runs fn on the run if runner holds it under fence and the lease is live. A lease found past
 // its expiry is recorded as expired, and that record commits even though the call is refused.
 func (b *Broker) held(ctx context.Context, runner, run string, fence int64, fn func(tx *eventstore.Tx, ri RunInfo) error) error {

@@ -207,6 +207,13 @@ func (c *Client) RunnerHeartbeat(ctx context.Context, p api.HeartbeatParams) (ap
 	return r, err
 }
 
+// RunnerSlot calls runner.slot.
+func (c *Client) RunnerSlot(ctx context.Context, p api.SlotParams) (api.SlotResult, error) {
+	var r api.SlotResult
+	err := c.Call(ctx, api.MethodSlot, p, &r)
+	return r, err
+}
+
 // Questions calls questions.list.
 func (c *Client) Questions(ctx context.Context) (api.QuestionsList, error) {
 	var r api.QuestionsList

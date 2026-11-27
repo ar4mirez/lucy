@@ -79,6 +79,15 @@ func (r Remote) Heartbeat(ctx context.Context, runner, run string, fence int64, 
 		Capability: res.Capability, WorktreeState: res.WorktreeState, WorktreeError: res.WorktreeError}, nil
 }
 
+// Slot implements SlotReader.
+func (r Remote) Slot(ctx context.Context, runner, run string, fence int64) (state, why string, err error) {
+	res, err := r.Client.RunnerSlot(ctx, api.SlotParams{Runner: runner, Run: run, Fence: fence})
+	if err != nil {
+		return "", "", remoteError(err)
+	}
+	return res.WorktreeState, res.WorktreeError, nil
+}
+
 // Finish implements Protocol.
 func (r Remote) Finish(ctx context.Context, runner, run string, fence int64, res Result) error {
 	_, err := r.Client.RunnerFinish(ctx, api.FinishParams{Runner: runner, Run: run, Fence: fence,
@@ -97,6 +106,7 @@ func (r Remote) Permit(ctx context.Context, runner, run string, fence int64, p P
 }
 
 var (
-	_ Permitter = Remote{}
-	_ Permitter = (*Broker)(nil)
+	_ Permitter  = Remote{}
+	_ SlotReader = Remote{}
+	_ Permitter  = (*Broker)(nil)
 )

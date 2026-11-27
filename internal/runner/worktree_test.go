@@ -98,3 +98,56 @@ func TestWaitingOnAWorktreeEndsPastItsDeadline(t *testing.T) {
 		t.Fatalf("run %+v, %v; started %d", ri, err, len(ex.execs))
 	}
 }
+
+// slotting is preparing with runner.slot: it reports state to each poll and records when it came.
+type slotting struct {
+	*preparing
+	now   func() time.Time
+	polls []time.Time
+}
+
+func (s *slotting) Slot(_ context.Context, _, _ string, _ int64) (string, string, error) {
+	s.polls = append(s.polls, s.now())
+	return s.state, "", nil
+}
+
+// While a run's worktree is prepared the runner polls runner.slot on a backoff from SlotPollMin
+// doubling to SlotPollMax, without heartbeating beyond the lease's schedule, and starts the work at
+// the first poll that reports it ready.
+func TestWaitingOnAWorktreePollsItsSlot(t *testing.T) {
+	f := open(t)
+	if err := f.b.Submit(context.Background(), task("f1#1")); err != nil {
+		t.Fatal(err)
+	}
+	s := &slotting{preparing: &preparing{Broker: f.b, deadline: f.clock.Now().Add(time.Hour), state: WorktreePreparing}, now: f.clock.Now}
+	ex := &fakeExecutor{execs: map[string]*scripted{}}
+	r := newRunner(t, f, "r1", ex, s)
+	tick := 50 * time.Millisecond
+	for range int(21 * time.Second / tick) { // past the heartbeat at 20 s, before the one at 30 s
+		step(t, r)
+		f.clock.Advance(tick)
+	}
+	want := []time.Duration{SlotPollMin, 2 * SlotPollMin, 4 * SlotPollMin, 8 * SlotPollMin, 16 * SlotPollMin, SlotPollMax, SlotPollMax}
+	if len(s.polls) < len(want)+1 {
+		t.Fatalf("%d polls in 21 s", len(s.polls))
+	}
+	for i, w := range want {
+		if gap := s.polls[i+1].Sub(s.polls[i]); gap < w || gap > w+tick {
+			t.Fatalf("poll %d came %v after the one before; want %v", i+1, gap, w)
+		}
+	}
+	if len(ex.execs) != 0 || s.beats > 21/10+1 {
+		t.Fatalf("started %d, %d heartbeats while waiting", len(ex.execs), s.beats)
+	}
+	s.state = WorktreeReady
+	for len(ex.execs) == 0 {
+		if f.clock.Now().Sub(s.polls[len(s.polls)-1]) > SlotPollMax+tick {
+			t.Fatal("the ready run did not start at its next poll")
+		}
+		step(t, r)
+		f.clock.Advance(tick)
+	}
+	if started := f.clock.Now().Add(-tick); !s.polls[len(s.polls)-1].Equal(started) {
+		t.Fatalf("the run started at %v, not at its last slot poll %v", started, s.polls[len(s.polls)-1])
+	}
+}

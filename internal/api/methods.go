@@ -35,6 +35,7 @@ const (
 	MethodQueued    = "runner.queued"
 	MethodLease     = "runner.lease"
 	MethodHeartbeat = "runner.heartbeat"
+	MethodSlot      = "runner.slot"
 	MethodFinish    = "runner.finish"
 	MethodPermit    = "runner.permit"
 	MethodQuestions = "questions.list"
@@ -69,6 +70,7 @@ var methods = []Method{
 	{MethodQueued, "How many runs wait for a runner placed at placement, of the runner's org when it names one. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log. A runner placed in a container is not counted the runs of an org whose container is being restarted or stopped.", "query", ScopeRun, false, typeOf[QueuedParams](), typeOf[QueuedResult]()},
 	{MethodLease, "Lease the oldest queued run of the runner's org under a new fencing token. A runner names its org, or is refused with runner_org. On the host that org must be the host org (the first host lease sets it; runner.host_org changes it), or the lease is refused with host_org. A runner placed in a container is leased only with a placement proof the daemon accepts, or is refused with placement_proof, and while its org's container is being restarted or stopped it is refused with sandbox_busy and leases again later.", "command", ScopeRun, true, typeOf[LeaseParams](), typeOf[LeaseResult]()},
 	{MethodHeartbeat, "Renew a lease and record the run's newly streamed events, in one transaction.", "command", ScopeRun, true, typeOf[HeartbeatParams](), typeOf[HeartbeatResult]()},
+	{MethodSlot, "How a held run's slot of the worktree pool stands: preparing, ready or failed, and why when failed. It reads only: it neither renews the lease nor records anything, so a runner polls it while the slot is prepared and starts the work as soon as it is ready. Refused with fenced unless the runner holds the run under that fence.", "query", ScopeRun, false, typeOf[SlotParams](), typeOf[SlotResult]()},
 	{MethodFinish, "Finish a leased run with its outcome.", "command", ScopeRun, true, typeOf[FinishParams](), typeOf[FinishResult]()},
 	{MethodPermit, "Ask the policy engine whether a leased run's Pilot may use a prompted file tool; the decision is recorded before it is returned.", "command", ScopeRun, true, typeOf[PermitParams](), typeOf[PermitResult]()},
 	{MethodQuestions, "The Pilots' open questions, as the Tower records them: each flight that is asking, oldest first.", "query", ScopeRead, false, typeOf[NoParams](), typeOf[QuestionsList]()},
@@ -366,6 +368,19 @@ type HeartbeatResult struct {
 	Asking        bool      `json:"asking" doc:"The run's last recorded event is a question still waiting on an answer. False with no answer after the runner asked means the answer was lost: ask again."`
 	WorktreeState string    `json:"worktree_state,omitempty" doc:"When the run has a slot of the worktree pool: preparing, ready (start the work, if it waits) or failed. Absent when it has none."`
 	WorktreeError string    `json:"worktree_error,omitempty" doc:"With worktree_state failed: why the slot could not be prepared."`
+}
+
+// SlotParams asks runner.slot.
+type SlotParams struct {
+	Runner string `json:"runner" lucy:"required,maxlen=63" doc:"The runner holding the lease."`
+	Run    string `json:"run" lucy:"required,maxlen=256" doc:"The leased run."`
+	Fence  int64  `json:"fence" lucy:"min=1" doc:"The lease's fencing token."`
+}
+
+// SlotResult answers runner.slot.
+type SlotResult struct {
+	WorktreeState string `json:"worktree_state,omitempty" doc:"When the run has a slot of the worktree pool: preparing, ready (start the work, if it waits) or failed. Absent when it has none."`
+	WorktreeError string `json:"worktree_error,omitempty" doc:"With worktree_state failed: why the slot could not be prepared."`
 }
 
 // FinishParams ends a run.

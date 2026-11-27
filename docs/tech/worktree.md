@@ -49,13 +49,17 @@ Where a run's checkout of its repository comes from (TECH.md section 6). The cod
   fixed reason that the preparation stopped, and never as broken. Either leaves the slot reusable: a
   fresh lease, which never held the run's work, is given back free, and the next preparation of it
   repairs or resets it. The run sees `failed` with the reason.
-- **The runner waits.** `runner.heartbeat` reports the run's `worktree_state` (and
-  `worktree_error` when failed). A runner holds a preparing lease without starting the work,
-  heartbeating on the lease's usual schedule (a third of its life), so waiting adds no renewals or
-  token rotations; it starts the work once a heartbeat reports `ready`, finishes the run as failed
-  with the reason when one reports `failed` (or none), or when the preparation is still not done a
-  minute past the lease's `worktree_deadline` (when the daemon stops preparing it at the latest),
-  and as stopped when the Tower stops it first. A lease with no worktree starts at once.
+- **The runner waits.** `runner.slot`, a read-only query (it neither renews the lease nor rotates
+  the token, and records no command, event or audit entry; refused as `fenced` unless the runner
+  holds the run under that fence), reports the run's `worktree_state` (and `worktree_error` when
+  failed); `runner.heartbeat` reports the same. A runner holds a preparing lease without starting
+  the work, polling `runner.slot` from 250 ms, doubling to 5 s, and heartbeating only on the
+  lease's usual schedule (a third of its life), so waiting adds no renewals or token rotations. It
+  starts the work at the first poll or heartbeat that reports `ready`, so a slot prepared in
+  moments starts its run within about a second; it finishes the run as failed with the reason when
+  one reports `failed` (or none), or when the preparation is still not done a minute past the
+  lease's `worktree_deadline` (when the daemon stops preparing it at the latest), and as stopped
+  when the Tower stops it first. A lease with no worktree starts at once.
 - **The lease fails at once** when the pool's root is not a directory only its owner can open, or
   the org or repository is not a valid name: those are checked when the slot is reserved, and the
   lease carries `worktree_error`. A preparation records how it ended on every path, a failed read

@@ -158,6 +158,27 @@ func (s *Server) runnerHeartbeat(ctx context.Context, p *api.HeartbeatParams) (a
 	return res, nil
 }
 
+// runnerSlot reports how a held run's worktree stands. It reads only: the fence is checked without
+// renewing the lease or recording anything, so a runner may poll it often.
+func (s *Server) runnerSlot(ctx context.Context, p *api.SlotParams) (api.SlotResult, error) {
+	b, err := s.broker()
+	if err != nil {
+		return api.SlotResult{}, err
+	}
+	ri, err := b.Holds(ctx, p.Runner, p.Run, p.Fence)
+	if err != nil {
+		return api.SlotResult{}, runnerError(err)
+	}
+	if s.opts.Worktrees == nil || ri.Placement != runner.PlacementHost {
+		return api.SlotResult{}, nil
+	}
+	state, why, err := s.opts.Worktrees.State(ctx, ri.Org, ri.Project, ri.Run)
+	if err != nil {
+		return api.SlotResult{}, err
+	}
+	return api.SlotResult{WorktreeState: state, WorktreeError: capWorktreeError(why)}, nil
+}
+
 // revokeRun revokes run's tokens under fence and every older one, for reason, when this daemon
 // issues any.
 func (s *Server) revokeRun(ctx context.Context, run string, fence int64, reason string) error {

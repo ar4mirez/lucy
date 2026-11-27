@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.14.0"
+    "version": "1.15.0"
   },
   "servers": [
     {
@@ -1266,6 +1266,63 @@
       "x-lucy-scope": "run",
       "x-lucy-mutating": true,
       "x-lucy-group": "command"
+    },
+    {
+      "name": "runner.slot",
+      "summary": "How a held run's slot of the worktree pool stands: preparing, ready or failed, and why when failed. It reads only: it neither renews the lease nor records anything, so a runner polls it while the slot is prepared and starts the work as soon as it is ready. Refused with fenced unless the runner holds the run under that fence.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "runner",
+          "description": "The runner holding the lease.",
+          "required": true,
+          "schema": {
+            "maxLength": 63,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "run",
+          "description": "The leased run.",
+          "required": true,
+          "schema": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "fence",
+          "description": "The lease's fencing token.",
+          "required": true,
+          "schema": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "worktree_error": {
+              "description": "With worktree_state failed: why the slot could not be prepared.",
+              "type": "string"
+            },
+            "worktree_state": {
+              "description": "When the run has a slot of the worktree pool: preparing, ready (start the work, if it waits) or failed. Absent when it has none.",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "run",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
     },
     {
       "name": "runner.finish",

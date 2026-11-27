@@ -341,3 +341,80 @@ func TestOpenPoolRootFailsTheLeaseAtOnce(t *testing.T) {
 		t.Fatalf("slots %+v, %v", slots, err)
 	}
 }
+
+// A run whose slot is ready soon after the lease starts within about a second, through runner.slot,
+// not on the lease's next heartbeat, which with a 60 s lease is 20 s away.
+func TestReadySlotStartsTheRunWithinASecond(t *testing.T) {
+	var src *worktree.Source
+	f := start(t, os.Geteuid(), 0, withWorktrees(t, &src, ""))
+	if err := f.srv.opts.Runs.Submit(ctx, runner.Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	ex := &startedExec{}
+	r, err := runner.New(runner.Config{ID: "acme-host-1", Org: "acme", Protocol: runner.Remote{Client: f.client}, Executor: ex, TTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rctx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	begun := time.Now()
+	go func() { done <- r.Run(rctx, time.Second) }()
+	defer func() { cancel(); <-done }()
+	for len(ex.started()) == 0 {
+		if time.Since(begun) > 10*time.Second {
+			t.Fatal("the run never started")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// The slot's preparation (a local clone) takes a fraction of that; the polls start at 250 ms.
+	if took := time.Since(begun); took > 2*time.Second {
+		t.Fatalf("the run started %v after the lease; its slot was ready well before", took)
+	}
+	if l := ex.started()[0]; l.WorktreeState != runner.WorktreeReady {
+		t.Fatalf("the started lease %+v", l)
+	}
+}
+
+// runner.slot reads only: polled many times it appends no event and no audit entry, and it refuses
+// a runner that does not hold the run under that fence.
+func TestRunnerSlotRecordsNothingAndIsFenced(t *testing.T) {
+	f := start(t, os.Geteuid(), 0, func(o *Options) { withBroker(o); o.Worktrees = &fakeWorktrees{} })
+	if err := f.srv.opts.Runs.Submit(ctx, runner.Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	remote := runner.Remote{Client: f.client}
+	l, ok, err := remote.Lease(ctx, "acme-host-1", runner.PlacementHost, "acme", "", time.Minute)
+	if err != nil || !ok || l.WorktreeState != runner.WorktreePreparing {
+		t.Fatalf("lease: %+v, %v, %v", l, ok, err)
+	}
+	head := func() (int64, api.AuditReport) {
+		t.Helper()
+		st, err := f.client.Status(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ar, err := f.client.VerifyAudit(ctx)
+		if err != nil || !ar.Verified {
+			t.Fatalf("audit: %+v, %v", ar, err)
+		}
+		return st.EventHead, ar
+	}
+	seq, audit := head()
+	for range 50 {
+		state, why, err := remote.Slot(ctx, "acme-host-1", l.Run, l.Fence)
+		if err != nil || state != runner.WorktreePreparing || why != "" {
+			t.Fatalf("slot: %q, %q, %v", state, why, err)
+		}
+	}
+	if seq2, audit2 := head(); seq2 != seq || audit2.Entries != audit.Entries || audit2.Head != audit.Head {
+		t.Fatalf("50 slot polls moved the log from %d to %d and the audit chain from %+v to %+v", seq, seq2, audit, audit2)
+	}
+	for _, c := range []struct {
+		runner string
+		fence  int64
+	}{{"acme-host-2", l.Fence}, {"acme-host-1", l.Fence + 1}} {
+		if _, _, err := remote.Slot(ctx, c.runner, l.Run, c.fence); !errors.Is(err, runner.ErrFenced) {
+			t.Fatalf("slot as %s under fence %d: %v, want fenced", c.runner, c.fence, err)
+		}
+	}
+}
