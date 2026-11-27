@@ -14,9 +14,10 @@ on:
 permissions:
   contents: read
 
-# Cancel only superseded pull-request runs: push and weekly runs on main must finish, or their scans are lost.
+# Only pull-request runs share a group, and a newer one cancels them. Each push and weekly run gets
+# its own group, so none is cancelled or dropped as pending and every push's commits are scanned.
 concurrency:
-  group: security-${{ github.event_name }}-${{ github.ref }}
+  group: security-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
