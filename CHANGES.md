@@ -25,7 +25,10 @@ Changes since the last release. When a version is cut, its section moves to
   WebSearch) goes to the engine too, as the new action kinds `exec` and `fetch`, with the command
   or URL as written; no rule allows either yet, so the default deny refuses them, and every
   decision is recorded (policy rule set version 5, OpenRPC revision 5: `runner.permit` takes
-  `resource`).
+  `resource`). The record, and `policy.decisions`, never hold the raw text: secrets in it
+  (Authorization and Cookie values, URL credentials and token query parameters, `NAME=value`
+  credentials, known token prefixes, long high-entropy strings) are redacted, the text is capped
+  at 512 bytes, and the SHA-256 of the original follows it.
 - Conformance scenario trust-04 runs: a Pilot's tool request is tagged by the channel it entered
   through, the run's task and the Pilot's own output, whatever its text claims, and its decision
   is marked tainted. The corpus now has 59 executable scenarios.

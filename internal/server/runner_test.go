@@ -159,3 +159,48 @@ func TestRunnerPermitOverTheSocket(t *testing.T) {
 	_, err = f.client.RunnerPermit(ctx, api.PermitParams{Runner: "local", Run: "f1#1", Fence: l.Run.Fence, Tool: "Bash", Kind: "delete"})
 	wantCode(t, err, api.CodeInvalidParams)
 }
+
+// A Pilot's shell command or fetch is decided on as written, but neither the stored record, the
+// api.command event nor policy.decisions holds the secrets in it.
+func TestRunnerPermitRedactsExecAndFetch(t *testing.T) {
+	f := start(t, os.Geteuid(), 0, withBroker)
+	if err := f.srv.opts.Runs.Submit(ctx, runner.Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	l, err := f.client.RunnerLease(ctx, api.LeaseParams{Runner: "local"})
+	if err != nil || !l.Leased {
+		t.Fatalf("lease %+v, %v", l, err)
+	}
+	secrets := []string{"abc.bearer.value", "hunter2pw", "tok123value", "plainvalue1", "ghp_0123456789abcdefABCDEF0123", "AKIAIOSFODNN7EXAMPLE"}
+	reqs := []runner.PermitRequest{
+		{Tool: "Bash", Kind: policy.KindExec, Resource: `curl -H 'Authorization: Bearer abc.bearer.value' https://alice:hunter2pw@example.com`},
+		{Tool: "Bash", Kind: policy.KindExec, Resource: `export GITHUB_TOKEN=plainvalue1 && echo ghp_0123456789abcdefABCDEF0123 AKIAIOSFODNN7EXAMPLE`},
+		{Tool: "WebFetch", Kind: policy.KindFetch, Resource: "https://example.com/x?token=tok123value"},
+	}
+	for _, r := range reqs {
+		perm, err := (runner.Remote{Client: f.client}).Permit(ctx, "local", "f1#1", l.Run.Fence, r)
+		if err != nil || perm.Outcome != policy.Denied || perm.Rule != "default.deny" {
+			t.Fatalf("permit %+v, %v", perm, err)
+		}
+	}
+	page, err := f.client.Decisions(ctx, api.DecisionsParams{})
+	if err != nil || len(page.Decisions) != len(reqs) {
+		t.Fatalf("decisions %+v, %v", page, err)
+	}
+	for i, d := range page.Decisions {
+		if d.Resource != policy.RecordedResource(reqs[i].Kind, reqs[i].Resource) || !strings.Contains(d.Resource, policy.Redacted) {
+			t.Errorf("decision %d resource %q", i, d.Resource)
+		}
+	}
+	evs, err := f.store.ReadAfter(ctx, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range evs {
+		for _, s := range secrets {
+			if strings.Contains(string(e.Payload), s) {
+				t.Errorf("%s event holds %q: %s", e.Type, s, e.Payload)
+			}
+		}
+	}
+}

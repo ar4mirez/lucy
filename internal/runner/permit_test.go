@@ -224,10 +224,11 @@ func TestPermitExecAndFetch(t *testing.T) {
 	ctx := context.Background()
 	f.submit("f1#1")
 	l := f.lease("r1", 0)
-	for _, c := range []PermitRequest{
-		{Tool: "Bash", Kind: policy.KindExec, Resource: "rm -rf $HOME"},
-		{Tool: "WebFetch", Kind: policy.KindFetch, Resource: "https://example.com/x"},
-	} {
+	reqs := []PermitRequest{
+		{Tool: "Bash", Kind: policy.KindExec, Resource: "GITHUB_TOKEN=ghp_0123456789abcdefABCDEF0123 gh pr list"},
+		{Tool: "WebFetch", Kind: policy.KindFetch, Resource: "https://example.com/x?token=s3cretvalue"},
+	}
+	for _, c := range reqs {
 		perm, err := f.b.Permit(ctx, "r1", "f1#1", l.Fence, c)
 		if err != nil || perm.Outcome != policy.Denied || perm.Rule != "default.deny" {
 			t.Fatalf("%s: %+v, %v", c.Kind, perm, err)
@@ -237,9 +238,14 @@ func TestPermitExecAndFetch(t *testing.T) {
 	if err != nil || len(evs) != 2 {
 		t.Fatalf("decisions %d, %v", len(evs), err)
 	}
-	rec, err := eventstore.DecodeAs[policy.DecisionRecord](f.store.Registry(), evs[0])
-	if err != nil || rec.Kind != policy.KindExec || rec.Target.Resource != "rm -rf $HOME" || rec.Outcome != policy.Denied {
-		t.Fatalf("record %+v, %v", rec, err)
+	for i, e := range evs {
+		rec, err := eventstore.DecodeAs[policy.DecisionRecord](f.store.Registry(), e)
+		if err != nil || rec.Kind != reqs[i].Kind || rec.Target.Resource != policy.RecordedResource(reqs[i].Kind, reqs[i].Resource) || rec.Outcome != policy.Denied {
+			t.Fatalf("record %+v, %v", rec, err)
+		}
+		if strings.Contains(string(e.Payload), "ghp_0123456789") || strings.Contains(string(e.Payload), "s3cretvalue") {
+			t.Errorf("the stored record holds the secret: %s", e.Payload)
+		}
 	}
 
 	pm := &fakePermitter{perm: Permission{Outcome: policy.Denied, Reason: "no rule allows this action"}}

@@ -192,7 +192,7 @@ type PolicyDecision struct {
 	Kind           string    `json:"kind" doc:"The action."`
 	Org            string    `json:"org" doc:"The target's org."`
 	Project        string    `json:"project,omitempty" doc:"The target's project."`
-	Resource       string    `json:"resource,omitempty" doc:"The target resource."`
+	Resource       string    `json:"resource,omitempty" doc:"The target resource. A shell command, URL or search (exec, fetch) is redacted and capped, followed by sha256:<hex> of the original."`
 }
 
 // DecisionsParams pages through recorded decisions.
@@ -343,7 +343,7 @@ type PermitParams struct {
 	Fence    int64  `json:"fence" lucy:"min=1" doc:"The lease's fencing token."`
 	Tool     string `json:"tool" lucy:"required,maxlen=64" doc:"The prompted tool's name, as the harness gave it. Untrusted."`
 	Kind     string `json:"kind" lucy:"required,maxlen=16" doc:"read, write, exec or fetch."`
-	Resource string `json:"resource,omitempty" lucy:"maxlen=4096" doc:"For a read or write, the absolute path inside the run's directory, empty when the tool names none; for an exec, the shell command; for a fetch, the URL or search. Untrusted text, recorded with the decision."`
+	Resource string `json:"resource,omitempty" lucy:"maxlen=4096" doc:"For a read or write, the absolute path inside the run's directory, empty when the tool names none; for an exec, the shell command; for a fetch, the URL or search. Untrusted text: the engine decides on it as written, and an exec or fetch is recorded redacted, with its SHA-256."`
 }
 
 // PermitResult answers runner.permit.

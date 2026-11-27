@@ -478,7 +478,7 @@
               "type": "string"
             },
             "resource": {
-              "description": "The target resource.",
+              "description": "The target resource. A shell command, URL or search (exec, fetch) is redacted and capped, followed by sha256:\u003chex\u003e of the original.",
               "type": "string"
             },
             "role": {
@@ -613,7 +613,7 @@
                     "type": "string"
                   },
                   "resource": {
-                    "description": "The target resource.",
+                    "description": "The target resource. A shell command, URL or search (exec, fetch) is redacted and capped, followed by sha256:\u003chex\u003e of the original.",
                     "type": "string"
                   },
                   "role": {
@@ -1327,7 +1327,7 @@
         },
         {
           "name": "resource",
-          "description": "For a read or write, the absolute path inside the run's directory, empty when the tool names none; for an exec, the shell command; for a fetch, the URL or search. Untrusted text, recorded with the decision.",
+          "description": "For a read or write, the absolute path inside the run's directory, empty when the tool names none; for an exec, the shell command; for a fetch, the URL or search. Untrusted text: the engine decides on it as written, and an exec or fetch is recorded redacted, with its SHA-256.",
           "required": false,
           "schema": {
             "maxLength": 4096,

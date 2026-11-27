@@ -226,7 +226,7 @@ func clampTTL(ttl time.Duration) time.Duration {
 // PermitRequest is a Pilot's prompted tool, as its runner asks the policy engine about it. For a
 // read or a write, Resource is the path (absolute, inside the run's directory; empty when the tool
 // names none); for an exec it is the shell command, and for a fetch the URL or search, as the
-// Pilot wrote them: untrusted text, recorded with the decision.
+// Pilot wrote them: untrusted text, decided on as written and recorded redacted (policy.RecordedResource).
 type PermitRequest struct {
 	Tool     string
 	Kind     policy.Kind // read, write, exec or fetch
