@@ -41,8 +41,8 @@ type Event struct {
 }
 
 // Hooks are the lifecycle hook events a harness may report, by Claude Code's names. A hook event
-// is recorded, never acted on: lucy registers its own callbacks as the session's host, and the
-// harness's settings hooks stay off.
+// is recorded, never acted on: lucy registers its own callbacks as the session's host, and no
+// settings file loads, so lucy's callbacks are the session's only hooks.
 var Hooks = []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification",
 	"Stop", "SubagentStop", "PreCompact", "SessionEnd"}
 
