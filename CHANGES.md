@@ -29,5 +29,5 @@ Changes since the last release. When a version is cut, its section moves to
 ### Changed
 
 - The Pilot's file-tool guard allows `$`-prefixed route files such as `app/routes/$postId.tsx`:
-  only `${`, `$(` and a whole path element that is an environment-style name (`$HOME`, `$TMPDIR`)
-  count as a variable reference.
+  only `${`, `$(` and a path element starting with an environment-style name (`$HOME`, `$TMPDIR-1`,
+  `$HOME.bak`) count as a variable reference.
