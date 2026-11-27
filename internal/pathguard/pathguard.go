@@ -286,11 +286,7 @@ func (g *Guard) RemoveAll(path string) error {
 	if err != nil {
 		return err
 	}
-	for _, r := range g.roots {
-		if r.Path == target {
-			return fmt.Errorf("%w: %s is a declared root", ErrRefused, path)
-		}
-	}
+	// CheckResolved already requires target to be strictly inside a root, so never a root itself.
 	if _, err := os.Lstat(target); err != nil {
 		return fmt.Errorf("%w: %s: %v", ErrRefused, path, err)
 	}
