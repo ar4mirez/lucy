@@ -67,16 +67,14 @@ func TestRunnerRefusesSelfDeclaredContainerPlacement(t *testing.T) {
 
 // A runner for one org refuses a root another org's runner has used, before it dials the daemon.
 func TestRunnerRefusesAnotherOrgsRoot(t *testing.T) {
-	base, err := os.MkdirTemp("", "l") // a run's gateway socket path must stay short
+	// The temp dir itself is the root: a run's gateway socket path must stay short, and on macOS
+	// the resolved temp dir (/private/var/folders/...) leaves no room for a subdirectory.
+	root, err := os.MkdirTemp("", "l")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(base) })
-	root := filepath.Join(base, "r")
-	sock := filepath.Join(base, "none.sock")
-	if err := os.Mkdir(root, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	t.Cleanup(func() { os.RemoveAll(root) })
+	sock := filepath.Join(root, "none.sock")
 	if err := runner.ClaimRoot(root, "acme"); err != nil {
 		t.Fatal(err)
 	}
