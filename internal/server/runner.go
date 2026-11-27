@@ -9,6 +9,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/capability"
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/runner"
+	"github.com/ar4mirez/lucy/internal/worktree"
 )
 
 // The runner protocol's methods (LUCY-RUN-001): a thin mapping of the API onto the Broker, which
@@ -92,15 +93,18 @@ func (s *Server) runnerLease(ctx context.Context, p *api.LeaseParams) (api.Lease
 		}
 		res.Run.Capability = tok
 	}
-	if s.opts.Worktrees != nil {
-		// The run's checkout: a slot of its project's repository, leased to it until its work lands.
-		// A slot that cannot be leased is reported, and the runner fails the run.
+	// TODO(LUCY-SBX-001): a run placed in its org's container gets no slot until the slot is
+	// mounted into the container (berth#216); it works in its scratch directory there.
+	if s.opts.Worktrees != nil && placement == runner.PlacementHost {
+		// The run's checkout: a slot of its project's repository, reserved here without running
+		// git and prepared in the background; the runner starts the work once a heartbeat reports
+		// it ready. A slot that cannot be reserved is reported, and the runner fails the run.
 		wt, ok, err := s.opts.Worktrees.Acquire(ctx, l.Org, l.Project, l.Run, l.Base)
 		switch {
 		case err != nil:
-			res.Run.WorktreeError = capWorktreeError(err.Error())
+			res.Run.WorktreeState, res.Run.WorktreeError = worktree.PrepFailed, capWorktreeError(err.Error())
 		case ok:
-			res.Run.Worktree, res.Run.Branch = wt.Path, wt.Branch
+			res.Run.Worktree, res.Run.Branch, res.Run.WorktreeState = wt.Path, wt.Branch, worktree.PrepPreparing
 		}
 	}
 	return res, nil
@@ -120,6 +124,19 @@ func (s *Server) runnerHeartbeat(ctx context.Context, p *api.HeartbeatParams) (a
 		return api.HeartbeatResult{}, runnerError(err)
 	}
 	res := api.HeartbeatResult{ExpiresAt: beat.Expires, Stop: beat.Stop, Accepted: beat.Accepted, Answer: beat.Answer, Question: beat.Question, Asking: beat.Asking}
+	if s.opts.Worktrees != nil {
+		ri, err := b.Run(ctx, p.Run)
+		if err != nil {
+			return api.HeartbeatResult{}, err
+		}
+		if ri.Placement == runner.PlacementHost {
+			state, why, err := s.opts.Worktrees.State(ctx, ri.Org, ri.Project, ri.Run)
+			if err != nil {
+				return api.HeartbeatResult{}, err
+			}
+			res.WorktreeState, res.WorktreeError = state, capWorktreeError(why)
+		}
+	}
 	if s.opts.Capabilities == nil {
 		return res, nil
 	}
@@ -166,8 +183,8 @@ func (s *Server) runnerFinish(ctx context.Context, p *api.FinishParams) (api.Fin
 		return api.FinishResult{}, err
 	}
 	if s.opts.Worktrees != nil {
-		// Its slot is given back if its work landed; otherwise it stays leased, and the refusal is
-		// recorded, until the Tower gives it back at takeoff.
+		// Its slot is given back, in the background, if its work landed; otherwise it is
+		// quarantined, its work kept, until the work lands or the owner discards it.
 		if err := s.opts.Worktrees.Release(ctx, ri.Org, ri.Project, ri.Run); err != nil {
 			s.opts.Log.Warn("could not release a run's worktree slot", "run", ri.Run, "err", err)
 		}

@@ -51,6 +51,8 @@ const (
 	MethodRevoke    = "capability.revoke"
 	MethodVaultRec  = "vault.record"
 	MethodHostOrg   = "runner.host_org"
+	MethodWtList    = "worktree.list"
+	MethodWtDiscard = "worktree.discard"
 )
 
 var methods = []Method{
@@ -82,6 +84,8 @@ var methods = []Method{
 	{MethodCaps, "The capability tokens issued to runs, by id, never the tokens: newest first, only those not yet expired unless all.", "query", ScopeRead, false, typeOf[CapabilitiesParams](), typeOf[CapabilitiesList]()},
 	{MethodRevoke, "Revoke a capability token by its id: the gateway refuses it from then on.", "command", ScopeDecide, true, typeOf[RevokeParams](), typeOf[CapabilityInfo]()},
 	{MethodVaultRec, "Record one phase of a change to an org's vault, by name only: before the change (requested) and after it (applied or failed).", "command", ScopeAdmin, true, typeOf[VaultRecordParams](), typeOf[VaultRecorded]()},
+	{MethodWtList, "The worktree pool's slots, by org, repository and number: each with its state, the run that holds or last held it, its branch, and why it is held when quarantined or broken.", "query", ScopeRead, false, typeOf[WorktreeListParams](), typeOf[WorktreeList]()},
+	{MethodWtDiscard, "Discard a quarantined or broken slot of the worktree pool: recorded first, then its directory is removed through the path guard. Its branch stays in the repository's clone, so its commits are recoverable until git gc. Refused unless confirm repeats slot exactly, and for a free or leased slot.", "command", ScopeAdmin, true, typeOf[WorktreeDiscardParams](), typeOf[WorktreeSlot]()},
 	{MethodHostOrg, "Make org the host org: the one org whose runs runners placed on the host lease, since every process on the host runs as one uid and can reach the others' sockets. The first host lease sets it; only this owner command changes it, recorded, and it is refused with host_org while any host run is live.", "command", ScopeAdmin, true, typeOf[HostOrgParams](), typeOf[HostOrgResult]()},
 }
 
@@ -325,9 +329,10 @@ type RunLease struct {
 	Fence         int64     `json:"fence" doc:"The fencing token: name it on every heartbeat and finish. Fences only grow; an old one is refused."`
 	ExpiresAt     time.Time `json:"expires_at" doc:"When the lease expires unless renewed, UTC."`
 	Capability    string    `json:"capability,omitempty" doc:"The run's capability token for its org's gateway: valid only while this lease is held, for the org's gateway routes, until it expires (five minutes, renewed by each heartbeat) or is revoked. lucy keeps only its digest; give it to nothing but the run's own gateway calls."`
-	Worktree      string    `json:"worktree,omitempty" doc:"When the run's project names a repository: the absolute path, on the daemon's host, of the run's slot of lucy's worktree pool, reset to the base and checked out on branch. The run works there."`
+	Worktree      string    `json:"worktree,omitempty" doc:"When the run is placed on the host and its project names a repository: the absolute path, on the daemon's host, of the run's slot of lucy's worktree pool, which the daemon prepares (reset to the base and checked out on branch) after the lease. The run works there once it is ready."`
 	Branch        string    `json:"branch,omitempty" doc:"With worktree: the branch the run works on."`
-	WorktreeError string    `json:"worktree_error,omitempty" doc:"When the run's project names a repository but no slot could be leased for it: why. The runner then fails the run without starting it."`
+	WorktreeState string    `json:"worktree_state,omitempty" doc:"With worktree, or worktree_error: preparing, or failed. Hold a preparing lease, heartbeating as usual, without starting the work; start it once a heartbeat reports ready, and finish the run as failed if one reports failed."`
+	WorktreeError string    `json:"worktree_error,omitempty" doc:"When the run's project names a repository but no slot could be leased for it: why (worktree_state is failed). The runner then fails the run without starting it."`
 }
 
 // HeartbeatParams renews a lease and streams events.
@@ -351,13 +356,15 @@ type RunEvent struct {
 
 // HeartbeatResult answers runner.heartbeat.
 type HeartbeatResult struct {
-	ExpiresAt  time.Time `json:"expires_at" doc:"The lease's new expiry, UTC."`
-	Capability string    `json:"capability,omitempty" doc:"The run's fresh capability token for its org's gateway, replacing the one before, which is revoked: keep only the newest, in memory. Absent when the run has none, is stopping, or its lease is past the four-hour limit."`
-	Stop       bool      `json:"stop" doc:"The Tower asked for the run to stop: stop the work and finish the run as stopped."`
-	Accepted   int64     `json:"accepted" doc:"The highest event number recorded for the run."`
-	Answer     string    `json:"answer,omitempty" doc:"The owner's answer to the run's question, relayed by the Tower. Give it to the work once, then acknowledge it; it comes again in every result until acknowledged."`
-	Question   string    `json:"question,omitempty" doc:"With answer: the id of the question it answers, to send back as acked."`
-	Asking     bool      `json:"asking" doc:"The run's last recorded event is a question still waiting on an answer. False with no answer after the runner asked means the answer was lost: ask again."`
+	ExpiresAt     time.Time `json:"expires_at" doc:"The lease's new expiry, UTC."`
+	Capability    string    `json:"capability,omitempty" doc:"The run's fresh capability token for its org's gateway, replacing the one before, which is revoked: keep only the newest, in memory. Absent when the run has none, is stopping, or its lease is past the four-hour limit."`
+	Stop          bool      `json:"stop" doc:"The Tower asked for the run to stop: stop the work and finish the run as stopped."`
+	Accepted      int64     `json:"accepted" doc:"The highest event number recorded for the run."`
+	Answer        string    `json:"answer,omitempty" doc:"The owner's answer to the run's question, relayed by the Tower. Give it to the work once, then acknowledge it; it comes again in every result until acknowledged."`
+	Question      string    `json:"question,omitempty" doc:"With answer: the id of the question it answers, to send back as acked."`
+	Asking        bool      `json:"asking" doc:"The run's last recorded event is a question still waiting on an answer. False with no answer after the runner asked means the answer was lost: ask again."`
+	WorktreeState string    `json:"worktree_state,omitempty" doc:"When the run has a slot of the worktree pool: preparing, ready (start the work, if it waits) or failed. Absent when it has none."`
+	WorktreeError string    `json:"worktree_error,omitempty" doc:"With worktree_state failed: why the slot could not be prepared."`
 }
 
 // FinishParams ends a run.
@@ -583,6 +590,37 @@ type CapabilityInfo struct {
 type RevokeParams struct {
 	ID     string `json:"id" lucy:"required,maxlen=16" doc:"The capability's id, as capabilities.list shows it."`
 	Reason string `json:"reason,omitempty" lucy:"maxlen=200" doc:"Why, for the record."`
+}
+
+// WorktreeListParams asks worktree.list.
+type WorktreeListParams struct {
+	Org string `json:"org,omitempty" lucy:"maxlen=63" doc:"Only this org's slots; every org's when empty."`
+}
+
+// WorktreeList answers worktree.list.
+type WorktreeList struct {
+	Slots []WorktreeSlot `json:"slots" doc:"The slots, by org, repository and number."`
+}
+
+// WorktreeSlot is one slot of the worktree pool.
+type WorktreeSlot struct {
+	Slot   string `json:"slot" doc:"The slot's name: <org>/<repo>/<number>."`
+	Org    string `json:"org" doc:"The org."`
+	Repo   string `json:"repo" doc:"The repository."`
+	Number int    `json:"number" doc:"The slot's number in its repository's pool."`
+	State  string `json:"state" doc:"free, leased, quarantined (its run finished with work that has not landed), broken, or discarded."`
+	Prep   string `json:"prep,omitempty" doc:"When leased: how its preparation stands: preparing, ready or failed."`
+	Run    string `json:"run,omitempty" doc:"The run that holds it, or held it last."`
+	Branch string `json:"branch,omitempty" doc:"The branch the run works on."`
+	Head   string `json:"head,omitempty" doc:"When free or quarantined: the commit it was given back or quarantined with."`
+	Reason string `json:"reason,omitempty" doc:"Why it is held, when quarantined: uncommitted changes, commits on no remote ref, or its work could not be checked; why it broke, when broken; why its preparation failed, when that failed."`
+	Path   string `json:"path" doc:"Its worktree's directory."`
+}
+
+// WorktreeDiscardParams discards a slot.
+type WorktreeDiscardParams struct {
+	Slot    string `json:"slot" lucy:"required,maxlen=140" doc:"The slot, as worktree.list names it: <org>/<repo>/<number>."`
+	Confirm string `json:"confirm" lucy:"required,maxlen=140" doc:"The slot again, exactly: the discard removes the slot's directory, and with it any work in it that is not committed."`
 }
 
 // HostOrgParams sets the host org.

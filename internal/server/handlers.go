@@ -46,6 +46,8 @@ func (s *Server) bindAll() map[string]handler {
 		api.MethodRevoke:    bind(s.capabilityRevoke),
 		api.MethodVaultRec:  bind(s.vaultRecord),
 		api.MethodHostOrg:   bind(s.runnerHostOrg),
+		api.MethodWtList:    bind(s.worktreeList),
+		api.MethodWtDiscard: bind(s.worktreeDiscard),
 	}
 }
 

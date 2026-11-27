@@ -289,6 +289,20 @@ func (c *Client) VaultRecord(ctx context.Context, p api.VaultRecordParams) (api.
 	return r, err
 }
 
+// Worktrees calls worktree.list.
+func (c *Client) Worktrees(ctx context.Context, org string) (api.WorktreeList, error) {
+	var r api.WorktreeList
+	err := c.Call(ctx, api.MethodWtList, api.WorktreeListParams{Org: org}, &r)
+	return r, err
+}
+
+// WorktreeDiscard calls worktree.discard.
+func (c *Client) WorktreeDiscard(ctx context.Context, p api.WorktreeDiscardParams) (api.WorktreeSlot, error) {
+	var r api.WorktreeSlot
+	err := c.Call(ctx, api.MethodWtDiscard, p, &r)
+	return r, err
+}
+
 // RunnerHostOrg calls runner.host_org.
 func (c *Client) RunnerHostOrg(ctx context.Context, p api.HostOrgParams) (api.HostOrgResult, error) {
 	var r api.HostOrgResult

@@ -8,7 +8,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -112,37 +114,39 @@ func branch(name, run string) string {
 	return "lucy/" + name + "-" + hex.EncodeToString(sum[:4])
 }
 
-// refusals returns the worktree.release_refused events on the repository's stream, in order.
-func (f *fixture) refusals() []ReleaseRefused {
+// quarantines returns the worktree.quarantined events on the repository's stream, in order.
+func (f *fixture) quarantines() []Quarantined {
 	f.t.Helper()
 	events, err := f.store.ReadStream(ctx, Stream("acme", "web"), 0, 1000)
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	var out []ReleaseRefused
+	var out []Quarantined
 	for _, e := range events {
-		if e.Type != (ReleaseRefused{}).EventType() {
+		if e.Type != (Quarantined{}).EventType() {
 			continue
 		}
-		var r ReleaseRefused
-		if err := json.Unmarshal(e.Payload, &r); err != nil {
+		var q Quarantined
+		if err := json.Unmarshal(e.Payload, &q); err != nil {
 			f.t.Fatal(err)
 		}
-		out = append(out, r)
+		out = append(out, q)
 	}
 	return out
 }
 
-func equalRefusals(a, b []ReleaseRefused) bool {
-	if len(a) != len(b) {
-		return false
+// types returns the types of the events on the repository's stream, in order.
+func (f *fixture) types() []string {
+	f.t.Helper()
+	events, err := f.store.ReadStream(ctx, Stream("acme", "web"), 0, 1000)
+	if err != nil {
+		f.t.Fatal(err)
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
+	var out []string
+	for _, e := range events {
+		out = append(out, e.Type)
 	}
-	return true
+	return out
 }
 
 func (f *fixture) slot(n int) SlotInfo {
@@ -207,9 +211,10 @@ func TestAcquireResetsToTheBase(t *testing.T) {
 	}
 }
 
-// Work that has not landed keeps its slot: uncommitted changes, and commits on no base branch,
-// are refused, and the next run gets another slot. Once the commits are on the base branch, or the
-// forge merged exactly the slot's head, the slot is given back.
+// Work that has not landed is quarantined: uncommitted changes, and commits on no ref of the
+// remote, keep the slot with its work untouched, and it no longer counts against the pool's size,
+// so the next runs get new slots up to the size. Once the commits are on the base branch, or the
+// forge merged exactly the slot's head, a later release gives the slot back.
 func TestReleaseNeedsLandedWork(t *testing.T) {
 	f := open(t)
 	l, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main")
@@ -222,18 +227,26 @@ func TestReleaseNeedsLandedWork(t *testing.T) {
 	if err := f.pool.Release(ctx, f.repo, l.Slot, "f1#1", Proof{}); !errors.Is(err, ErrUnlanded) {
 		t.Fatalf("uncommitted changes: %v", err)
 	}
+	if s := f.slot(1); s.State != StateQuarantined || s.Reason != QuarantinedUncommitted {
+		t.Fatalf("a dirty slot: %+v", s)
+	}
 	head := f.commit(l.Path, "draft.txt", "unsaved")
 	if err := f.pool.Release(ctx, f.repo, l.Slot, "f1#1", Proof{}); !errors.Is(err, ErrUnlanded) {
-		t.Fatalf("a commit on no base branch: %v", err)
+		t.Fatalf("a commit on no remote ref: %v", err)
 	}
-	if s := f.slot(1); s.State != StateLeased || s.Run != "f1#1" {
-		t.Fatalf("an unlanded slot was freed: %+v", s)
+	if s := f.slot(1); s.State != StateQuarantined || s.Run != "f1#1" || s.Head != head || s.Reason != QuarantinedUnpushed {
+		t.Fatalf("an unlanded slot: %+v", s)
 	}
+	// The quarantined slot does not count: with a pool of two, two more runs get slots.
 	other, err := f.pool.Acquire(ctx, f.repo, "f2#1", "main")
 	if err != nil || other.Slot != 2 {
 		t.Fatalf("the next run: %+v, %v", other, err)
 	}
-	if _, err := f.pool.Acquire(ctx, f.repo, "f3#1", "main"); !errors.Is(err, ErrBusy) {
+	third, err := f.pool.Acquire(ctx, f.repo, "f3#1", "main")
+	if err != nil || third.Slot != 3 {
+		t.Fatalf("a run beside a quarantined slot: %+v, %v", third, err)
+	}
+	if _, err := f.pool.Acquire(ctx, f.repo, "f4#1", "main"); !errors.Is(err, ErrBusy) {
 		t.Fatalf("beyond the pool's size: %v", err)
 	}
 	if b, err := os.ReadFile(filepath.Join(l.Path, "draft.txt")); err != nil || string(b) != "unsaved" {
@@ -259,13 +272,12 @@ func TestReleaseNeedsLandedWork(t *testing.T) {
 	if s := f.slot(1); s.State != StateFree || s.Head != head {
 		t.Fatalf("slot %+v", s)
 	}
-	if got, want := f.refusals(), []ReleaseRefused{
-		{Slot: 1, Run: "f1#1", Head: l.BaseSHA, Reason: RefusedUncommitted},
-		{Slot: 1, Run: "f1#1", Head: head, Reason: RefusedNotLanded},
-		{Slot: 1, Run: "f1#1", Head: head, Reason: RefusedNotLanded},
-		{Slot: 1, Run: "f1#1", Head: head, Reason: RefusedNotLanded},
-	}; !equalRefusals(got, want) {
-		t.Fatalf("refusals %+v, want %+v", got, want)
+	want := []Quarantined{
+		{Slot: 1, Run: "f1#1", Head: l.BaseSHA, Reason: QuarantinedUncommitted},
+		{Slot: 1, Run: "f1#1", Head: head, Reason: QuarantinedUnpushed},
+	}
+	if got := f.quarantines(); !slices.Equal(got, want) {
+		t.Fatalf("quarantines %+v, want %+v", got, want)
 	}
 
 	// The other run's commit lands on main directly (a fast-forward): its head is on the base.
@@ -284,17 +296,78 @@ func TestReleaseNeedsLandedWork(t *testing.T) {
 	}
 }
 
+// A run that pushed its branch to the remote frees its slot at once (ProofPushed), with no merge.
+func TestPushedBranchFreesItsSlot(t *testing.T) {
+	f := open(t)
+	l, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := f.commit(l.Path, "feature.txt", "done")
+	f.must(f.g.run(ctx, l.Path, "push", "--quiet", "origin", "HEAD:refs/heads/"+l.Branch))
+	if err := f.pool.Release(ctx, f.repo, l.Slot, "f1#1", Proof{}); err != nil {
+		t.Fatalf("a pushed branch: %v", err)
+	}
+	if s := f.slot(1); s.State != StateFree || s.Head != head {
+		t.Fatalf("slot %+v", s)
+	}
+	evs, err := f.store.ReadStream(ctx, Stream("acme", "web"), 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r Released
+	if err := json.Unmarshal(evs[len(evs)-1].Payload, &r); err != nil || r.Proof != ProofPushed {
+		t.Fatalf("the release %+v, %v", r, err)
+	}
+}
+
+// A quarantined slot whose branch is pushed later is freed by the next fresh preparation of the
+// repository, and leased again.
+func TestQuarantinedSlotIsFreedOnceItsWorkLands(t *testing.T) {
+	f := open(t)
+	f.pool.Max = 1
+	l, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.commit(l.Path, "feature.txt", "done")
+	if err := f.pool.Release(ctx, f.repo, l.Slot, "f1#1", Proof{}); !errors.Is(err, ErrUnlanded) {
+		t.Fatal(err)
+	}
+	f.must(f.g.run(ctx, l.Path, "push", "--quiet", "origin", "HEAD:refs/heads/"+l.Branch))
+	next, err := f.pool.Acquire(ctx, f.repo, "f2#1", "main")
+	if err != nil || next.Slot != 2 {
+		t.Fatalf("the next run: %+v, %v", next, err)
+	}
+	if s := f.slot(1); s.State != StateFree {
+		t.Fatalf("the landed quarantined slot: %+v", s)
+	}
+	if err := f.pool.Release(ctx, f.repo, next.Slot, "f2#1", Proof{}); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := f.pool.Acquire(ctx, f.repo, "f3#1", "main"); err != nil || again.Slot != 1 {
+		t.Fatalf("the freed slot is leased again: %+v, %v", again, err)
+	}
+}
+
 // A slot that cannot be made is recorded as broken and never leased; the next run gets another.
 func TestBrokenSlotIsNotLeasedAgain(t *testing.T) {
 	f := open(t)
-	if err := os.MkdirAll(filepath.Join(f.pool.Root, "acme", "web", "slot-1"), 0o700); err != nil {
+	stray := filepath.Join(f.pool.Root, "acme", "web", "slot-1")
+	if err := os.MkdirAll(stray, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stray, "stray"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main"); err == nil {
-		t.Fatal("a slot over a directory the pool did not make was leased")
+		t.Fatal("a slot over a directory with files the pool did not make was leased")
 	}
-	if s := f.slot(1); s.State != StateBroken {
+	if s := f.slot(1); s.State != StateBroken || !strings.Contains(s.Reason, "git worktree") {
 		t.Fatalf("slot %+v", s)
+	}
+	if b, err := os.ReadFile(filepath.Join(stray, "stray")); err != nil || string(b) != "x" {
+		t.Fatalf("the stray file: %q, %v", b, err)
 	}
 	l, err := f.pool.Acquire(ctx, f.repo, "f2#1", "main")
 	if err != nil || l.Slot != 2 {
@@ -333,8 +406,9 @@ func TestRetryAfterBrokenSlotKeepsUnlandedBranch(t *testing.T) {
 	if tip, err := f.g.run(ctx, base, "rev-parse", "refs/heads/"+l.Branch); err != nil || tip != work {
 		t.Fatalf("the run's branch is at %s, %v; want %s", tip, err, work)
 	}
-	if slots, err := f.pool.Slots(ctx, "acme", "web"); err != nil || len(slots) != 1 {
-		t.Fatalf("slots %+v, %v", slots, err)
+	// The retry's slot was given back free, its preparation failed: it never held the run's work.
+	if s := f.slot(2); s.State != StateFree || s.Prep != PrepFailed {
+		t.Fatalf("the retry's slot %+v", s)
 	}
 }
 
@@ -527,8 +601,8 @@ func TestAcquireAgainReturnsTheHeldSlot(t *testing.T) {
 	}
 }
 
-// A release cancelled while the forge's merge is checked records no refusal: the slot stays leased.
-func TestCancelledReleaseRecordsNoRefusal(t *testing.T) {
+// A release cancelled while the forge's merge is checked records nothing: the slot stays leased.
+func TestCancelledReleaseRecordsNothing(t *testing.T) {
 	f := open(t)
 	l, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main")
 	if err != nil {
@@ -559,8 +633,8 @@ func TestCancelledReleaseRecordsNoRefusal(t *testing.T) {
 	if err := f.pool.Release(cctx, f.repo, l.Slot, "f1#1", Proof{Head: head, Merge: side}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("a cancelled release: %v", err)
 	}
-	if got := f.refusals(); len(got) != 0 {
-		t.Fatalf("refusals %+v", got)
+	if got := f.quarantines(); len(got) != 0 {
+		t.Fatalf("quarantines %+v", got)
 	}
 	if s := f.slot(1); s.State != StateLeased || s.Run != "f1#1" {
 		t.Fatalf("slot %+v", s)
@@ -601,9 +675,9 @@ func TestAcquireAgainKeepsIgnoredFiles(t *testing.T) {
 	}
 }
 
-// A lease cancelled while its worktree is being made still records the slot as broken, so it is
-// not left leased with no worktree.
-func TestCancelledAcquireStillRecordsBroken(t *testing.T) {
+// A preparation cancelled while the slot's worktree is being made is recorded as stopped, never
+// broken: the slot is given back free, and the next lease makes it and succeeds.
+func TestCancelledPreparationLeavesTheSlotReusable(t *testing.T) {
 	f := open(t)
 	marker := filepath.Join(f.dir, "adding")
 	script := filepath.Join(f.dir, "git-slow-add")
@@ -623,10 +697,100 @@ func TestCancelledAcquireStillRecordsBroken(t *testing.T) {
 		}
 	}()
 	if _, err := f.pool.Acquire(cctx, f.repo, "f1#1", "main"); err == nil {
-		t.Fatal("a cancelled acquire succeeded")
+		t.Fatal("a cancelled preparation succeeded")
 	}
-	if s := f.slot(1); s.State != StateBroken {
+	if s := f.slot(1); s.State != StateFree || s.Prep != PrepFailed || s.Reason != PrepareStopped {
 		t.Fatalf("slot %+v", s)
+	}
+	f.pool.Git = ""
+	l, err := f.pool.Acquire(ctx, f.repo, "f2#1", "main")
+	if err != nil || l.Slot != 1 || f.head(l.Path) != l.BaseSHA {
+		t.Fatalf("the next lease: %+v, %v", l, err)
+	}
+}
+
+// Discard removes a quarantined or broken slot for the owner, recorded first, and nothing else:
+// a leased or free slot is refused, the other slots and the clone stay, the run's branch stays in
+// the clone, and the slot's number is not used again.
+func TestDiscardRemovesOnlyAQuarantinedOrBrokenSlot(t *testing.T) {
+	f := open(t)
+	l, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Discard(ctx, "acme", "web", 1, "owner"); !errors.Is(err, ErrInUse) {
+		t.Fatalf("a leased slot: %v", err)
+	}
+	work := f.commit(l.Path, "draft.txt", "kept")
+	if err := f.pool.Release(ctx, f.repo, 1, "f1#1", Proof{}); !errors.Is(err, ErrUnlanded) {
+		t.Fatal(err)
+	}
+	other, err := f.pool.Acquire(ctx, f.repo, "f2#1", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.pool.Release(ctx, f.repo, other.Slot, "f2#1", Proof{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Discard(ctx, "acme", "web", other.Slot, "owner"); !errors.Is(err, ErrInUse) {
+		t.Fatalf("a free slot: %v", err)
+	}
+	if _, err := f.pool.Discard(ctx, "acme", "web", 9, "owner"); !errors.Is(err, ErrNotHeld) {
+		t.Fatalf("no such slot: %v", err)
+	}
+
+	if os.Geteuid() != 0 {
+		// A removal that fails finds the discard recorded already, and a second discard retries it.
+		if err := os.Chmod(l.Path, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		_, err := f.pool.Discard(ctx, "acme", "web", 1, "owner")
+		if cerr := os.Chmod(l.Path, 0o700); cerr != nil {
+			t.Fatal(cerr)
+		}
+		if err == nil {
+			t.Fatal("a removal that cannot delete succeeded")
+		}
+		if got := f.types(); got[len(got)-1] != (Discarded{}).EventType() {
+			t.Fatalf("the discard was not recorded before the removal: %v", got)
+		}
+	}
+	s, err := f.pool.Discard(ctx, "acme", "web", 1, "owner")
+	if err != nil || s.State != StateDiscarded {
+		t.Fatalf("discard: %+v, %v", s, err)
+	}
+	if s := f.slot(1); s.State != StateDiscarded {
+		t.Fatalf("slot %+v", s)
+	}
+	evs, err := f.store.ReadStream(ctx, Stream("acme", "web"), 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d Discarded
+	if err := json.Unmarshal(evs[len(evs)-1].Payload, &d); err != nil {
+		t.Fatal(err)
+	}
+	if d != (Discarded{Slot: 1, Run: "f1#1", Branch: l.Branch, Head: work, By: "owner"}) {
+		t.Fatalf("the record %+v", d)
+	}
+	if _, err := os.Lstat(l.Path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the slot's directory: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(other.Path, "README.md")); err != nil {
+		t.Fatalf("the other slot: %v", err)
+	}
+	base := filepath.Join(f.pool.Root, "acme", "web", "base.git")
+	if tip, err := f.g.run(ctx, base, "rev-parse", "refs/heads/"+l.Branch); err != nil || tip != work {
+		t.Fatalf("the run's branch: %s, %v", tip, err)
+	}
+	// Two runs at once: the free slot 2, and a new slot 3, never 1 again.
+	a, err := f.pool.Acquire(ctx, f.repo, "f3#1", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := f.pool.Acquire(ctx, f.repo, "f4#1", "main")
+	if err != nil || a.Slot != 2 || b.Slot != 3 {
+		t.Fatalf("after a discard: %+v, %+v, %v", a, b, err)
 	}
 }
 

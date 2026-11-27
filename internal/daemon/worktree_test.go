@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/api/client"
@@ -26,9 +27,9 @@ func gitRun(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// A run of a project whose Runway names a repository is leased its slot of the worktree pool with
-// the lease, a checkout of the base on its own branch; once it finishes with nothing that has not
-// landed, its slot is given back (LUCY-RUN-007).
+// A run of a project whose Runway names a repository is reserved its slot of the worktree pool with
+// the lease and the slot is prepared in the background, a checkout of the base on its own branch;
+// once it finishes with nothing that has not landed, its slot is given back (LUCY-RUN-007).
 func TestLeasedRunsGetTheirWorktree(t *testing.T) {
 	dir := shortTempDir(t)
 	o := opts(dir)
@@ -85,12 +86,27 @@ func TestLeasedRunsGetTheirWorktree(t *testing.T) {
 	c := client.New(r.sock, "test", "0")
 	defer c.Close()
 	l, err := c.RunnerLease(ctx, api.LeaseParams{Runner: "acme-host-1", Org: "acme"})
-	if err != nil || !l.Leased || l.Run.WorktreeError != "" {
+	if err != nil || !l.Leased || l.Run.WorktreeError != "" || l.Run.WorktreeState != "preparing" {
 		t.Fatalf("lease: %+v, %v", l, err)
 	}
 	wt := l.Run.Worktree
 	if !strings.HasPrefix(wt, o.WorktreeRoot+string(filepath.Separator)) || !strings.HasPrefix(l.Run.Branch, "lucy/f1-1-") {
 		t.Fatalf("worktree %q on %q", wt, l.Run.Branch)
+	}
+	// The slot is prepared in the background; each heartbeat says how it stands.
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		beat, err := c.RunnerHeartbeat(ctx, api.HeartbeatParams{Runner: "acme-host-1", Run: "f1#1", Fence: l.Run.Fence})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if beat.WorktreeState == "ready" {
+			break
+		}
+		if beat.WorktreeState != "preparing" || time.Now().After(deadline) {
+			t.Fatalf("heartbeat: %+v", beat)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	if b, err := os.ReadFile(filepath.Join(wt, "AGENTS.md")); err != nil || string(b) != "the project's instructions\n" {
 		t.Fatalf("the run's checkout: %q, %v", b, err)
@@ -98,17 +114,26 @@ func TestLeasedRunsGetTheirWorktree(t *testing.T) {
 	if _, err := c.RunnerFinish(ctx, api.FinishParams{Runner: "acme-host-1", Run: "f1#1", Fence: l.Run.Fence, Outcome: "failed", Reason: "nothing to do"}); err != nil {
 		t.Fatal(err)
 	}
-	evs, err := c.Events(ctx, api.EventsParams{Limit: 200})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var types []string
-	for _, e := range evs.Events {
-		if e.Stream == "worktree/acme/web" {
-			types = append(types, e.Type)
+	// It is given back in the background.
+	want := "worktree.added,worktree.leased,worktree.prepared,worktree.released"
+	for {
+		evs, err := c.Events(ctx, api.EventsParams{Limit: 200})
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	if got := strings.Join(types, ","); got != "worktree.added,worktree.leased,worktree.released" {
-		t.Fatalf("the slot's events: %s", got)
+		var types []string
+		for _, e := range evs.Events {
+			if e.Stream == "worktree/acme/web" {
+				types = append(types, e.Type)
+			}
+		}
+		got := strings.Join(types, ",")
+		if got == want {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the slot's events: %s", got)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

@@ -34,7 +34,7 @@ func lucy(args ...string) (int, string, string) {
 func TestClientCommandsWithoutADaemon(t *testing.T) {
 	sock := filepath.Join(shortTempDir(t), "none.sock")
 	for _, cmd := range [][]string{{"status"}, {"events"}, {"daemon", "stop"}, {"questions"}, {"answer", "f1", "yes"},
-		{"sandbox", "held"}, {"capability", "ls"}} {
+		{"sandbox", "held"}, {"capability", "ls"}, {"worktree", "ls"}} {
 		code, out, errOut := lucy(append(cmd, "--socket", sock)...)
 		if code != 1 || out != "" || !strings.Contains(errOut, "lucy daemon is not running") ||
 			!strings.Contains(errOut, "help: start it with `lucy daemon`") {
@@ -59,13 +59,15 @@ func TestUsageErrors(t *testing.T) {
 		{"sandbox", "confirm", "acme", "restart", "x"}, {"sandbox", "confirm", "acme", "restart", "0"},
 		{"gateway"}, {"gateway", "--nope"}, {"gateway", "--org", "acme", "extra"},
 		{"capability"}, {"capability", "nope"}, {"capability", "ls", "x"}, {"capability", "revoke"},
+		{"worktree"}, {"worktree", "nope"}, {"worktree", "ls", "x"}, {"worktree", "discard"}, {"worktree", "discard", "acme/web/1"},
+		{"worktree", "discard", "--confirm", "acme/web/1"}, {"worktree", "discard", "acme/web/1", "--confirm", "acme/web/1", "extra"},
 	} {
 		if code, _, errOut := lucy(args...); code != 2 || !strings.Contains(errOut, "help: run `lucy") {
 			t.Errorf("%v: code %d stderr %q", args, code, errOut)
 		}
 	}
 	for _, args := range [][]string{{"status", "--help"}, {"events", "-h"}, {"daemon", "--help"}, {"runner", "--help"}, {"questions", "--help"}, {"answer", "-h"},
-		{"sandbox", "--help"}, {"sandbox", "held", "--help"}, {"sandbox", "confirm", "-h"}, {"gateway", "--help"}, {"vault", "-h"}, {"capability", "--help"}} {
+		{"sandbox", "--help"}, {"sandbox", "held", "--help"}, {"sandbox", "confirm", "-h"}, {"gateway", "--help"}, {"vault", "-h"}, {"capability", "--help"}, {"worktree", "--help"}} {
 		if code, out, _ := lucy(args...); code != 0 || !strings.Contains(out, "Usage:") {
 			t.Errorf("%v: code %d stdout %q", args, code, out)
 		}
@@ -165,6 +167,16 @@ func TestDaemonAndClients(t *testing.T) {
 	if code, out, errOut := lucy("sandbox", "confirm", "--socket", sock, "acme", "restart", "7"); code != 1 || out != "" ||
 		!strings.Contains(errOut, "(unavailable)") || !strings.Contains(errOut, "no Sandbox binding open") {
 		t.Errorf("sandbox confirm: code %d stdout %q stderr %q", code, out, errOut)
+	}
+	// No run has had a slot yet; a discard names the slot first and repeats it after --confirm.
+	if code, out, errOut := lucy("worktree", "ls", "--socket", sock); code != 0 || out != "slots[0]: none\n" {
+		t.Errorf("worktree ls: code %d stdout %q stderr %q", code, out, errOut)
+	}
+	if code, _, errOut := lucy("worktree", "discard", "--socket", sock, "acme/web/1", "--confirm", "acme/web/2"); code != 1 || !strings.Contains(errOut, "repeat the slot exactly") {
+		t.Errorf("worktree discard, a wrong confirmation: code %d stderr %q", code, errOut)
+	}
+	if code, _, errOut := lucy("worktree", "discard", "--socket", sock, "acme/web/1", "--confirm", "acme/web/1"); code != 1 || !strings.Contains(errOut, "no such slot") {
+		t.Errorf("worktree discard, no such slot: code %d stderr %q", code, errOut)
 	}
 	code, _, errOut = lucy("events", "--socket", sock, "--limit", "501")
 	if code != 1 || !strings.Contains(errOut, "error: invalid params (invalid_params)") || !strings.Contains(errOut, "help: must be at most 500") {

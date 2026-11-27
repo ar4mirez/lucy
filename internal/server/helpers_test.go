@@ -25,6 +25,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/sandbox"
 	"github.com/ar4mirez/lucy/internal/spec"
 	"github.com/ar4mirez/lucy/internal/vault"
+	"github.com/ar4mirez/lucy/internal/worktree"
 )
 
 // note is a test payload type.
@@ -64,13 +65,13 @@ type fixture struct {
 func start(t *testing.T, allowUID, maxConns int, tweak func(*Options), onRefuse ...func(PeerCred, error)) *fixture {
 	t.Helper()
 	dir := shortTempDir(t)
-	reg, err := eventstore.NewRegistry(append(append(spec.Payloads(), CommandEvent{}, policy.DecisionRecord{}, note{}), append(append(append(append(runner.Payloads(), sandbox.Payloads()...), gateway.Payloads()...), capability.Payloads()...), vault.Payloads()...)...)...)
+	reg, err := eventstore.NewRegistry(append(append(spec.Payloads(), CommandEvent{}, policy.DecisionRecord{}, note{}), append(append(append(append(append(runner.Payloads(), sandbox.Payloads()...), gateway.Payloads()...), capability.Payloads()...), vault.Payloads()...), worktree.Payloads()...)...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	store, err := eventstore.Open(context.Background(), filepath.Join(dir, "data", "lucy.db"),
 		eventstore.Options{Registry: reg, SnapshotDir: filepath.Join(dir, "snap"),
-			Projectors: []eventstore.Projector{spec.StatusProjector{}, runner.Projector{}, sandbox.Projector{}, capability.Projector{}, audit.Projector{}}})
+			Projectors: []eventstore.Projector{spec.StatusProjector{}, runner.Projector{}, sandbox.Projector{}, capability.Projector{}, worktree.Projector{}, audit.Projector{}}})
 	if err != nil {
 		t.Fatal(err)
 	}

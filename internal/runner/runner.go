@@ -77,9 +77,9 @@ type Runner struct {
 
 type held struct {
 	lease    Lease
-	exec     Execution
-	next     int64   // the next event number to give
-	pending  []Event // numbered, not yet recorded by the broker
+	exec     Execution // nil while the run's worktree is being prepared
+	next     int64     // the next event number to give
+	pending  []Event   // numbered, not yet recorded by the broker
 	beatAt   time.Time
 	result   *Result
 	stopping bool
@@ -169,15 +169,19 @@ func (r *Runner) Step(ctx context.Context) error {
 // and every event is recorded. A fenced run is dropped: its work is stopped and nothing more is
 // sent under the old fence.
 func (r *Runner) tend(ctx context.Context, h *held) error {
-	u := h.exec.Poll()
-	for _, ev := range u.Events {
-		h.queue(ev)
-	}
-	if u.Result != nil && h.result == nil {
-		h.result = u.Result
+	if h.exec != nil {
+		u := h.exec.Poll()
+		for _, ev := range u.Events {
+			h.queue(ev)
+		}
+		if u.Result != nil && h.result == nil {
+			h.result = u.Result
+		}
 	}
 	now := r.cfg.Now()
-	for len(h.pending) > 0 || !now.Before(h.beatAt) {
+	waiting := h.exec == nil && h.result == nil // its worktree is being prepared: ask on every step
+	for waiting || len(h.pending) > 0 || !now.Before(h.beatAt) {
+		waiting = false
 		batch := h.pending[:min(len(h.pending), MaxBatch)]
 		acked := h.ack
 		beat, err := r.cfg.Protocol.Heartbeat(ctx, r.cfg.ID, h.lease.Run, h.lease.Fence, r.cfg.TTL, batch, acked)
@@ -218,7 +222,10 @@ func (r *Runner) tend(ctx context.Context, h *held) error {
 			r.cfg.Log.Warn("runner lost a run's answer; asking again", "run", h.lease.Run)
 			h.queue(*h.question)
 		}
-		if beat.Stop && !h.stopping {
+		if h.exec == nil && h.result == nil {
+			r.await(ctx, h, beat)
+		}
+		if beat.Stop && !h.stopping && h.exec != nil {
 			h.exec.Stop()
 			h.stopping = true
 		}
@@ -232,6 +239,32 @@ func (r *Runner) tend(ctx context.Context, h *held) error {
 	}
 	delete(r.runs, h.lease.Run)
 	return nil
+}
+
+// await starts the work of a run whose worktree was being prepared once the heartbeat reports it
+// ready, and finishes the run as failed when it reports it failed, or none, and as stopped when
+// the Tower asked for the run to stop first.
+func (r *Runner) await(ctx context.Context, h *held, beat Beat) {
+	switch {
+	case beat.Stop:
+		h.result, h.stopping = &Result{Outcome: OutcomeStopped, Reason: "stopped while its worktree was being prepared"}, true
+	case beat.WorktreeState == WorktreePreparing:
+	case beat.WorktreeState == WorktreeReady:
+		h.lease.WorktreeState = WorktreeReady
+		exec, err := r.cfg.Executor.Start(ctx, h.lease)
+		if err != nil {
+			r.cfg.Log.Warn("runner could not start a run", "run", h.lease.Run, "err", err)
+			h.result = &Result{Outcome: OutcomeFailed, Reason: "the runner could not start the work: " + err.Error()}
+			return
+		}
+		h.exec = exec
+	default:
+		why := beat.WorktreeError
+		if why == "" {
+			why = "the daemon reports no worktree for the run"
+		}
+		h.result = &Result{Outcome: OutcomeFailed, Reason: "the run's worktree could not be prepared: " + why}
+	}
 }
 
 // answer gives the work the owner's answer to a question once, however often the broker sends
@@ -265,13 +298,16 @@ func (h *held) queue(ev Event) {
 }
 
 func (r *Runner) drop(h *held, why string) {
-	h.exec.Stop()
+	if h.exec != nil {
+		h.exec.Stop()
+	}
 	delete(r.runs, h.lease.Run)
 	r.cfg.Log.Warn("runner dropped a run", "run", h.lease.Run, "fence", h.lease.Fence, "why", why)
 }
 
-// take leases the oldest queued run and starts its work. A run whose work cannot start is
-// finished as failed.
+// take leases the oldest queued run and starts its work, or, while its worktree is being prepared,
+// holds it until a heartbeat reports the worktree ready. A run whose work cannot start is finished
+// as failed.
 func (r *Runner) take(ctx context.Context) error {
 	n, err := r.cfg.Protocol.Queued(ctx, r.cfg.Placement, r.cfg.Org)
 	if err != nil || n == 0 {
@@ -283,6 +319,10 @@ func (r *Runner) take(ctx context.Context) error {
 	}
 	if err != nil || !ok {
 		return err
+	}
+	if l.WorktreeState == WorktreePreparing {
+		r.runs[l.Run] = &held{lease: l, next: 1, beatAt: r.cfg.Now().Add(r.cfg.TTL / 3)}
+		return nil
 	}
 	exec, err := r.cfg.Executor.Start(ctx, l)
 	if err != nil {
@@ -303,13 +343,15 @@ func (r *Runner) take(ctx context.Context) error {
 // crashes loses its runs the same way, when their leases expire.
 func (r *Runner) Shutdown(ctx context.Context, grace time.Duration) error {
 	for _, id := range r.order() {
-		r.runs[id].exec.Stop()
+		if h := r.runs[id]; h.exec != nil {
+			h.exec.Stop()
+		}
 	}
 	deadline := time.Now().Add(grace)
 	var errs []error
 	for _, id := range r.order() {
 		h := r.runs[id]
-		for h.result == nil && time.Now().Before(deadline) {
+		for h.exec != nil && h.result == nil && time.Now().Before(deadline) {
 			u := h.exec.Poll()
 			for _, ev := range u.Events {
 				h.queue(ev)

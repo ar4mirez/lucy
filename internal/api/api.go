@@ -46,8 +46,9 @@ const Version = 1
 // Revision 13 bound host placement to one org: runner.lease's and runner.queued's org, the
 // runner_org, host_org and placement_proof errors, runner.lease's placement_proof, and
 // runner.host_org.
-// Revision 14 added runner.lease's worktree, branch and worktree_error: the run's slot of the
-// worktree pool.
+// Revision 14 added the worktree pool: runner.lease's worktree, branch, worktree_state and
+// worktree_error, runner.heartbeat's worktree_state and worktree_error, worktree.list and
+// worktree.discard.
 const SchemaRevision = 14
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.

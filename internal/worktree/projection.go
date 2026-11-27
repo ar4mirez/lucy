@@ -13,9 +13,18 @@ import (
 
 // Slot states.
 const (
-	StateFree   = "free"
-	StateLeased = "leased"
-	StateBroken = "broken"
+	StateFree        = "free"
+	StateLeased      = "leased"
+	StateBroken      = "broken"
+	StateQuarantined = "quarantined" // its run finished with work that has not landed
+	StateDiscarded   = "discarded"   // the owner discarded it; its number is never used again
+)
+
+// How a leased slot's preparation stands.
+const (
+	PrepPreparing = "preparing"
+	PrepReady     = "ready"
+	PrepFailed    = "failed"
 )
 
 // SlotInfo is a slot as the projection holds it.
@@ -24,12 +33,13 @@ type SlotInfo struct {
 	Slot      int
 	Path      string
 	State     string
-	Run       string // when leased: the run holding it; when free: the last
+	Run       string // when leased or quarantined: the run holding it; otherwise the last
 	Branch    string
 	Base      string
-	BaseSHA   string
-	Head      string // when free: the head it was released with
-	Reason    string // when broken
+	BaseSHA   string // empty until the lease is prepared
+	Prep      string // the last lease's preparation: Prep*
+	Head      string // when free or quarantined: the head it was released or quarantined with
+	Reason    string // when broken, quarantined or its preparation failed: why
 	Version   int64  // the stream's version at this slot's last event
 }
 
@@ -41,7 +51,7 @@ type Projector struct{}
 func (Projector) Name() string { return "worktree_slots" }
 
 // Version implements eventstore.Projector.
-func (Projector) Version() int { return 1 }
+func (Projector) Version() int { return 2 }
 
 // Reset implements eventstore.Projector.
 func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
@@ -57,6 +67,7 @@ func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
 			branch   TEXT NOT NULL DEFAULT '',
 			base     TEXT NOT NULL DEFAULT '',
 			base_sha TEXT NOT NULL DEFAULT '',
+			prep     TEXT NOT NULL DEFAULT '',
 			head     TEXT NOT NULL DEFAULT '',
 			reason   TEXT NOT NULL DEFAULT '',
 			version  INTEGER NOT NULL,
@@ -94,15 +105,36 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 		if err := json.Unmarshal(e.Payload, &p); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE worktree_slots SET state = ?, run = ?, branch = ?, base = ?, base_sha = ?, head = '', version = ?
-			WHERE org = ? AND repo = ? AND slot = ?`, StateLeased, p.Run, p.Branch, p.Base, p.BaseSHA, e.StreamVersion, org, repo, p.Slot)
+		_, err = tx.ExecContext(ctx, `UPDATE worktree_slots SET state = ?, run = ?, branch = ?, base = ?, base_sha = ?, prep = ?, head = '', reason = '', version = ?
+			WHERE org = ? AND repo = ? AND slot = ?`, StateLeased, p.Run, p.Branch, p.Base, p.BaseSHA, PrepPreparing, e.StreamVersion, org, repo, p.Slot)
+	case Prepared{}.EventType():
+		var p Prepared
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE worktree_slots SET base_sha = ?, prep = ?, version = ? WHERE org = ? AND repo = ? AND slot = ?`,
+			p.BaseSHA, PrepReady, e.StreamVersion, org, repo, p.Slot)
+	case PrepareFailed{}.EventType():
+		var p PrepareFailed
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE worktree_slots SET state = CASE WHEN base_sha = '' THEN ? ELSE state END, prep = ?, reason = ?, version = ?
+			WHERE org = ? AND repo = ? AND slot = ?`, StateFree, PrepFailed, p.Reason, e.StreamVersion, org, repo, p.Slot)
 	case Released{}.EventType():
 		var p Released
 		if err := json.Unmarshal(e.Payload, &p); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE worktree_slots SET state = ?, head = ?, version = ? WHERE org = ? AND repo = ? AND slot = ?`,
+		_, err = tx.ExecContext(ctx, `UPDATE worktree_slots SET state = ?, head = ?, reason = '', version = ? WHERE org = ? AND repo = ? AND slot = ?`,
 			StateFree, p.Head, e.StreamVersion, org, repo, p.Slot)
+	case Quarantined{}.EventType():
+		var p Quarantined
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE worktree_slots SET state = ?, head = ?, reason = ?, version = ? WHERE org = ? AND repo = ? AND slot = ?`,
+			StateQuarantined, p.Head, p.Reason, e.StreamVersion, org, repo, p.Slot)
 	case Broken{}.EventType():
 		var p Broken
 		if err := json.Unmarshal(e.Payload, &p); err != nil {
@@ -110,17 +142,24 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE worktree_slots SET state = ?, reason = ?, version = ? WHERE org = ? AND repo = ? AND slot = ?`,
 			StateBroken, p.Reason, e.StreamVersion, org, repo, p.Slot)
+	case Discarded{}.EventType():
+		var p Discarded
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE worktree_slots SET state = ?, version = ? WHERE org = ? AND repo = ? AND slot = ?`,
+			StateDiscarded, e.StreamVersion, org, repo, p.Slot)
 	}
 	return err
 }
 
-const slotColumns = `org, repo, slot, path, state, run, branch, base, base_sha, head, reason, version`
+const slotColumns = `org, repo, slot, path, state, run, branch, base, base_sha, prep, head, reason, version`
 
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanSlot(r rowScanner) (SlotInfo, error) {
 	var s SlotInfo
-	err := r.Scan(&s.Org, &s.Repo, &s.Slot, &s.Path, &s.State, &s.Run, &s.Branch, &s.Base, &s.BaseSHA, &s.Head, &s.Reason, &s.Version)
+	err := r.Scan(&s.Org, &s.Repo, &s.Slot, &s.Path, &s.State, &s.Run, &s.Branch, &s.Base, &s.BaseSHA, &s.Prep, &s.Head, &s.Reason, &s.Version)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SlotInfo{}, ErrNotHeld
 	}

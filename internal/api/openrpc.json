@@ -1070,11 +1070,15 @@
                   "type": "string"
                 },
                 "worktree": {
-                  "description": "When the run's project names a repository: the absolute path, on the daemon's host, of the run's slot of lucy's worktree pool, reset to the base and checked out on branch. The run works there.",
+                  "description": "When the run is placed on the host and its project names a repository: the absolute path, on the daemon's host, of the run's slot of lucy's worktree pool, which the daemon prepares (reset to the base and checked out on branch) after the lease. The run works there once it is ready.",
                   "type": "string"
                 },
                 "worktree_error": {
-                  "description": "When the run's project names a repository but no slot could be leased for it: why. The runner then fails the run without starting it.",
+                  "description": "When the run's project names a repository but no slot could be leased for it: why (worktree_state is failed). The runner then fails the run without starting it.",
+                  "type": "string"
+                },
+                "worktree_state": {
+                  "description": "With worktree, or worktree_error: preparing, or failed. Hold a preparing lease, heartbeating as usual, without starting the work; start it once a heartbeat reports ready, and finish the run as failed if one reports failed.",
                   "type": "string"
                 }
               },
@@ -1235,6 +1239,14 @@
             "stop": {
               "description": "The Tower asked for the run to stop: stop the work and finish the run as stopped.",
               "type": "boolean"
+            },
+            "worktree_error": {
+              "description": "With worktree_state failed: why the slot could not be prepared.",
+              "type": "string"
+            },
+            "worktree_state": {
+              "description": "When the run has a slot of the worktree pool: preparing, ready (start the work, if it waits) or failed. Absent when it has none.",
+              "type": "string"
             }
           },
           "required": [
@@ -2487,6 +2499,189 @@
           },
           "required": [
             "seq"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "admin",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
+    },
+    {
+      "name": "worktree.list",
+      "summary": "The worktree pool's slots, by org, repository and number: each with its state, the run that holds or last held it, its branch, and why it is held when quarantined or broken.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "org",
+          "description": "Only this org's slots; every org's when empty.",
+          "required": false,
+          "schema": {
+            "maxLength": 63,
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "slots": {
+              "description": "The slots, by org, repository and number.",
+              "items": {
+                "properties": {
+                  "branch": {
+                    "description": "The branch the run works on.",
+                    "type": "string"
+                  },
+                  "head": {
+                    "description": "When free or quarantined: the commit it was given back or quarantined with.",
+                    "type": "string"
+                  },
+                  "number": {
+                    "description": "The slot's number in its repository's pool.",
+                    "type": "integer"
+                  },
+                  "org": {
+                    "description": "The org.",
+                    "type": "string"
+                  },
+                  "path": {
+                    "description": "Its worktree's directory.",
+                    "type": "string"
+                  },
+                  "prep": {
+                    "description": "When leased: how its preparation stands: preparing, ready or failed.",
+                    "type": "string"
+                  },
+                  "reason": {
+                    "description": "Why it is held, when quarantined: uncommitted changes, commits on no remote ref, or its work could not be checked; why it broke, when broken; why its preparation failed, when that failed.",
+                    "type": "string"
+                  },
+                  "repo": {
+                    "description": "The repository.",
+                    "type": "string"
+                  },
+                  "run": {
+                    "description": "The run that holds it, or held it last.",
+                    "type": "string"
+                  },
+                  "slot": {
+                    "description": "The slot's name: \u003corg\u003e/\u003crepo\u003e/\u003cnumber\u003e.",
+                    "type": "string"
+                  },
+                  "state": {
+                    "description": "free, leased, quarantined (its run finished with work that has not landed), broken, or discarded.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "slot",
+                  "org",
+                  "repo",
+                  "number",
+                  "state",
+                  "path"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "slots"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "read",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
+    },
+    {
+      "name": "worktree.discard",
+      "summary": "Discard a quarantined or broken slot of the worktree pool: recorded first, then its directory is removed through the path guard. Its branch stays in the repository's clone, so its commits are recoverable until git gc. Refused unless confirm repeats slot exactly, and for a free or leased slot.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "slot",
+          "description": "The slot, as worktree.list names it: \u003corg\u003e/\u003crepo\u003e/\u003cnumber\u003e.",
+          "required": true,
+          "schema": {
+            "maxLength": 140,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "confirm",
+          "description": "The slot again, exactly: the discard removes the slot's directory, and with it any work in it that is not committed.",
+          "required": true,
+          "schema": {
+            "maxLength": 140,
+            "minLength": 1,
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "branch": {
+              "description": "The branch the run works on.",
+              "type": "string"
+            },
+            "head": {
+              "description": "When free or quarantined: the commit it was given back or quarantined with.",
+              "type": "string"
+            },
+            "number": {
+              "description": "The slot's number in its repository's pool.",
+              "type": "integer"
+            },
+            "org": {
+              "description": "The org.",
+              "type": "string"
+            },
+            "path": {
+              "description": "Its worktree's directory.",
+              "type": "string"
+            },
+            "prep": {
+              "description": "When leased: how its preparation stands: preparing, ready or failed.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Why it is held, when quarantined: uncommitted changes, commits on no remote ref, or its work could not be checked; why it broke, when broken; why its preparation failed, when that failed.",
+              "type": "string"
+            },
+            "repo": {
+              "description": "The repository.",
+              "type": "string"
+            },
+            "run": {
+              "description": "The run that holds it, or held it last.",
+              "type": "string"
+            },
+            "slot": {
+              "description": "The slot's name: \u003corg\u003e/\u003crepo\u003e/\u003cnumber\u003e.",
+              "type": "string"
+            },
+            "state": {
+              "description": "free, leased, quarantined (its run finished with work that has not landed), broken, or discarded.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "slot",
+            "org",
+            "repo",
+            "number",
+            "state",
+            "path"
           ],
           "type": "object"
         }

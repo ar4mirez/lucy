@@ -115,9 +115,18 @@ the pid, so two runners never share an id. Each run gets a fresh directory under
 too long for a run's gateway socket and names the longest it takes),
 deleted through the path guard when the command exits; the command sees only PATH, HOME, TMPDIR
 and the `LUCY_RUN_*` variables. A run of a project whose Runway names a `repository` works in its
-own slot of the daemon's worktree pool (`worktrees/` in lucy's data directory), leased with the run
-and checked out on its own `lucy/<run>-<hash>` branch at the Runway's `defaultBranch`, rather than in
-the empty scratch directory, which stays its TMPDIR; the slot is kept until its work has landed. Its HOME is the org's synthetic home, `home/` under `--root`
+own slot of the daemon's worktree pool (`worktrees/` in lucy's data directory), checked out on its
+own `lucy/<run>-<hash>` branch at the Runway's `defaultBranch`, rather than in the empty scratch
+directory, which stays its TMPDIR. The daemon reserves the slot with the lease and prepares it in
+the background (a first clone of a large repository can take minutes; up to 30); the runner holds
+the run, heartbeating, and starts the command once the slot is ready, or fails the run with the
+reason if the preparation fails. When the run ends the slot is given back if its work landed
+(pushed, merged, or nothing beyond the base); otherwise it is quarantined with its work kept, and
+the next run gets a new slot. `lucy worktree ls` shows every slot and why a quarantined one is
+held; push or merge its branch and the next run of the repository frees it, or remove it with
+`lucy worktree discard <org>/<repo>/<slot> --confirm <org>/<repo>/<slot>` (its branch stays in the
+clone, `worktrees/<org>/<repo>/base.git`, until git gc, so `git -C` there can still recover its
+commits). Its HOME is the org's synthetic home, `home/` under `--root`
 (0700, kept across runs and shared by them), never yours, so a Pilot reads nothing of your home
 directory; whatever a harness needs there, such as its own login, is set up in that home. A root
 is bound to its org on first use (`.org` in it), and `lucy runner` for another org refuses it
