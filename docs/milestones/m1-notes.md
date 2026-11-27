@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 4
+version: 5
 owner: ar4mirez
 requirements: []
 ---
@@ -92,7 +92,7 @@ slice table, requirement status and exit tests stay in the plan.
   reads its own org's credentials from it, before it looks any upstream up. Each org key is
   wrapped under a key derived from the vault passphrase ([D14](../decisions/D14-vault-passphrase-kek.md),
   PBKDF2-HMAC-SHA256, `Vault.Unlock`), which `lucy vault set` and `lucy gateway` read from
-  `--passphrase-file`, the systemd credential `lucy-vault` or the terminal; a vault from before
+  `--passphrase-file` or the terminal; a vault from before
   wrapping is migrated on its first unlock. Capability tokens ([capabilities](../tech/capability.md)): the daemon issues each
   leased run a token for its org's routes, bound to the lease and at most four hours, keeping only
   its digest; the gateway requires it and the daemon checks it before deciding, and the owner

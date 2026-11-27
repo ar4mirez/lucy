@@ -336,7 +336,7 @@ func unwrap(kek cipher.AEAD, org string, w []byte) ([]byte, error) {
 // key is removed only once its wrapped copy opens to the same key.
 func (v *Vault) Unlock(passphrase []byte) error {
 	if len(passphrase) < MinPassphrase || len(passphrase) > MaxPassphrase {
-		return fmt.Errorf("%w: a vault passphrase is %d to %d bytes", ErrInvalid, MinPassphrase, MaxPassphrase)
+		return fmt.Errorf("%w: a vault passphrase is %d to %d bytes", ErrPassphrase, MinPassphrase, MaxPassphrase)
 	}
 	lock, err := v.lock()
 	if err != nil {

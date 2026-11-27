@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 13
+version: 14
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-SEC-002, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -72,9 +72,8 @@ nothing of another's and a sealed file moved or changed does not open (LUCY-CRED
   credentials are under `orgs/`, apart from the keys. A vault from before keys were wrapped is
   migrated on its first unlock, its plain keys removed; after that a plain key is refused.
 - **The passphrase.** `lucy gateway` and `lucy vault set` read it from `--passphrase-file` (a
-  plain file only its owner can read, outside the vault and lucy's data directory), else the
-  systemd credential `lucy-vault`, else ask once on the terminal with echo off; never from an
-  argument or the environment. It is 12 to 1024 bytes. A lost passphrase cannot be recovered.
+  plain file only its owner can read, outside the vault and lucy's data directory), else ask once
+  on the terminal with echo off; never from an argument or the environment. It is 12 to 1024 bytes. A lost passphrase cannot be recovered.
 - **Who reads them.** Only the org's gateway process, for its own org; no agent, runner or
   container ever has a key or a credential, and the daemon holds neither.
 - **What this protects against.** A copy of the vault, keys included, without the passphrase;

@@ -33,10 +33,9 @@ directory, 0600) and records every request through the daemon.
 
 The org's credentials come from the vault (` + "`lucy vault`" + `), and only that org's: a route whose
 credential the vault does not hold is refused, and the refusal recorded. The gateway unlocks the
-vault once, at start, with the vault passphrase: from --passphrase-file, else the systemd
-credential lucy-vault, else asked once on the terminal; never an argument or the environment
-(see ` + "`lucy vault --help`" + `). Run headless, under a service manager, point it at a 0400 file or a
-service credential.
+vault once, at start, with the vault passphrase: from --passphrase-file, else asked once on the
+terminal; never an argument or the environment (see ` + "`lucy vault --help`" + `). Run headless, under a
+service manager, point --passphrase-file at a 0400 file or a service credential.
 
 Flags:
   --org <org>        the org whose gateway this is (required)

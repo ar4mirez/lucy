@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -18,19 +19,14 @@ import (
 )
 
 // The vault passphrase derives the key that wraps every org key (D14). lucy reads it from a file
-// it is pointed at, or a systemd credential named lucy-vault, or else asks once on the terminal
-// with echo off; never from an argument or the environment, where a process list or a child
-// would see it.
-
-// systemdCredential is the name of the vault passphrase among a systemd unit's credentials
-// (LoadCredential=lucy-vault:<path>), read from $CREDENTIALS_DIRECTORY when nothing else names one.
-const systemdCredential = "lucy-vault"
+// it is pointed at, or else asks once on the terminal with echo off; never from an argument or
+// the environment, where a process list or a child would see it.
 
 // promptPassphrase asks for the passphrase on the terminal, twice when confirm is set; swapped in
 // tests.
 var promptPassphrase = promptTTY
 
-// unlockVault unlocks v with the passphrase from file, or a systemd credential, or the terminal.
+// unlockVault unlocks v with the passphrase from file, or else from the terminal.
 // vaultDir is the vault's directory, inside which (as inside lucy's data directory) a passphrase
 // file is refused.
 func unlockVault(v *vault.Vault, file, vaultDir string) error {
@@ -47,22 +43,10 @@ func unlockVault(v *vault.Vault, file, vaultDir string) error {
 }
 
 func vaultPassphrase(file, vaultDir string, confirm bool) ([]byte, error) {
-	if file == "" {
-		if d := os.Getenv("CREDENTIALS_DIRECTORY"); d != "" && filepath.IsAbs(d) {
-			if c := filepath.Join(d, systemdCredential); fileExists(c) {
-				file = c
-			}
-		}
-	}
 	if file != "" {
 		return readPassphraseFile(file, vaultDir)
 	}
 	return promptPassphrase(confirm)
-}
-
-func fileExists(p string) bool {
-	_, err := os.Lstat(p)
-	return err == nil
 }
 
 // readPassphraseFile reads a passphrase file: a plain file, not a symlink, that only its owner
@@ -128,7 +112,7 @@ func trimLine(b []byte) []byte {
 func promptTTY(confirm bool) ([]byte, error) {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
-		return nil, errors.New("no vault passphrase: name a file with --passphrase-file (or a systemd credential lucy-vault), or run lucy on a terminal")
+		return nil, errors.New("no vault passphrase: name a file with --passphrase-file, or run lucy on a terminal")
 	}
 	defer tty.Close() //nolint:errcheck // a terminal
 	read := func(prompt string) ([]byte, error) {
@@ -154,7 +138,8 @@ func promptTTY(confirm bool) ([]byte, error) {
 	return pass, nil
 }
 
-// readNoEcho reads one line from the terminal tty with echo turned off, restoring it after.
+// readNoEcho reads one line from the terminal tty with echo turned off, restoring it after, and
+// before exiting if an interrupt or a termination signal arrives while it waits.
 func readNoEcho(tty *os.File) ([]byte, error) {
 	fd := int(tty.Fd())
 	old, err := unix.IoctlGetTermios(fd, ioctlGetTermios)
@@ -168,6 +153,26 @@ func readNoEcho(tty *os.File) ([]byte, error) {
 		return nil, fmt.Errorf("the terminal: %w", err)
 	}
 	defer unix.IoctlSetTermios(fd, ioctlSetTermios, old) //nolint:errcheck // best effort: put echo back
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	done := make(chan struct{})
+	defer func() {
+		signal.Stop(sigs)
+		close(done)
+	}()
+	go func() {
+		select {
+		case s := <-sigs:
+			unix.IoctlSetTermios(fd, ioctlSetTermios, old) //nolint:errcheck // best effort: put echo back
+			fmt.Fprintln(tty)
+			code := 130
+			if s == syscall.SIGTERM {
+				code = 143
+			}
+			os.Exit(code)
+		case <-done:
+		}
+	}()
 	line, err := bufio.NewReader(io.LimitReader(tty, vault.MaxPassphrase+3)).ReadBytes('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		clear(line)

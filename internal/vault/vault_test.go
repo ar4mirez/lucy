@@ -333,7 +333,7 @@ func TestWrappedKeysNeedThePassphrase(t *testing.T) {
 	if err := locked.Unlock([]byte("another test passphrase")); !errors.Is(err, vault.ErrPassphrase) {
 		t.Fatalf("a wrong passphrase: %v", err)
 	}
-	if err := locked.Unlock([]byte("short")); !errors.Is(err, vault.ErrInvalid) {
+	if err := locked.Unlock([]byte("short")); !errors.Is(err, vault.ErrPassphrase) {
 		t.Fatalf("a passphrase under the minimum: %v", err)
 	}
 	if err := locked.Unlock(testPassphrase); err != nil {

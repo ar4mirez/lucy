@@ -2,7 +2,7 @@
 id: tech-vault
 title: The per-org credential vault
 status: active
-version: 3
+version: 4
 owner: ar4mirez
 requirements: [LUCY-CRED-002]
 ---
@@ -45,9 +45,9 @@ the threat model: [SECURITY.md](../../SECURITY.md).
   wrapped.
 - **The passphrase.** `lucy gateway` and `lucy vault set` read it from `--passphrase-file` (a plain
   file, not a symlink, only its owner, this user or root, can read, outside the vault and lucy's
-  data directory; one trailing newline is dropped), else the systemd credential `lucy-vault`
-  (`$CREDENTIALS_DIRECTORY/lucy-vault`), else ask once on the terminal (`/dev/tty`, so it works
-  with stdin piped) with echo off, twice when it sets the passphrase. Never an argument or the
+  data directory; one trailing newline is dropped), else ask once on the terminal (`/dev/tty`, so
+  it works with stdin piped) with echo off, twice when it sets the passphrase, putting echo back
+  before exiting on an interrupt. Never an argument or the
   environment. It is 12 to 1024 bytes; the caller clears it after the unlock.
 - **Confinement.** Every file operation goes through an `os.Root` on the vault directory, so no
   name, path or symlink reaches outside it; a symlink in a key's place, or a symlinked org

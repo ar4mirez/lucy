@@ -232,8 +232,8 @@ func passphraseFile(t *testing.T, pass string) string {
 	return p
 }
 
-// The vault passphrase comes from a file only its owner can read, outside the vault, or a
-// systemd credential, or the terminal; a wrong one or an unsafe file changes nothing, and each
+// The vault passphrase comes from a file only its owner can read, outside the vault, or the
+// terminal; a wrong one or an unsafe file changes nothing, and each
 // attempt is recorded as a failed change: a wrong passphrase as locked.
 func TestVaultPassphrase(t *testing.T) {
 	sock := startDaemon(t)
@@ -257,7 +257,6 @@ func TestVaultPassphrase(t *testing.T) {
 		return []byte(testVaultPassphrase), nil
 	}
 	t.Cleanup(func() { promptPassphrase = promptTTY })
-	t.Setenv("CREDENTIALS_DIRECTORY", "")
 	if code, errOut := set("github"); code != 0 {
 		t.Fatalf("set with a prompted passphrase: %d %q", code, errOut)
 	}
@@ -267,23 +266,22 @@ func TestVaultPassphrase(t *testing.T) {
 	if len(asked) != 2 || !asked[0] || asked[1] {
 		t.Fatalf("prompted %v; want a confirmation only when the vault had no passphrase", asked)
 	}
-	before := vaultEvents()
 
-	// A systemd credential is used when no file is named.
+	// A systemd credential directory is not looked in: with no file named, the terminal is asked.
 	creds := t.TempDir()
 	if err := os.WriteFile(filepath.Join(creds, "lucy-vault"), []byte(testVaultPassphrase), 0o400); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("CREDENTIALS_DIRECTORY", creds)
-	promptPassphrase = func(bool) ([]byte, error) {
-		t.Fatal("asked on the terminal with a systemd credential")
-		return nil, nil
-	}
+	asked = nil
 	if code, errOut := set("pypi"); code != 0 {
-		t.Fatalf("set with a systemd credential: %d %q", code, errOut)
+		t.Fatalf("set with CREDENTIALS_DIRECTORY set: %d %q", code, errOut)
+	}
+	if len(asked) != 1 {
+		t.Fatalf("prompted %v with CREDENTIALS_DIRECTORY set; want the terminal asked once", asked)
 	}
 	t.Setenv("CREDENTIALS_DIRECTORY", "")
-	before += 2
+	before := vaultEvents()
 
 	wide := passphraseFile(t, testVaultPassphrase)
 	if err := os.Chmod(wide, 0o644); err != nil {
@@ -327,8 +325,8 @@ func TestVaultPassphrase(t *testing.T) {
 			locked++
 		}
 	}
-	if locked != 1 {
-		t.Fatalf("%d changes recorded as locked; want the wrong passphrase's", locked)
+	if locked != 2 {
+		t.Fatalf("%d changes recorded as locked; want the wrong and the short passphrase's", locked)
 	}
 
 	// The gateway unlocks the vault at start: a wrong passphrase file stops it before it serves.

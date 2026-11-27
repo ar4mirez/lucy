@@ -2,7 +2,7 @@
 id: D14
 title: "D14: the vault's org keys are wrapped under a passphrase-derived key"
 status: accepted
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-CRED-002]
 decided: 2026-11-27
@@ -34,9 +34,9 @@ headless:
   its org, in `keys/<org>.wkey`.
 - **Where the passphrase comes from.** `lucy gateway` and `lucy vault set` read it from a file
   they are pointed at (`--passphrase-file`, which must be a plain file only its owner can read,
-  outside the vault and lucy's data directory), else from the systemd credential `lucy-vault`,
-  else they ask once on the terminal with echo off. Never from an argument or the environment.
-  `lucy vault ls` and `rm` need no passphrase.
+  outside the vault and lucy's data directory; under systemd, for example, `--passphrase-file
+  ${CREDENTIALS_DIRECTORY}/lucy-vault`), else they ask once on the terminal with echo off. Never
+  from an argument or the environment. `lucy vault ls` and `rm` need no passphrase.
 - **Migration.** The first unlock of a vault made before keys were wrapped sets the passphrase,
   wraps every plain key and removes the plain copies. Once a vault's keys are wrapped, a plain key
   is refused, never wrapped.

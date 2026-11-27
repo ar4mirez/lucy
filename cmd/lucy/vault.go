@@ -42,9 +42,9 @@ sealed credentials, all only its owner can open.
 Each org's key is itself sealed under a key derived from the vault passphrase (PBKDF2-HMAC-SHA256
 with a random salt), which lucy never stores: without it nothing in the vault opens. set and
 lucy gateway need it; ls and rm do not. lucy reads it from --passphrase-file <file>, a file only
-its owner can read (0400) outside the vault and lucy's data directory; or, when that is not
-given, from the systemd credential lucy-vault ($CREDENTIALS_DIRECTORY/lucy-vault); or else asks
-for it once on the terminal, with echo off. Never from an argument or the environment. The
+its owner can read (0400) outside the vault and lucy's data directory (under systemd, for
+example, --passphrase-file ${CREDENTIALS_DIRECTORY}/lucy-vault); or else asks for it once on
+the terminal, with echo off. Never from an argument or the environment. The
 passphrase is 12 to 1024 bytes; one trailing newline in the file is dropped. The first set on a
 new vault, or on one made before keys were wrapped, sets the passphrase (asked twice on a
 terminal) and wraps every key there is; after that a key not wrapped is refused. A lost
