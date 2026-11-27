@@ -155,6 +155,26 @@ func (b *Broker) ReleaseContainer(ctx context.Context, org string) error {
 	return err
 }
 
+// OrgActivity says whether org has work for its container and when it last had any: busy when a
+// run of org is queued (any runner may take it) or leased by a runner placed in its container;
+// last is the latest moment any run of org did something or ended, zero when it has had none.
+// An idle container (not busy, last long ago) is one the daemon may stop (LUCY-SBX-001).
+func (b *Broker) OrgActivity(ctx context.Context, org string) (busy bool, last time.Time, err error) {
+	var n, lastNS int64
+	err = b.store.QueryRowContext(ctx, `SELECT
+			count(CASE WHEN state = ? OR (state = ? AND placement = ?) THEN 1 END),
+			coalesce(max(max(activity_ns, ended_ns)), 0)
+		FROM runner_runs WHERE org = ?`,
+		string(StateQueued), string(StateLeased), string(PlacementContainer), org).Scan(&n, &lastNS)
+	if err != nil {
+		return false, time.Time{}, err
+	}
+	if lastNS > 0 {
+		last = time.Unix(0, lastNS).UTC()
+	}
+	return n > 0, last, nil
+}
+
 // Queued returns how many runs wait for a runner placed at placement (PlacementHost when empty).
 // It is a read: a runner polls it, and leases only when there is something to lease, so an idle
 // runner adds nothing to the log. A runner placed in a container is not counted the runs of an org

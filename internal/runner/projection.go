@@ -45,7 +45,7 @@ type Projector struct{}
 func (Projector) Name() string { return "runner_runs" }
 
 // Version implements eventstore.Projector.
-func (Projector) Version() int { return 4 }
+func (Projector) Version() int { return 5 }
 
 // Reset implements eventstore.Projector.
 func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
@@ -75,7 +75,8 @@ func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
 			answered    TEXT NOT NULL DEFAULT '',
 			stop        INTEGER NOT NULL DEFAULT 0,
 			pr          INTEGER NOT NULL DEFAULT 0,
-			reason      TEXT NOT NULL DEFAULT ''
+			reason      TEXT NOT NULL DEFAULT '',
+			ended_ns    INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX runner_runs_state ON runner_runs (state, queued_seq)`,
 		`DROP TABLE IF EXISTS runner_holds`,
@@ -180,11 +181,11 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 		if err := decode(&p); err != nil {
 			return err
 		}
-		q = `UPDATE runner_runs SET version = ?, state = ?, pr = ?, reason = ?, asking = 0, question = '' WHERE run = ?`
-		args = []any{e.StreamVersion, string(finalState(p.Outcome)), p.PR, p.Reason, run}
+		q = `UPDATE runner_runs SET version = ?, state = ?, pr = ?, reason = ?, asking = 0, question = '', ended_ns = ? WHERE run = ?`
+		args = []any{e.StreamVersion, string(finalState(p.Outcome)), p.PR, p.Reason, at, run}
 	case Expired{}.EventType():
-		q = `UPDATE runner_runs SET version = ?, state = ?, reason = ?, asking = 0, question = '' WHERE run = ?`
-		args = []any{e.StreamVersion, string(StateLost), "the lease expired", run}
+		q = `UPDATE runner_runs SET version = ?, state = ?, reason = ?, asking = 0, question = '', ended_ns = ? WHERE run = ?`
+		args = []any{e.StreamVersion, string(StateLost), "the lease expired", at, run}
 	default:
 		return nil
 	}

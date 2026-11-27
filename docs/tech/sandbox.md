@@ -2,7 +2,7 @@
 id: tech-sandbox
 title: The org sandbox and the runtime seam
 status: active
-version: 2
+version: 3
 owner: ar4mirez
 requirements: [LUCY-SBX-001, LUCY-SBX-002, LUCY-SBX-003, LUCY-SPEC-016]
 ---
@@ -72,10 +72,20 @@ first provider, is `internal/sandbox/berth` ([D3a](../decisions/D3a-berth-sandbo
   confirmation does not touch the container; the daemon's next request is cleared on it. Until the
   daemon opens a Sandbox binding, nothing is held and a confirmation is `unavailable`.
 
+- **Idle orgs.** `Sandbox.StopIdle` stops an org's container that is running and has had no
+  work for the idle time (30 minutes by default): no run of the org is queued or live in its
+  container (`runner.Broker.OrgActivity`; a session on this machine does not count), and the
+  latest moment one of its runs did something or ended is that long ago. The stop is the
+  daemon's ordinary guarded `down`, so a session that started since the check holds it for the
+  owner, and the container is held while it stops. A stopped container, a busy one, and one of
+  an org lucy has never run work in (its container may hold work lucy does not know of) are left
+  alone, with nothing recorded. `StopIdleOrgs` checks only the orgs it is given, those whose
+  Sandbox binding lucy holds, never another.
+
 ## Not built yet
 
-- TODO(LUCY-SBX-001): the daemon opens the org's Sandbox binding and places the in-container
-  runner through the seam; idle orgs are stopped. The daemon does not call a provider yet, so
+- TODO(LUCY-SBX-001): the daemon opens the org's Sandbox binding, places the in-container runner
+  through the seam and runs the idle stop on a timer. The daemon does not call a provider yet, so
   nothing here acts on a live container.
 - TODO(LUCY-SBX-001): proving the provider against a real berth needs a real berth on a test
   host; the contract tests run against the fake only.
