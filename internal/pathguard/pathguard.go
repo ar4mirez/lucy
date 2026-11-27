@@ -15,9 +15,11 @@
 //   - checks the path after resolving every symlink, and checks the requested spelling too: both
 //     must be inside a root, and the resolved path decides which one.
 //
-// Lexical checks are pure (CheckResolved); Resolve reads the filesystem but never writes. A caller
-// that deletes must delete the resolved path it was given, immediately, and must not follow
-// symlinks while doing so; TODO(LUCY-SEC-005): the m1 delete executor that does exactly that.
+// Lexical checks are pure (CheckResolved); Resolve reads the filesystem but never writes. Remove
+// and RemoveAll are the delete executor every recursive delete lucy makes goes through
+// (LUCY-SEC-005): they delete the resolved path through an os.Root opened on the root that holds
+// it, so nothing, not even a symlink swapped in between the check and the delete, takes the delete
+// out of that root, and a symlink met inside is removed, never followed.
 package pathguard
 
 import (
@@ -256,4 +258,37 @@ func resolveDir(p string) (string, error) {
 		return "", fmt.Errorf("%q is not a directory", p)
 	}
 	return r, nil
+}
+
+// RemoveAll deletes path and everything under it, once Resolve accepts it: the resolved path,
+// relative to the root that holds it, through an os.Root on that root. A symlink inside is
+// removed itself, and no symlink, including one put in place of a directory after the check,
+// leads the delete outside the root (LUCY-SEC-005).
+func (g *Guard) RemoveAll(path string) error {
+	return g.remove(path, true)
+}
+
+// Remove deletes path, a file, a symlink or an empty directory, as RemoveAll does.
+func (g *Guard) Remove(path string) error {
+	return g.remove(path, false)
+}
+
+func (g *Guard) remove(path string, all bool) error {
+	resolved, root, err := g.Resolve(path)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(root.Path, resolved)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("%w: %s: %v", ErrRefused, path, errNotInRoot)
+	}
+	r, err := os.OpenRoot(root.Path)
+	if err != nil {
+		return fmt.Errorf("%w: %s: open root: %v", ErrRefused, path, err)
+	}
+	defer r.Close() //nolint:errcheck // nothing was written through it that a close could lose
+	if all {
+		return r.RemoveAll(rel)
+	}
+	return r.Remove(rel)
 }

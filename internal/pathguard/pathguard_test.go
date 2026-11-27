@@ -242,3 +242,62 @@ func same(t *testing.T, a, b string) bool {
 	}
 	return os.SameFile(fa, fb)
 }
+
+// The delete executor deletes only what Resolve accepts, inside its root: a symlink met inside is
+// removed and never followed, and "/", the home, a root itself, anything outside every root and
+// anything a symlink leads out to are refused with nothing deleted (LUCY-SEC-005).
+func TestRemoveAllStaysInsideItsRoot(t *testing.T) {
+	tr := newTree(t)
+	// A directory holding links that point at the home, at "/" and out of the root.
+	outside := filepath.Join(tr.other, "keep")
+	if err := os.WriteFile(outside, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inner := filepath.Join(tr.scratch, "t", "x")
+	for name, target := range map[string]string{"home": tr.home, "root": "/", "other": tr.other} {
+		if err := os.Symlink(target, filepath.Join(inner, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tr.g.RemoveAll(filepath.Join(tr.scratch, "t")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(tr.scratch, "t")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the directory was not deleted: %v", err)
+	}
+	for _, kept := range []string{outside, tr.home, tr.proj, tr.scratch, filepath.Join(tr.proj, "sub", "f")} {
+		if _, err := os.Lstat(kept); err != nil {
+			t.Fatalf("%s is gone: %v", kept, err)
+		}
+	}
+
+	for _, p := range []string{
+		"/", tr.home, tr.base, tr.proj, tr.scratch, tr.other,
+		filepath.Join(tr.proj, "up"), filepath.Join(tr.proj, "uproot"), filepath.Join(tr.proj, "tohome"),
+		filepath.Join(tr.proj, "toother"), filepath.Join(tr.proj, "sub", "back"),
+		filepath.Join(tr.proj, "dangling"), tr.proj + "/sub/../sub", "relative/path",
+	} {
+		if err := tr.g.RemoveAll(p); !errors.Is(err, ErrRefused) {
+			t.Errorf("RemoveAll(%q): %v, want a refusal", p, err)
+		}
+		if err := tr.g.Remove(p); !errors.Is(err, ErrRefused) {
+			t.Errorf("Remove(%q): %v, want a refusal", p, err)
+		}
+	}
+	for _, kept := range []string{tr.home, tr.proj, tr.other, outside, filepath.Join(tr.proj, "sub", "f"), filepath.Join(tr.proj, "up")} {
+		if _, err := os.Lstat(kept); err != nil {
+			t.Fatalf("%s is gone after the refusals: %v", kept, err)
+		}
+	}
+
+	// Remove deletes one file inside a root, and refuses a directory that is not empty.
+	if err := tr.g.Remove(filepath.Join(tr.proj, "sub")); err == nil {
+		t.Fatal("Remove deleted a directory that is not empty")
+	}
+	if err := tr.g.Remove(filepath.Join(tr.proj, "sub", "f")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(tr.proj, "sub", "f")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the file was not deleted: %v", err)
+	}
+}
