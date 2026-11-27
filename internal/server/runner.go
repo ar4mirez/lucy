@@ -105,6 +105,7 @@ func (s *Server) runnerLease(ctx context.Context, p *api.LeaseParams) (api.Lease
 			res.Run.WorktreeState, res.Run.WorktreeError = worktree.PrepFailed, capWorktreeError(err.Error())
 		case ok:
 			res.Run.Worktree, res.Run.Branch, res.Run.WorktreeState = wt.Path, wt.Branch, worktree.PrepPreparing
+			res.Run.WorktreeDeadline = wt.Deadline.UTC()
 		}
 	}
 	return res, nil

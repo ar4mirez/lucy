@@ -846,3 +846,48 @@ func TestConcurrentAcquires(t *testing.T) {
 		seen[l.Slot] = true
 	}
 }
+
+// Every way a preparation ends maps to the event that records it, so none leaves its slot
+// preparing: ready, the slot's own failure (broken), a stop, and any other error, a failed read of
+// the slot or a failed record of ready included (a failed preparation). Only a slot no longer the
+// run's, or ready already, records nothing.
+func TestEveryPreparationOutcomeIsRecorded(t *testing.T) {
+	stopped, cancel := context.WithCancel(ctx)
+	cancel()
+	appendFailed := errors.New("eventstore: disk I/O error")
+	for name, c := range map[string]struct {
+		ctx  context.Context
+		err  error
+		want any
+	}{
+		"ready":               {ctx, nil, Prepared{Slot: 3, Run: "r#1", BaseSHA: "abc"}},
+		"the slot's own":      {ctx, brokenError{errors.New("git worktree add: exit 128")}, Broken{Slot: 3, Reason: "git worktree add: exit 128"}},
+		"stopped":             {stopped, brokenError{context.Canceled}, PrepareFailed{Slot: 3, Run: "r#1", Reason: PrepareStopped}},
+		"a failed read":       {ctx, errors.New("sql: database is locked"), PrepareFailed{Slot: 3, Run: "r#1", Reason: "sql: database is locked"}},
+		"a failed record":     {ctx, appendFailed, PrepareFailed{Slot: 3, Run: "r#1", Reason: appendFailed.Error()}},
+		"no longer the run's": {ctx, ErrNotHeld, nil},
+		"ready already":       {ctx, errReady, nil},
+	} {
+		got := prepOutcome(c.ctx, 3, "r#1", "abc", c.err)
+		if c.want == nil && got != nil || c.want != nil && any(got) != c.want {
+			t.Errorf("%s: %#v, want %#v", name, got, c.want)
+		}
+	}
+}
+
+// A pool root others can open fails the reservation at once, before any slot is recorded.
+func TestReserveRefusesAnOpenRoot(t *testing.T) {
+	f := open(t)
+	if err := os.MkdirAll(f.pool.Root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(f.pool.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Reserve(ctx, f.repo, "f1#1", "main"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("reserve: %v", err)
+	}
+	if slots, err := f.pool.Slots(ctx, "acme", "web"); err != nil || len(slots) != 0 {
+		t.Fatalf("slots %+v, %v", slots, err)
+	}
+}

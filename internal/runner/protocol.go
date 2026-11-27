@@ -177,7 +177,14 @@ type Lease struct {
 	Branch        string `json:"branch,omitempty"`
 	WorktreeState string `json:"worktree_state,omitempty"`
 	WorktreeError string `json:"worktree_error,omitempty"`
+	// WorktreeDeadline is when the daemon stops preparing the worktree at the latest. A runner
+	// still waiting WorktreeGrace after it fails the run.
+	WorktreeDeadline time.Time `json:"worktree_deadline,omitzero"`
 }
+
+// WorktreeGrace is how long past a preparing worktree's deadline a runner waits for the daemon to
+// report how the preparation ended, before it fails the run.
+const WorktreeGrace = time.Minute
 
 // How a run's worktree stands, as the daemon reports it on the lease and each heartbeat.
 const (

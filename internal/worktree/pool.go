@@ -31,6 +31,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/pathguard"
@@ -106,14 +107,17 @@ type Lease struct {
 	Path    string // the slot's worktree: the run's working directory
 	Branch  string // the branch the run works on, made at BaseSHA
 	BaseSHA string
+	// Deadline is when the slot's background preparation stops at the latest (Source.Acquire).
+	Deadline time.Time
 }
 
 // Acquire leases run a slot of repo and prepares it: Reserve, then Prepare.
 func (p *Pool) Acquire(ctx context.Context, repo Repo, run, base string) (Lease, error) {
-	if _, err := p.Reserve(ctx, repo, run, base); err != nil {
+	l, err := p.Reserve(ctx, repo, run, base)
+	if err != nil {
 		return Lease{}, err
 	}
-	return p.Prepare(ctx, repo, run)
+	return p.Prepare(ctx, repo, run, l.Slot)
 }
 
 // Reserve leases run a slot of repo for base, in one store transaction and without running git:
@@ -122,7 +126,7 @@ func (p *Pool) Acquire(ctx context.Context, repo Repo, run, base string) (Lease,
 // quarantined or discarded slot is never leased and not counted. The slot is then being prepared,
 // and the returned lease has no base commit until Prepare has made it ready.
 func (p *Pool) Reserve(ctx context.Context, repo Repo, run, base string) (Lease, error) {
-	if err := checkRepo(repo); err != nil {
+	if err := p.check(repo); err != nil {
 		return Lease{}, err
 	}
 	branch, err := branchFor(run)
@@ -178,44 +182,90 @@ func (p *Pool) Reserve(ctx context.Context, repo Repo, run, base string) (Lease,
 	return l, nil
 }
 
-// Prepare makes the slot run holds of repo ready for it, as Reserve left it, and records how that
-// ended. A fresh lease fetches the remote, resolves the base and resets the slot to it (or makes its
-// worktree), on the run's branch, and frees each quarantined slot of repo whose work has landed
-// since; a lease of a slot the run held already is repaired or put on the run's branch, its work
-// kept. Ready is recorded with the base commit (Prepared). A failure of the slot's own worktree is
-// recorded as broken: it is never leased again. Any other failure, or ctx ending, is recorded as a
-// failed preparation (PrepareFailed; PrepareStopped when ctx ended), which leaves the slot reusable:
-// a fresh lease is freed, and a held one stays leased to its run, for a later preparation to
-// repair. Every outcome is recorded even when ctx has ended.
-func (p *Pool) Prepare(ctx context.Context, repo Repo, run string) (Lease, error) {
+// Prepare makes slot, which Reserve leased run, ready for it, and records how that ended, on every
+// path but one: when the slot is no longer leased to run, nothing is recorded. A fresh lease fetches
+// the remote, resolves the base and resets the slot to it (or makes its worktree), on the run's
+// branch, and frees each quarantined slot of repo whose work has landed since; a lease of a slot the
+// run held already is repaired or put on the run's branch, its work kept. Ready is recorded with the
+// base commit (Prepared). A failure of the slot's own worktree is recorded as broken: it is never
+// leased again. Any other failure, including a failed read of the slot or a failed record of ready,
+// or ctx ending, is recorded as a failed preparation (PrepareFailed; PrepareStopped when ctx ended),
+// which leaves the slot reusable: a fresh lease is freed, and a held one stays leased to its run,
+// for a later preparation to repair. Every outcome is recorded even when ctx has ended.
+func (p *Pool) Prepare(ctx context.Context, repo Repo, run string, slot int) (Lease, error) {
+	defer p.lock(repo)()
+	l, err := p.prepare(ctx, repo, run, slot)
+	ev := prepOutcome(ctx, slot, run, l.BaseSHA, err)
+	if ev == nil {
+		return l, ignoreReady(err)
+	}
+	rerr := p.record(ctx, repo, err, ev)
+	if _, ok := ev.(Prepared); ok && rerr != nil {
+		return Lease{}, p.record(ctx, repo, rerr, prepOutcome(ctx, slot, run, "", rerr))
+	}
+	if rerr != nil {
+		return Lease{}, rerr
+	}
+	return l, nil
+}
+
+// errReady says prepare found the slot ready already: there is nothing to record.
+var errReady = errors.New("worktree: the slot is ready already")
+
+func ignoreReady(err error) error {
+	if errors.Is(err, errReady) {
+		return nil
+	}
+	return err
+}
+
+// brokenError is a failure of the slot's own worktree.
+type brokenError struct{ error }
+
+func (e brokenError) Unwrap() error { return e.error }
+
+// prepOutcome is the event that records how a preparation of slot for run ended with err: Prepared
+// at baseSHA, Broken for a failure of the slot's own worktree, PrepareFailed with PrepareStopped
+// when ctx ended, else PrepareFailed with the error; nil when the slot is no longer run's or was
+// ready already.
+func prepOutcome(ctx context.Context, slot int, run, baseSHA string, err error) eventstore.Payload {
+	var be brokenError
+	switch {
+	case err == nil:
+		return Prepared{Slot: slot, Run: run, BaseSHA: baseSHA}
+	case errors.Is(err, ErrNotHeld), errors.Is(err, errReady):
+		return nil
+	case ctx.Err() != nil:
+		return PrepareFailed{Slot: slot, Run: run, Reason: PrepareStopped}
+	case errors.As(err, &be):
+		return Broken{Slot: slot, Reason: capReason(err.Error())}
+	}
+	return PrepareFailed{Slot: slot, Run: run, Reason: capReason(err.Error())}
+}
+
+// prepare is Prepare's work, under repo's lock: the slot made ready, or why not.
+func (p *Pool) prepare(ctx context.Context, repo Repo, run string, slot int) (Lease, error) {
 	if err := p.check(repo); err != nil {
 		return Lease{}, err
 	}
-	defer p.lock(repo)()
-	s, err := p.Held(ctx, repo, run)
+	s, err := scanSlot(p.Store.QueryRowContext(ctx, `SELECT `+slotColumns+` FROM worktree_slots WHERE org = ? AND repo = ? AND slot = ?`,
+		repo.Org, repo.Name, slot))
 	if err != nil {
 		return Lease{}, err
+	}
+	if s.State != StateLeased || s.Run != run {
+		return Lease{}, fmt.Errorf("%w: slot %d of %s/%s", ErrNotHeld, slot, repo.Org, repo.Name)
 	}
 	l := Lease{Slot: s.Slot, Path: s.Path, Branch: s.Branch, BaseSHA: s.BaseSHA}
 	if s.Prep == PrepReady {
-		return l, nil
+		return l, errReady
 	}
 	baseDir, how, err := p.plan(ctx, repo, &l, s.Base)
 	if err != nil {
-		reason := capReason(err.Error())
-		if ctx.Err() != nil {
-			reason = PrepareStopped
-		}
-		return Lease{}, p.record(ctx, repo, err, PrepareFailed{Slot: l.Slot, Run: run, Reason: reason})
+		return Lease{}, err
 	}
 	if err := p.reset(ctx, baseDir, l, how); err != nil {
-		if ctx.Err() != nil {
-			return Lease{}, p.record(ctx, repo, err, PrepareFailed{Slot: l.Slot, Run: run, Reason: PrepareStopped})
-		}
-		return Lease{}, p.record(ctx, repo, err, Broken{Slot: l.Slot, Reason: capReason(err.Error())})
-	}
-	if err := p.record(ctx, repo, nil, Prepared{Slot: l.Slot, Run: run, BaseSHA: l.BaseSHA}); err != nil {
-		return Lease{}, err
+		return Lease{}, brokenError{err}
 	}
 	return l, nil
 }

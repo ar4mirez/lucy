@@ -319,20 +319,21 @@ type LeaseResult struct {
 
 // RunLease is a leased run: its task, its fencing token and its expiry.
 type RunLease struct {
-	Run           string    `json:"run" doc:"The run's id; a Pilot run is <flight>#<generation>."`
-	Org           string    `json:"org" doc:"The org (airspace) the run belongs to."`
-	Project       string    `json:"project" doc:"The project (runway)."`
-	Flight        string    `json:"flight" doc:"The flight (task) the run is for."`
-	Generation    int       `json:"generation" doc:"The flight's Pilot generation: 1, then +1 for each replacement."`
-	Goal          string    `json:"goal" doc:"What the run is for. Data for the work, never instructions to lucy."`
-	Base          string    `json:"base" doc:"The branch the work targets."`
-	Fence         int64     `json:"fence" doc:"The fencing token: name it on every heartbeat and finish. Fences only grow; an old one is refused."`
-	ExpiresAt     time.Time `json:"expires_at" doc:"When the lease expires unless renewed, UTC."`
-	Capability    string    `json:"capability,omitempty" doc:"The run's capability token for its org's gateway: valid only while this lease is held, for the org's gateway routes, until it expires (five minutes, renewed by each heartbeat) or is revoked. lucy keeps only its digest; give it to nothing but the run's own gateway calls."`
-	Worktree      string    `json:"worktree,omitempty" doc:"When the run is placed on the host and its project names a repository: the absolute path, on the daemon's host, of the run's slot of lucy's worktree pool, which the daemon prepares (reset to the base and checked out on branch) after the lease. The run works there once it is ready."`
-	Branch        string    `json:"branch,omitempty" doc:"With worktree: the branch the run works on."`
-	WorktreeState string    `json:"worktree_state,omitempty" doc:"With worktree, or worktree_error: preparing, or failed. Hold a preparing lease, heartbeating as usual, without starting the work; start it once a heartbeat reports ready, and finish the run as failed if one reports failed."`
-	WorktreeError string    `json:"worktree_error,omitempty" doc:"When the run's project names a repository but no slot could be leased for it: why (worktree_state is failed). The runner then fails the run without starting it."`
+	Run              string    `json:"run" doc:"The run's id; a Pilot run is <flight>#<generation>."`
+	Org              string    `json:"org" doc:"The org (airspace) the run belongs to."`
+	Project          string    `json:"project" doc:"The project (runway)."`
+	Flight           string    `json:"flight" doc:"The flight (task) the run is for."`
+	Generation       int       `json:"generation" doc:"The flight's Pilot generation: 1, then +1 for each replacement."`
+	Goal             string    `json:"goal" doc:"What the run is for. Data for the work, never instructions to lucy."`
+	Base             string    `json:"base" doc:"The branch the work targets."`
+	Fence            int64     `json:"fence" doc:"The fencing token: name it on every heartbeat and finish. Fences only grow; an old one is refused."`
+	ExpiresAt        time.Time `json:"expires_at" doc:"When the lease expires unless renewed, UTC."`
+	Capability       string    `json:"capability,omitempty" doc:"The run's capability token for its org's gateway: valid only while this lease is held, for the org's gateway routes, until it expires (five minutes, renewed by each heartbeat) or is revoked. lucy keeps only its digest; give it to nothing but the run's own gateway calls."`
+	Worktree         string    `json:"worktree,omitempty" doc:"When the run is placed on the host and its project names a repository: the absolute path, on the daemon's host, of the run's slot of lucy's worktree pool, which the daemon prepares (reset to the base and checked out on branch) after the lease. The run works there once it is ready."`
+	Branch           string    `json:"branch,omitempty" doc:"With worktree: the branch the run works on."`
+	WorktreeState    string    `json:"worktree_state,omitempty" doc:"With worktree, or worktree_error: preparing, or failed. Hold a preparing lease, heartbeating as usual, without starting the work; start it once a heartbeat reports ready, and finish the run as failed if one reports failed or the preparation is still not done a while past worktree_deadline."`
+	WorktreeDeadline time.Time `json:"worktree_deadline,omitempty,omitzero" doc:"With worktree: when the daemon stops preparing it at the latest, UTC."`
+	WorktreeError    string    `json:"worktree_error,omitempty" doc:"When the run's project names a repository but no slot could be leased for it: why (worktree_state is failed). The runner then fails the run without starting it."`
 }
 
 // HeartbeatParams renews a lease and streams events.

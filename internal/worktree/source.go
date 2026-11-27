@@ -102,7 +102,8 @@ func (s *Source) repoNamed(org, name string) (Repo, bool) {
 
 // Acquire reserves run a slot of its project's repository for base (the Runway's default branch
 // when empty), without running git, and starts preparing it in the background; the returned lease
-// has no base commit yet (State says when it is ready). ok is false, with no error, when the
+// has no base commit yet (State says when it is ready), and its Deadline is when the preparation
+// stops at the latest. ok is false, with no error, when the
 // project's Runway names no repository: the run then has no checkout.
 func (s *Source) Acquire(ctx context.Context, org, project, run, base string) (l Lease, ok bool, err error) {
 	repo, rw, ok, err := s.repo(org, project)
@@ -115,8 +116,10 @@ func (s *Source) Acquire(ctx context.Context, org, project, run, base string) (l
 	if l, err = s.Pool.Reserve(ctx, repo, run, base); err != nil {
 		return Lease{}, true, err
 	}
+	l.Deadline = time.Now().Add(s.timeout())
+	slot := l.Slot
 	s.spawn("prepare", run, func(ctx context.Context) error {
-		_, err := s.Pool.Prepare(ctx, repo, run)
+		_, err := s.Pool.Prepare(ctx, repo, run, slot)
 		return err
 	})
 	return l, true, nil
@@ -222,16 +225,20 @@ func (s *Source) Discard(ctx context.Context, org, repo string, slot int, by str
 // another.
 func (s *Source) Wait() { s.wg.Wait() }
 
+func (s *Source) timeout() time.Duration {
+	if s.Timeout <= 0 {
+		return DefaultPrepareTimeout
+	}
+	return s.Timeout
+}
+
 // spawn runs f in the background under Context, bounded by Timeout, and logs its error.
 func (s *Source) spawn(what, run string, f func(ctx context.Context) error) {
 	base := s.Context
 	if base == nil {
 		base = context.Background()
 	}
-	timeout := s.Timeout
-	if timeout <= 0 {
-		timeout = DefaultPrepareTimeout
-	}
+	timeout := s.timeout()
 	log := s.Log
 	if log == nil {
 		log = slog.Default()

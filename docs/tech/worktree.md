@@ -51,9 +51,15 @@ Where a run's checkout of its repository comes from (TECH.md section 6). The cod
   repairs or resets it. The run sees `failed` with the reason.
 - **The runner waits.** `runner.heartbeat` reports the run's `worktree_state` (and
   `worktree_error` when failed). A runner holds a preparing lease without starting the work,
-  heartbeating on every step; it starts the work once a heartbeat reports `ready`, finishes the
-  run as failed with the reason when one reports `failed` (or none), and as stopped when the Tower
-  stops it first. A lease with no worktree starts at once.
+  heartbeating on the lease's usual schedule (a third of its life), so waiting adds no renewals or
+  token rotations; it starts the work once a heartbeat reports `ready`, finishes the run as failed
+  with the reason when one reports `failed` (or none), or when the preparation is still not done a
+  minute past the lease's `worktree_deadline` (when the daemon stops preparing it at the latest),
+  and as stopped when the Tower stops it first. A lease with no worktree starts at once.
+- **The lease fails at once** when the pool's root is not a directory only its owner can open, or
+  the org or repository is not a valid name: those are checked when the slot is reserved, and the
+  lease carries `worktree_error`. A preparation records how it ended on every path, a failed read
+  of the slot or a failed record of ready included.
 - **Restarts.** When the daemon starts, before it leases anything, a slot still recorded as
   preparing (the daemon stopped without recording how its preparation ended) is recorded as
   stopped: its run sees `failed`, and a retry, a new generation, gets a fresh preparation. The slot

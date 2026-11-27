@@ -1073,12 +1073,17 @@
                   "description": "When the run is placed on the host and its project names a repository: the absolute path, on the daemon's host, of the run's slot of lucy's worktree pool, which the daemon prepares (reset to the base and checked out on branch) after the lease. The run works there once it is ready.",
                   "type": "string"
                 },
+                "worktree_deadline": {
+                  "description": "With worktree: when the daemon stops preparing it at the latest, UTC.",
+                  "format": "date-time",
+                  "type": "string"
+                },
                 "worktree_error": {
                   "description": "When the run's project names a repository but no slot could be leased for it: why (worktree_state is failed). The runner then fails the run without starting it.",
                   "type": "string"
                 },
                 "worktree_state": {
-                  "description": "With worktree, or worktree_error: preparing, or failed. Hold a preparing lease, heartbeating as usual, without starting the work; start it once a heartbeat reports ready, and finish the run as failed if one reports failed.",
+                  "description": "With worktree, or worktree_error: preparing, or failed. Hold a preparing lease, heartbeating as usual, without starting the work; start it once a heartbeat reports ready, and finish the run as failed if one reports failed or the preparation is still not done a while past worktree_deadline.",
                   "type": "string"
                 }
               },

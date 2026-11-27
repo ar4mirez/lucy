@@ -128,7 +128,7 @@ func TestSlowFirstFetchStillStartsTheRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	ex := &startedExec{}
-	r, err := runner.New(runner.Config{ID: "acme-host-1", Org: "acme", Protocol: runner.Remote{Client: f.client}, Executor: ex, TTL: 30 * time.Second})
+	r, err := runner.New(runner.Config{ID: "acme-host-1", Org: "acme", Protocol: runner.Remote{Client: f.client}, Executor: ex, TTL: 5 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,4 +318,26 @@ func (f *fixture) storeHead(t *testing.T) int64 {
 		t.Fatal(err)
 	}
 	return h
+}
+
+// A pool root others can open fails the lease at once, with worktree_error, and no slot is recorded.
+func TestOpenPoolRootFailsTheLeaseAtOnce(t *testing.T) {
+	var src *worktree.Source
+	f := start(t, os.Geteuid(), 0, withWorktrees(t, &src, ""))
+	if err := os.MkdirAll(src.Pool.Root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(src.Pool.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.srv.opts.Runs.Submit(ctx, runner.Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	l, ok, err := runner.Remote{Client: f.client}.Lease(ctx, "acme-host-1", runner.PlacementHost, "acme", "", time.Minute)
+	if err != nil || !ok || l.WorktreeState != runner.WorktreeFailed || !strings.Contains(l.WorktreeError, "only its owner can open") || l.Worktree != "" {
+		t.Fatalf("the lease: %+v, %v, %v", l, ok, err)
+	}
+	if slots, err := src.List(ctx, ""); err != nil || len(slots) != 0 {
+		t.Fatalf("slots %+v, %v", slots, err)
+	}
 }

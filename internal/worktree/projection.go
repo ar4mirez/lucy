@@ -120,7 +120,7 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE worktree_slots SET state = CASE WHEN base_sha = '' THEN ? ELSE state END, prep = ?, reason = ?, version = ?
-			WHERE org = ? AND repo = ? AND slot = ?`, StateFree, PrepFailed, p.Reason, e.StreamVersion, org, repo, p.Slot)
+			WHERE org = ? AND repo = ? AND slot = ? AND state = ? AND run = ?`, StateFree, PrepFailed, p.Reason, e.StreamVersion, org, repo, p.Slot, StateLeased, p.Run)
 	case Released{}.EventType():
 		var p Released
 		if err := json.Unmarshal(e.Payload, &p); err != nil {

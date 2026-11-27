@@ -179,9 +179,10 @@ func (r *Runner) tend(ctx context.Context, h *held) error {
 		}
 	}
 	now := r.cfg.Now()
-	waiting := h.exec == nil && h.result == nil // its worktree is being prepared: ask on every step
-	for waiting || len(h.pending) > 0 || !now.Before(h.beatAt) {
-		waiting = false
+	if h.exec == nil && h.result == nil && !h.lease.WorktreeDeadline.IsZero() && now.After(h.lease.WorktreeDeadline.Add(WorktreeGrace)) {
+		h.result = &Result{Outcome: OutcomeFailed, Reason: "the run's worktree was still being prepared past its deadline"}
+	}
+	for len(h.pending) > 0 || !now.Before(h.beatAt) {
 		batch := h.pending[:min(len(h.pending), MaxBatch)]
 		acked := h.ack
 		beat, err := r.cfg.Protocol.Heartbeat(ctx, r.cfg.ID, h.lease.Run, h.lease.Fence, r.cfg.TTL, batch, acked)
@@ -306,7 +307,8 @@ func (r *Runner) drop(h *held, why string) {
 }
 
 // take leases the oldest queued run and starts its work, or, while its worktree is being prepared,
-// holds it until a heartbeat reports the worktree ready. A run whose work cannot start is finished
+// holds it until a heartbeat, on the lease's usual schedule, reports the worktree ready, failing it
+// once WorktreeGrace has passed the worktree's deadline. A run whose work cannot start is finished
 // as failed.
 func (r *Runner) take(ctx context.Context) error {
 	n, err := r.cfg.Protocol.Queued(ctx, r.cfg.Placement, r.cfg.Org)

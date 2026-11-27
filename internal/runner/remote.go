@@ -61,6 +61,7 @@ func (r Remote) Lease(ctx context.Context, runner string, placement Placement, o
 			Goal: l.Goal, Base: l.Base},
 		Runner: runner, Fence: l.Fence, Expires: l.ExpiresAt, Capability: l.Capability,
 		Worktree: l.Worktree, Branch: l.Branch, WorktreeState: l.WorktreeState, WorktreeError: l.WorktreeError,
+		WorktreeDeadline: l.WorktreeDeadline,
 	}, true, nil
 }
 
