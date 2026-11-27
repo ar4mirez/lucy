@@ -33,7 +33,7 @@ LUCY-SPEC-010) feed them data, not code.
   branch for force-push, branch delete and history rewrite), so an approval lapses when those
   change: a matching approval made under other facts is a deny, not an escalation (LUCY-POL-002,
   rule set version 2; version 3 renamed the outcomes, roles and postures to the glossary's terms;
-  version 4 only annotated two names for the static analyser).
+  version 4 only annotated two names for the static analyser; version 5 added `exec` and `fetch`).
 - **Rules, in order; the first with an opinion decides:** `request.valid`, `facts.valid`,
   `org.isolation` (an org-bound role acts only in its org), `taint.trusted-basis` (a privileged
   request needs a trusted input), `read.in-org`, `write.worker-only`, `credential.gateway-only`,
@@ -53,7 +53,8 @@ LUCY-SPEC-010) feed them data, not code.
   rule set under an old version. `Evaluate` is pure; a panic, an unknown outcome or facts the
   daemon could not gather are denied under `engine.error`.
 - **Recording.** `policy.evaluate` appends a `policy.decision` event (stream `policy`) before it
-  returns the decision; an unrecorded decision is never returned (LUCY-POL-003).
+  returns the decision; an unrecorded decision is never returned (LUCY-POL-003). An `exec` or
+  `fetch` resource is recorded redacted (see SECURITY.md, Audit and log data).
   `policy.decisions` pages them. TODO(LUCY-POL-001): the privileged executors of m1 (merge, delete,
   push, the gateway) call the engine and act only on a recorded clearance.
 - **Path guard** (`internal/pathguard`, LUCY-POL-007): refuses `/`, `$HOME` and its ancestors, the
