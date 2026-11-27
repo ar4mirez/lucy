@@ -105,9 +105,10 @@ nightly `harness-check` workflow says whether a newer release is ready for the p
 A runner on the host needs `--org` (`runner_org` without one) and is leased only that org's runs.
 Every process on the host runs as one uid and can reach the others' sockets, so the daemon serves
 one host org: the first run leased on the host sets it, and a runner on the host for another org
-is refused (`host_org`) and exits. Run other orgs with container placement, or switch the host org
-with `lucy runner host-org <org>` once no host run is live. `--id` defaults to the org, the host
-name and the pid, so two runners never share an id. Each run gets a fresh directory under `--root` (default
+is refused (`host_org`) and exits. The owner switches the host org with
+`lucy runner host-org <org>` once no host run is live. `--placement container` is refused until
+berth can prove a runner's placement (berth#216). `--id` defaults to the org, the host name and
+the pid, so two runners never share an id. Each run gets a fresh directory under `--root` (default
 `$XDG_DATA_HOME/lucy/runner/<org>`, created 0700; the runner refuses a root, symlinks resolved,
 too long for a run's gateway socket and names the longest it takes),
 deleted through the path guard when the command exits; the command sees only PATH, HOME, TMPDIR

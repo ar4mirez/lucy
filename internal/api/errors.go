@@ -25,6 +25,7 @@ const (
 	CodeSandboxBusy        Code = -32007 // every queued run's org container is being restarted or stopped; lease again later
 	CodeRunnerOrg          Code = -32008 // a host runner named no org
 	CodeHostOrg            Code = -32009 // host placement serves another org, or a host run is live
+	CodePlacementProof     Code = -32010 // a container lease without a placement proof the daemon accepts
 )
 
 // codeInfo is the fixed message and kind of each code. Messages never carry request-specific or
@@ -44,6 +45,7 @@ var codeInfo = map[Code]struct{ kind, message string }{
 	CodeSandboxBusy:        {"sandbox_busy", "org container busy"},
 	CodeRunnerOrg:          {"runner_org", "a host runner leases for one org"},
 	CodeHostOrg:            {"host_org", "host placement serves another org"},
+	CodePlacementProof:     {"placement_proof", "container placement not proven"},
 }
 
 // Codes lists every error code, in a stable order.
@@ -51,6 +53,7 @@ var Codes = []Code{
 	CodeParseError, CodeInvalidRequest, CodeMethodNotFound, CodeInvalidParams, CodeInternal,
 	CodeForbidden, CodeUnsupportedVersion, CodeTooLarge, CodeUnavailable, CodeTimeout, CodeFenced,
 	CodeSandboxBusy, CodeRunnerOrg, CodeHostOrg,
+	CodePlacementProof,
 }
 
 // Kind is the code's stable machine-readable name, for example "invalid_params".

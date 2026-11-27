@@ -30,8 +30,9 @@ func runnerActor(id string) string { return "runner/" + id }
 //
 // The store must register Payloads() and the Projector.
 type Broker struct {
-	store *eventstore.Store
-	now   func() time.Time
+	store    *eventstore.Store
+	now      func() time.Time
+	verifier PlacementVerifier // nil: every container lease is refused
 
 	mu      sync.Mutex
 	answers map[string]answer // by run
@@ -51,6 +52,10 @@ func NewBroker(store *eventstore.Store, now func() time.Time) *Broker {
 	}
 	return &Broker{store: store, now: now, answers: map[string]answer{}}
 }
+
+// VerifyPlacementWith makes v the check on container leases' placement proofs. Without one, every
+// lease to a runner placed in a container is refused (ErrPlacementProof).
+func (b *Broker) VerifyPlacementWith(v PlacementVerifier) { b.verifier = v }
 
 // Submit queues a run. Its Base is "main" when empty. A run id is unique across every org and
 // may be submitted only once (ErrExists).
@@ -202,25 +207,32 @@ func (b *Broker) Queued(ctx context.Context, placement Placement, org string) (i
 // are its arguments.
 const leasable = `(? = '' OR org = ?) AND (? != ? OR org NOT IN (SELECT org FROM runner_holds WHERE expires_ns > ?))`
 
-// Lease gives runner the oldest queued run, of org only when org is not empty, under a new fence
-// that expires after ttl (clamped to MinTTL..MaxTTL; DefaultTTL when zero). ok is false when
-// nothing is queued. A runner placed on the host names its org (ErrRunnerOrg otherwise), which
-// must be the host org: the first run leased to the host sets it, recorded, and a host lease for any other org
-// is refused (ErrHostOrg). A runner placed in a container is given the oldest queued run whose org's container is not held, and is refused
-// (ErrSandboxBusy) when every queued run's is.
-func (b *Broker) Lease(ctx context.Context, runner string, placement Placement, org string, ttl time.Duration) (l Lease, ok bool, err error) {
+// Lease gives runner the oldest queued run of org, under a new fence that expires after ttl
+// (clamped to MinTTL..MaxTTL; DefaultTTL when zero). ok is false when nothing is queued. Every
+// runner names its org (ErrRunnerOrg otherwise). On the host it must be the host org: the first
+// run leased to the host sets it, recorded, and a host lease for any other org is refused
+// (ErrHostOrg). A runner placed in a container is leased only with a proof of that placement the
+// broker's PlacementVerifier accepts (ErrPlacementProof otherwise), and is refused (ErrSandboxBusy)
+// while org's container is held.
+func (b *Broker) Lease(ctx context.Context, runner string, placement Placement, org, proof string, ttl time.Duration) (l Lease, ok bool, err error) {
 	if err := CheckRunnerID(runner); err != nil {
 		return Lease{}, false, err
 	}
 	if !placement.Valid() {
 		return Lease{}, false, fmt.Errorf("%w: placement %q", ErrInvalid, placement)
 	}
-	switch {
-	case placement == PlacementHost && org == "":
+	if org == "" {
 		return Lease{}, false, fmt.Errorf("%w: runner %q names no org", ErrRunnerOrg, runner)
-	case org != "":
-		if err := checkOrg(org); err != nil {
-			return Lease{}, false, err
+	}
+	if err := checkOrg(org); err != nil {
+		return Lease{}, false, err
+	}
+	if placement == PlacementContainer {
+		if b.verifier == nil {
+			return Lease{}, false, ErrPlacementProof
+		}
+		if err := b.verifier.VerifyPlacement(ctx, runner, org, proof); err != nil {
+			return Lease{}, false, fmt.Errorf("%w: %w", ErrPlacementProof, err)
 		}
 	}
 	ttl = clampTTL(ttl)
@@ -234,7 +246,7 @@ func (b *Broker) Lease(ctx context.Context, runner string, placement Placement, 
 			}
 			host = h
 			if host != "" && host != org {
-				return fmt.Errorf("%w: host placement serves org %q; org %q needs container placement", ErrHostOrg, host, org)
+				return fmt.Errorf("%w: host placement serves org %q, not %q", ErrHostOrg, host, org)
 			}
 		}
 		ri, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runner_runs WHERE state = ?
@@ -244,8 +256,8 @@ func (b *Broker) Lease(ctx context.Context, runner string, placement Placement, 
 				return nil
 			}
 			var queued int
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runner_runs WHERE state = ? AND (? = '' OR org = ?)`,
-				string(StateQueued), org, org).Scan(&queued); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runner_runs WHERE state = ? AND org = ?`,
+				string(StateQueued), org).Scan(&queued); err != nil {
 				return err
 			}
 			if queued > 0 {

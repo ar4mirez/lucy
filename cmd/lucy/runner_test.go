@@ -48,3 +48,13 @@ func TestRunnerRefusesARootTooLongOnceResolved(t *testing.T) {
 		t.Fatalf("code %d stderr %q", code, errOut)
 	}
 }
+
+// A runner that declares container placement is refused before it dials the daemon, naming the
+// proof it lacks.
+func TestRunnerRefusesSelfDeclaredContainerPlacement(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "none.sock")
+	code, _, errOut := lucy("runner", "--org", "acme", "--placement", "container", "--socket", sock, "--", "true")
+	if code != 2 || !strings.Contains(errOut, "container placement needs berth#216 placement proof") || strings.Contains(errOut, "not running") {
+		t.Fatalf("code %d stderr %q", code, errOut)
+	}
+}

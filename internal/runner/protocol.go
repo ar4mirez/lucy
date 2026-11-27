@@ -125,13 +125,23 @@ var (
 	// ErrSandboxBusy refuses a lease to a runner placed in a container when every queued run's org
 	// container is being restarted or stopped. The runner leases again later.
 	ErrSandboxBusy = errors.New("runner: sandbox busy: every queued run's org container is being restarted or stopped")
-	// ErrRunnerOrg refuses a lease to a runner placed on the host that names no org.
-	ErrRunnerOrg = errors.New("runner: a runner on the host names the one org whose runs it leases")
+	// ErrRunnerOrg refuses a lease to a runner that names no org.
+	ErrRunnerOrg = errors.New("runner: a runner names the one org whose runs it leases")
+	// ErrPlacementProof refuses a lease to a runner that says it is in an org's container without
+	// a placement proof the broker's PlacementVerifier accepts. A placement a runner declares is
+	// never trusted, and no verifier exists until berth can issue a proof (berth#216).
+	ErrPlacementProof = errors.New("runner: container placement needs berth#216 placement proof")
 	// ErrHostOrg refuses a host lease for an org other than the daemon's host org, and a change of
 	// the host org while a host run is live. Every process on the host runs as one uid and can
-	// reach the others' sockets, so the host serves one org; other orgs need container placement.
-	ErrHostOrg = errors.New("runner: host placement serves one org; other orgs need container placement")
+	// reach the others' sockets, so the host serves one org, which only the owner changes.
+	ErrHostOrg = errors.New("runner: host placement serves one org at a time; the owner changes it with lucy runner host-org")
 )
+
+// PlacementVerifier checks a runner's proof, issued by the Sandbox provider, that it runs inside
+// org's container. The broker leases to a runner placed in a container only when one accepts it.
+type PlacementVerifier interface {
+	VerifyPlacement(ctx context.Context, runner, org, proof string) error
+}
 
 // Task is one run of work, as a runner is leased it: a flight's Pilot generation.
 type Task struct {

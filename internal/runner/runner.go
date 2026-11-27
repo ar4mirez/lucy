@@ -13,7 +13,7 @@ import (
 // API client (Remote) from `lucy runner`.
 type Protocol interface {
 	Queued(ctx context.Context, placement Placement, org string) (int, error)
-	Lease(ctx context.Context, runner string, placement Placement, org string, ttl time.Duration) (Lease, bool, error)
+	Lease(ctx context.Context, runner string, placement Placement, org, proof string, ttl time.Duration) (Lease, bool, error)
 	Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event, acked string) (Beat, error)
 	Finish(ctx context.Context, runner, run string, fence int64, res Result) error
 }
@@ -51,15 +51,17 @@ type Update struct {
 type Config struct {
 	ID        string    // the runner's id, CheckRunnerID; required
 	Placement Placement // PlacementHost when empty
-	// Org is the one org whose runs the runner leases: required on the host (ErrRunnerOrg), and
-	// on a runner placed in a container, which may lease any org's runs, it limits them to org's.
-	Org      string
-	Protocol Protocol // required
-	Executor Executor // required
-	Now      func() time.Time
-	TTL      time.Duration // the lease life asked for; DefaultTTL when zero
-	MaxRuns  int           // runs held at once; 1 when zero
-	Log      *slog.Logger
+	// Org is the one org whose runs the runner leases; required (ErrRunnerOrg).
+	Org string
+	// PlacementProof is a runner placed in a container's proof of that placement, which the
+	// broker's PlacementVerifier checks on every lease.
+	PlacementProof string
+	Protocol       Protocol // required
+	Executor       Executor // required
+	Now            func() time.Time
+	TTL            time.Duration // the lease life asked for; DefaultTTL when zero
+	MaxRuns        int           // runs held at once; 1 when zero
+	Log            *slog.Logger
 }
 
 // Runner is the runner's loop: it leases queued runs, starts their work, streams the work's events
@@ -96,13 +98,11 @@ func New(cfg Config) (*Runner, error) {
 	if !cfg.Placement.Valid() || cfg.Protocol == nil || cfg.Executor == nil {
 		return nil, errors.New("runner: Config needs a valid placement, a Protocol and an Executor")
 	}
-	if cfg.Placement == PlacementHost && cfg.Org == "" {
+	if cfg.Org == "" {
 		return nil, fmt.Errorf("%w: Config names no org", ErrRunnerOrg)
 	}
-	if cfg.Org != "" {
-		if err := checkOrg(cfg.Org); err != nil {
-			return nil, err
-		}
+	if err := checkOrg(cfg.Org); err != nil {
+		return nil, err
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -263,7 +263,7 @@ func (r *Runner) take(ctx context.Context) error {
 	if err != nil || n == 0 {
 		return err
 	}
-	l, ok, err := r.cfg.Protocol.Lease(ctx, r.cfg.ID, r.cfg.Placement, r.cfg.Org, r.cfg.TTL)
+	l, ok, err := r.cfg.Protocol.Lease(ctx, r.cfg.ID, r.cfg.Placement, r.cfg.Org, r.cfg.PlacementProof, r.cfg.TTL)
 	if errors.Is(err, ErrSandboxBusy) {
 		return nil // the next Step leases again
 	}
@@ -319,7 +319,8 @@ func (r *Runner) Shutdown(ctx context.Context, grace time.Duration) error {
 
 // Run calls Step every interval until ctx ends, then shuts down with a 5 s grace. A Step's error
 // is logged, not fatal: the daemon may be restarting, and a lease outlives a short outage. The one
-// exception is ErrHostOrg, which no retry clears: Run shuts down and returns it.
+// exceptions are ErrHostOrg and ErrPlacementProof, which no retry clears: Run shuts down and
+// returns them.
 func (r *Runner) Run(ctx context.Context, interval time.Duration) error {
 	if interval <= 0 {
 		interval = time.Second
@@ -328,7 +329,7 @@ func (r *Runner) Run(ctx context.Context, interval time.Duration) error {
 	defer t.Stop()
 	for {
 		if err := r.Step(ctx); err != nil && ctx.Err() == nil {
-			if errors.Is(err, ErrHostOrg) {
+			if errors.Is(err, ErrHostOrg) || errors.Is(err, ErrPlacementProof) {
 				sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 				defer cancel()
 				return errors.Join(err, r.Shutdown(sctx, 5*time.Second))

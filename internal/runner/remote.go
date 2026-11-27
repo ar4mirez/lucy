@@ -20,7 +20,7 @@ type Remote struct {
 var _ Protocol = Remote{}
 
 // remoteError maps the API's fenced, sandbox_busy and runner_org errors back to ErrFenced,
-// ErrSandboxBusy, ErrRunnerOrg and ErrHostOrg.
+// ErrSandboxBusy, ErrRunnerOrg, ErrHostOrg and ErrPlacementProof.
 func remoteError(err error) error {
 	var ae *api.Error
 	if errors.As(err, &ae) {
@@ -33,6 +33,8 @@ func remoteError(err error) error {
 			return errors.Join(ErrRunnerOrg, err)
 		case api.CodeHostOrg:
 			return errors.Join(ErrHostOrg, err)
+		case api.CodePlacementProof:
+			return errors.Join(ErrPlacementProof, err)
 		}
 	}
 	return err
@@ -47,8 +49,9 @@ func (r Remote) Queued(ctx context.Context, placement Placement, org string) (in
 }
 
 // Lease implements Protocol.
-func (r Remote) Lease(ctx context.Context, runner string, placement Placement, org string, ttl time.Duration) (Lease, bool, error) {
-	res, err := r.Client.RunnerLease(ctx, api.LeaseParams{Runner: runner, Placement: string(placement), Org: org, TTLSeconds: seconds(ttl)})
+func (r Remote) Lease(ctx context.Context, runner string, placement Placement, org, proof string, ttl time.Duration) (Lease, bool, error) {
+	res, err := r.Client.RunnerLease(ctx, api.LeaseParams{Runner: runner, Placement: string(placement), Org: org, PlacementProof: proof,
+		TTLSeconds: seconds(ttl)})
 	if err != nil || !res.Leased {
 		return Lease{}, false, remoteError(err)
 	}

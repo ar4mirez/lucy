@@ -86,7 +86,7 @@ func (f *fixture) submit(runs ...string) {
 
 func (f *fixture) lease(runner string, ttl time.Duration) Lease {
 	f.t.Helper()
-	l, ok, err := f.b.Lease(context.Background(), runner, PlacementHost, "acme", ttl)
+	l, ok, err := f.b.Lease(context.Background(), runner, PlacementHost, "acme", "", ttl)
 	if err != nil || !ok {
 		f.t.Fatalf("lease: ok %v, err %v", ok, err)
 	}
@@ -127,7 +127,7 @@ func evs(from, to int64) []Event {
 func TestLeaseHeartbeatFinish(t *testing.T) {
 	ctx := context.Background()
 	f := open(t)
-	if _, ok, err := f.b.Lease(ctx, "r1", PlacementHost, "acme", 0); ok || err != nil {
+	if _, ok, err := f.b.Lease(ctx, "r1", PlacementHost, "acme", "", 0); ok || err != nil {
 		t.Fatalf("lease from an empty queue: ok %v, err %v", ok, err)
 	}
 	f.submit("a#1", "b#1")
@@ -316,8 +316,8 @@ func TestRefusals(t *testing.T) {
 		"generation 0":      f.b.Submit(ctx, Task{Run: "x#0", Org: "acme", Project: "web", Flight: "x", Goal: "g"}),
 		"slash in org":      f.b.Submit(ctx, Task{Run: "x#1", Org: "a/b", Project: "web", Flight: "x", Generation: 1, Goal: "g"}),
 		"slash in run":      f.b.Submit(ctx, Task{Run: "x/1", Org: "acme", Project: "web", Flight: "x", Generation: 1, Goal: "g"}),
-		"bad runner id":     second(f.b.Lease(ctx, "Runner One", PlacementHost, "acme", 0)),
-		"bad placement":     second(f.b.Lease(ctx, "r1", "cloud", "acme", 0)),
+		"bad runner id":     second(f.b.Lease(ctx, "Runner One", PlacementHost, "acme", "", 0)),
+		"bad placement":     second(f.b.Lease(ctx, "r1", "cloud", "acme", "", 0)),
 		"too many events":   first(f.b.Heartbeat(ctx, "r1", "a#1", 1, 0, evs(1, MaxBatch+1), "")),
 		"unknown kind":      first(f.b.Heartbeat(ctx, "r1", "a#1", 1, 0, []Event{{Seq: 1, Kind: "shout"}}, "")),
 		"event 0":           first(f.b.Heartbeat(ctx, "r1", "a#1", 1, 0, []Event{{Seq: 0, Kind: KindOutput}}, "")),
@@ -325,8 +325,8 @@ func TestRefusals(t *testing.T) {
 		"PR on a failure":   f.b.Finish(ctx, "r1", "a#1", 1, Result{Outcome: OutcomeFailed, PR: 3}),
 		"negative PR":       f.b.Finish(ctx, "r1", "a#1", 1, Result{Outcome: OutcomeDone, PR: -1}),
 		"stop an unknown":   f.b.Stop(ctx, "nope"),
-		"runner id length":  second(f.b.Lease(ctx, string(make([]byte, 64)), PlacementHost, "acme", 0)),
-		"runner id leading": second(f.b.Lease(ctx, "-r", PlacementHost, "acme", 0)),
+		"runner id length":  second(f.b.Lease(ctx, string(make([]byte, 64)), PlacementHost, "acme", "", 0)),
+		"runner id leading": second(f.b.Lease(ctx, "-r", PlacementHost, "acme", "", 0)),
 	} {
 		if err == nil {
 			t.Errorf("%s: accepted", name)
@@ -381,20 +381,20 @@ func TestHostPlacementServesOneOrg(t *testing.T) {
 	}
 	sub("b#1", "beta")
 	sub("a#1", "acme")
-	if _, _, err := f.b.Lease(ctx, "r1", PlacementHost, "", 0); !errors.Is(err, ErrRunnerOrg) {
+	if _, _, err := f.b.Lease(ctx, "r1", PlacementHost, "", "", 0); !errors.Is(err, ErrRunnerOrg) {
 		t.Fatalf("a host lease without an org: %v, want ErrRunnerOrg", err)
 	}
 	if org, err := f.b.HostOrg(ctx); org != "" || err != nil {
 		t.Fatalf("host org before any host lease: %q, %v", org, err)
 	}
-	l, ok, err := f.b.Lease(ctx, "r1", PlacementHost, "acme", 0)
+	l, ok, err := f.b.Lease(ctx, "r1", PlacementHost, "acme", "", 0)
 	if err != nil || !ok || l.Run != "a#1" {
 		t.Fatalf("acme's runner leased %+v, %v, %v; want a#1, past beta's older run", l, ok, err)
 	}
 	if org, _ := f.b.HostOrg(ctx); org != "acme" {
 		t.Fatalf("host org after acme's lease: %q", org)
 	}
-	if _, _, err := f.b.Lease(ctx, "r2", PlacementHost, "beta", 0); !errors.Is(err, ErrHostOrg) {
+	if _, _, err := f.b.Lease(ctx, "r2", PlacementHost, "beta", "", 0); !errors.Is(err, ErrHostOrg) {
 		t.Fatalf("beta's host runner: %v, want ErrHostOrg", err)
 	}
 	if f.run("b#1").State != StateQueued {
@@ -413,17 +413,61 @@ func TestHostPlacementServesOneOrg(t *testing.T) {
 	if org, err := f.b.HostOrg(ctx); org != "beta" || err != nil {
 		t.Fatalf("host org after a restart: %q, %v", org, err)
 	}
-	if _, _, err := f.b.Lease(ctx, "r1", PlacementHost, "acme", 0); !errors.Is(err, ErrHostOrg) {
+	if _, _, err := f.b.Lease(ctx, "r1", PlacementHost, "acme", "", 0); !errors.Is(err, ErrHostOrg) {
 		t.Fatalf("acme's host runner after the switch: %v, want ErrHostOrg", err)
 	}
-	if l, ok, err := f.b.Lease(ctx, "r2", PlacementHost, "beta", 0); err != nil || !ok || l.Run != "b#1" {
+	if l, ok, err := f.b.Lease(ctx, "r2", PlacementHost, "beta", "", 0); err != nil || !ok || l.Run != "b#1" {
 		t.Fatalf("beta's runner leased %+v, %v, %v", l, ok, err)
 	}
 	sub("c#1", "gamma")
-	if l, ok, err := f.b.Lease(ctx, "box", PlacementContainer, "", 0); err != nil || !ok || l.Run != "c#1" {
+	f.b.VerifyPlacementWith(testPlacement{})
+	if l, ok, err := f.b.Lease(ctx, "box", PlacementContainer, "gamma", "test-proof", 0); err != nil || !ok || l.Run != "c#1" {
 		t.Fatalf("a container lease of another org: %+v, %v, %v", l, ok, err)
 	}
 	if err := f.b.SetHostOrg(ctx, "a/b", "owner"); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("an org that is not a name: %v, want ErrInvalid", err)
 	}
+}
+
+// A placement a runner declares is never trusted: without a PlacementVerifier every container
+// lease is refused, and with one only a proof it accepts leases; every lease names its org.
+func TestContainerPlacementNeedsAProof(t *testing.T) {
+	ctx := context.Background()
+	f := open(t)
+	f.submit("a#1")
+	for _, proof := range []string{"", "test-proof"} {
+		if _, _, err := f.b.Lease(ctx, "box", PlacementContainer, "acme", proof, 0); !errors.Is(err, ErrPlacementProof) {
+			t.Fatalf("a container lease with no verifier, proof %q: %v, want ErrPlacementProof", proof, err)
+		}
+	}
+	f.b.VerifyPlacementWith(testPlacement{})
+	if _, _, err := f.b.Lease(ctx, "box", PlacementContainer, "acme", "forged", 0); !errors.Is(err, ErrPlacementProof) {
+		t.Fatalf("a container lease with a forged proof: %v, want ErrPlacementProof", err)
+	}
+	if _, _, err := f.b.Lease(ctx, "box", PlacementContainer, "", "test-proof", 0); !errors.Is(err, ErrRunnerOrg) {
+		t.Fatalf("a container lease without an org: %v, want ErrRunnerOrg", err)
+	}
+	if f.run("a#1").State != StateQueued {
+		t.Fatal("a refused lease took the run")
+	}
+	if l, ok, err := f.b.Lease(ctx, "box", PlacementContainer, "acme", "test-proof", 0); err != nil || !ok || l.Run != "a#1" {
+		t.Fatalf("a proven container lease: %+v, %v, %v", l, ok, err)
+	}
+	if org, _ := f.b.HostOrg(ctx); org != "" {
+		t.Fatalf("a container lease set the host org to %q", org)
+	}
+	if _, err := New(Config{ID: "box", Placement: PlacementContainer, Protocol: f.b, Executor: &fakeExecutor{}}); !errors.Is(err, ErrRunnerOrg) {
+		t.Fatalf("a runner without an org: %v, want ErrRunnerOrg", err)
+	}
+}
+
+// testPlacement is a test-only PlacementVerifier standing in for the Sandbox provider's: it
+// accepts the proof "test-proof" and nothing else.
+type testPlacement struct{}
+
+func (testPlacement) VerifyPlacement(_ context.Context, _, _, proof string) error {
+	if proof != "test-proof" {
+		return errors.New("not a placement proof")
+	}
+	return nil
 }

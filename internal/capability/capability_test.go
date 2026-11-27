@@ -55,6 +55,7 @@ func open(t *testing.T) *fixture {
 	}
 	t.Cleanup(func() { st.Close() })
 	b := runner.NewBroker(st, c.Now)
+	b.VerifyPlacementWith(testPlacement{})
 	return &fixture{t: t, clock: c, store: st, b: b, iss: &capability.Issuer{Store: st, Leases: b, Now: c.Now}}
 }
 
@@ -66,7 +67,7 @@ func (f *fixture) lease(org, flight string, routes ...string) (runner.Lease, str
 	if err := f.b.Submit(ctx, runner.Task{Run: runner.RunID(flight, 1), Org: org, Project: "web", Flight: flight, Generation: 1, Goal: "g"}); err != nil {
 		f.t.Fatal(err)
 	}
-	l, ok, err := f.b.Lease(ctx, "r1", runner.PlacementContainer, "", time.Minute)
+	l, ok, err := f.b.Lease(ctx, "r1", runner.PlacementContainer, org, "test-proof", time.Minute)
 	if err != nil || !ok {
 		f.t.Fatalf("lease: %v %v", ok, err)
 	}
@@ -313,4 +314,15 @@ func TestRevokeRun(t *testing.T) {
 	if _, err := f.iss.Verify(ctx, other, "acme", "github"); err != nil {
 		t.Fatalf("another run's token: %v", err)
 	}
+}
+
+// testPlacement is a test-only PlacementVerifier standing in for the Sandbox provider's: it
+// accepts the proof "test-proof" and nothing else.
+type testPlacement struct{}
+
+func (testPlacement) VerifyPlacement(_ context.Context, _, _, proof string) error {
+	if proof != "test-proof" {
+		return errors.New("not a placement proof")
+	}
+	return nil
 }

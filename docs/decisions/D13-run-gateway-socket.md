@@ -45,11 +45,14 @@ is 0600. Isolation between orgs therefore holds across containers or uids, not w
 process of the runner's uid can open every run socket of that uid. Until runs are in their org's
 container (berth#216), the daemon serves one host org. The first run leased to a runner on the host
 sets it, recorded as `runner.host_org_set`; a host lease for any other org is refused with
-`host_org`, and other orgs need container placement. A runner on the host names its org
-(`lucy runner --org`; `runner_org` without one). Only the owner changes the host org
-(`lucy runner host-org <org>`, the `runner.host_org` method, recorded), and not while any host run
-is live, so no two orgs' runs are on the host at once. A runner in an org's container leases as
-before, because the container already belongs to one org.
+`host_org`. Only the owner changes the host org (`lucy runner host-org <org>`, the
+`runner.host_org` method, recorded), and not while any host run is live. A placement a runner
+declares is never trusted, so container placement is refused (`placement_proof`): the broker
+leases to a runner placed in a container only with a placement proof its verifier accepts, and
+no daemon configures a verifier until the Sandbox provider can issue such a proof (berth#216).
+Every runner names its org (`lucy runner --org`, required for every placement; `runner_org`
+without one), and its root defaults to that org's own, so no runner root spans orgs. One org's
+runs are therefore the only runs on the host at any time.
 
 ## Consequences
 

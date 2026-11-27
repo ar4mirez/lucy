@@ -127,8 +127,8 @@ func (s socket) Queued(ctx context.Context, pl runner.Placement, org string) (in
 	return s.w.broker.Queued(ctx, pl, org)
 }
 
-func (s socket) Lease(ctx context.Context, id string, p runner.Placement, org string, ttl time.Duration) (runner.Lease, bool, error) {
-	return s.w.broker.Lease(ctx, id, p, org, ttl)
+func (s socket) Lease(ctx context.Context, id string, p runner.Placement, org, proof string, ttl time.Duration) (runner.Lease, bool, error) {
+	return s.w.broker.Lease(ctx, id, p, org, proof, ttl)
 }
 
 func (s socket) Heartbeat(ctx context.Context, id, run string, fence int64, ttl time.Duration, evs []runner.Event, acked string) (runner.Beat, error) {

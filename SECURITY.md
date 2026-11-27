@@ -99,9 +99,13 @@ still act with its token, through that socket, for the run's life and within its
 lease. Isolation between orgs holds across containers or uids, not within one: the socket's modes
 keep out other users, but every process of the same uid can reach every other's socket. So the
 daemon serves one host org: the first run leased to a runner on the host sets it, recorded as
-`runner.host_org_set`, and a host lease for any other org is refused (`host_org`); other orgs need
-container placement. Only the owner changes it (`lucy runner host-org <org>`, recorded), and not
-while any host run is live, so no two orgs' runs are ever on the host at once.
+`runner.host_org_set`, and a host lease for any other org is refused (`host_org`). Only the owner
+changes it (`lucy runner host-org <org>`, recorded), and not while any host run is live. A
+placement a runner declares is never trusted: container placement is refused (`placement_proof`)
+until the Sandbox provider can issue a placement proof (berth#216), and no daemon has a verifier
+for one yet. Every runner names its org (`--org`, required for every placement; a runner without
+one refuses to start), and its root defaults to that org's own, so no runner root spans orgs. One
+org's runs are therefore the only runs on the host at any time.
 
 ## Audit and log data
 

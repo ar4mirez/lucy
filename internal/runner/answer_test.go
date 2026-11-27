@@ -33,8 +33,8 @@ type live struct{ f *fixture }
 func (p live) Queued(ctx context.Context, pl Placement, org string) (int, error) {
 	return p.f.b.Queued(ctx, pl, org)
 }
-func (p live) Lease(ctx context.Context, r string, pl Placement, org string, ttl time.Duration) (Lease, bool, error) {
-	return p.f.b.Lease(ctx, r, pl, org, ttl)
+func (p live) Lease(ctx context.Context, r string, pl Placement, org, proof string, ttl time.Duration) (Lease, bool, error) {
+	return p.f.b.Lease(ctx, r, pl, org, proof, ttl)
 }
 func (p live) Heartbeat(ctx context.Context, r, run string, fence int64, ttl time.Duration, evs []Event, acked string) (Beat, error) {
 	return p.f.b.Heartbeat(ctx, r, run, fence, ttl, evs, acked)

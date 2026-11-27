@@ -255,8 +255,8 @@ func TestRunGatewaySocketPathLength(t *testing.T) {
 // withToken is the broker as a daemon that issues capabilities serves it: each lease carries one.
 type withToken struct{ *Broker }
 
-func (p withToken) Lease(ctx context.Context, r string, pl Placement, org string, ttl time.Duration) (Lease, bool, error) {
-	l, ok, err := p.Broker.Lease(ctx, r, pl, org, ttl)
+func (p withToken) Lease(ctx context.Context, r string, pl Placement, org, proof string, ttl time.Duration) (Lease, bool, error) {
+	l, ok, err := p.Broker.Lease(ctx, r, pl, org, proof, ttl)
 	if ok {
 		l.Capability = "lcap_" + l.Org
 	}

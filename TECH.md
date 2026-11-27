@@ -124,9 +124,9 @@ Operations: [daemon runbook](docs/runbooks/daemon.md).
 - **Limits** (LUCY-API-006): 64 KiB bodies, 32 levels of nesting, 8 KiB headers; 5 s to read
   headers, 15 s per request body, 30 s to write, 60 s idle, 10 s per call; 64 connections. Params
   are decoded strictly: no unknown, duplicate or case-folded members, bounds from struct tags.
-- **Errors** (LUCY-API-008): JSON-RPC codes plus lucy's, -32001 to -32009 (forbidden, unsupported
-  version, too large, unavailable, timeout, fenced, sandbox busy, runner org, host org), one fixed
-  message and `kind` per code; an internal error is logged; the caller sees only its correlation id.
+- **Errors** (LUCY-API-008): JSON-RPC codes plus lucy's, -32001 to -32010 (forbidden, unsupported
+  version, too large, unavailable, timeout, fenced, sandbox busy, runner org, host org, placement
+  proof), one fixed message and `kind` per code; an internal error is logged; the caller sees only its correlation id.
 - **Remote transport (m1).** The handler is transport-neutral; HTTPS needs only a TLS listener and a
   device authenticator. No network listener exists in m0: remote HTTPS with device pairing, scoped
   credentials and TLS lands in m1 (LUCY-VIEW-006).

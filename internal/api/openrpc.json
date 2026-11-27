@@ -961,7 +961,7 @@
     },
     {
       "name": "runner.lease",
-      "summary": "Lease the oldest queued run under a new fencing token. A runner placed on the host names its org, or is refused with runner_org; it is leased only that org's runs, and only if that is the host org (the first host lease sets it; runner.host_org changes it), or it is refused with host_org: other orgs need container placement. A runner placed in a container is never leased a run whose org's container is being restarted or stopped; when every queued run is such a run, it is refused with sandbox_busy and leases again later.",
+      "summary": "Lease the oldest queued run of the runner's org under a new fencing token. A runner names its org, or is refused with runner_org. On the host that org must be the host org (the first host lease sets it; runner.host_org changes it), or the lease is refused with host_org. A runner placed in a container is leased only with a placement proof the daemon accepts, or is refused with placement_proof, and while its org's container is being restarted or stopped it is refused with sandbox_busy and leases again later.",
       "paramStructure": "by-name",
       "params": [
         {
@@ -985,10 +985,19 @@
         },
         {
           "name": "org",
-          "description": "The one org whose runs the runner leases. Required on the host, refused with runner_org when empty, and refused with host_org when it is not the host org. A runner in a container may leave it empty to lease any org's runs.",
+          "description": "The one org whose runs the runner leases. Required: a lease without one is refused with runner_org. On the host it must be the host org, or the lease is refused with host_org.",
           "required": false,
           "schema": {
             "maxLength": 200,
+            "type": "string"
+          }
+        },
+        {
+          "name": "placement_proof",
+          "description": "A runner placed in a container: the Sandbox provider's proof of that placement. A placement a runner declares is never trusted; until berth can issue a proof (berth#216) no daemon accepts one, and every container lease is refused with placement_proof.",
+          "required": false,
+          "schema": {
+            "maxLength": 4096,
             "type": "string"
           }
         },
@@ -2476,7 +2485,7 @@
     },
     {
       "name": "runner.host_org",
-      "summary": "Make org the host org: the one org whose runs runners placed on the host lease, since every process on the host runs as one uid and can reach the others' sockets. The first host lease sets it; only this owner command changes it, recorded, and it is refused with host_org while any host run is live. Other orgs need container placement.",
+      "summary": "Make org the host org: the one org whose runs runners placed on the host lease, since every process on the host runs as one uid and can reach the others' sockets. The first host lease sets it; only this owner command changes it, recorded, and it is refused with host_org while any host run is live.",
       "paramStructure": "by-name",
       "params": [
         {
@@ -2544,6 +2553,10 @@
       "parse_error": {
         "code": -32700,
         "message": "parse error"
+      },
+      "placement_proof": {
+        "code": -32010,
+        "message": "container placement not proven"
       },
       "runner_org": {
         "code": -32008,

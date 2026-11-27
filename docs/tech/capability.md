@@ -53,7 +53,9 @@ is `internal/capability`; the gateway checks tokens through the daemon
 not a credential helper, a token file or an environment variable, and the risk left, is
 [D13](../decisions/D13-run-gateway-socket.md). Isolation between orgs holds across containers or
 uids: a process of the same uid can open any run socket of that uid, so the daemon serves one host
-org and refuses host leases for any other (`host_org`); other orgs need container placement.
+org and refuses host leases for any other (`host_org`). Container placement is refused
+(`placement_proof`) until the Sandbox provider can issue a placement proof (berth#216), and every
+runner names its org, so no runner root spans orgs.
 
 ## Not built yet
 

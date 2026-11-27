@@ -35,13 +35,13 @@ Runs a runner in the foreground: it leases runs from the daemon over the runner 
 runs <command> once per leased run, streams each line of its output into the daemon's event
 log, renews the lease at a third of its life and reports the outcome (exit status 0 is done;
 a line "lucy:pr=<n>" reports the pull request). A runner on the host (the default placement)
-needs --org and is leased only that org's runs. Every process on the host runs as one uid and
-can reach the others' sockets, so the daemon serves one host org: the first host lease sets it,
-and a runner on the host for any other org is refused (host_org) and exits; other orgs need
-container placement. lucy runner host-org <org> changes the host org, recorded, and is refused
-while any host run is live. A runner placed in a container may leave --org out to lease any org's
-runs. --id defaults to one unique to the process, built from the org, the host name and the pid.
-Each run gets a fresh directory under --root ($XDG_DATA_HOME/lucy/runner/<org> by default) as its
+needs --org, which every runner does, and is leased only that org's runs. Every process on the
+host runs as one uid and can reach the others' sockets, so the daemon serves one host org: the
+first host lease sets it, and a runner for any other org is refused (host_org) and exits. lucy
+runner host-org <org> changes the host org, recorded, and is refused while any host run is live.
+--placement container is refused: a placement a runner declares is never trusted, and container
+placement needs a placement proof berth cannot issue yet (berth#216). --id defaults to one
+unique to the process, built from the org, the host name and the pid. Each run gets a fresh directory under --root ($XDG_DATA_HOME/lucy/runner/<org> by default) as its
 working directory and TMPDIR, and an
 environment of only PATH, HOME, TMPDIR and LUCY_RUN, LUCY_RUN_ORG, LUCY_RUN_PROJECT,
 LUCY_RUN_FLIGHT, LUCY_RUN_GENERATION, LUCY_RUN_GOAL and LUCY_RUN_BASE; the directory is
@@ -163,11 +163,15 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "error: --placement must be host or container, not %q\nhelp: run `lucy runner --help`\n", *placement)
 		return 2
 	}
-	if *org == "" && runner.Placement(*placement) == runner.PlacementHost {
-		fmt.Fprint(stderr, "error: a runner on the host needs --org: it leases the runs of one org, the host org\nhelp: run `lucy runner --help`; other orgs need --placement container\n")
+	if runner.Placement(*placement) == runner.PlacementContainer {
+		fmt.Fprint(stderr, "error: container placement needs berth#216 placement proof\nhelp: run `lucy runner --help`; a runner placed on the host serves the host org\n")
 		return 2
 	}
-	if *org != "" && (*org != filepath.Base(*org) || strings.HasPrefix(*org, ".") || strings.Contains(*org, "#") || len(*org) > 200) {
+	if *org == "" {
+		fmt.Fprint(stderr, "error: lucy runner needs --org: a runner leases the runs of one org\nhelp: run `lucy runner --help`\n")
+		return 2
+	}
+	if *org != filepath.Base(*org) || strings.HasPrefix(*org, ".") || strings.Contains(*org, "#") || len(*org) > 200 {
 		fmt.Fprintf(stderr, "error: --org %q is not an org name\nhelp: run `lucy runner --help`\n", *org)
 		return 2
 	}

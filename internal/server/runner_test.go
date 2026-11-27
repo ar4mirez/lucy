@@ -35,6 +35,12 @@ func (oneShotExecutor) Start(context.Context, runner.Lease) (runner.Execution, e
 
 func withBroker(o *Options) { o.Runs = runner.NewBroker(o.Store, nil) }
 
+// withProvenPlacement is withBroker whose broker accepts the test-only placement proof.
+func withProvenPlacement(o *Options) {
+	withBroker(o)
+	o.Runs.VerifyPlacementWith(testPlacement{})
+}
+
 // A runner on the far side of the socket leases, streams and finishes a run, and every call is
 // recorded as a command before it runs.
 func TestRunnerOverTheSocket(t *testing.T) {
@@ -111,8 +117,19 @@ func TestRunnerMethodRefusals(t *testing.T) {
 	if ae := wantCode(t, err, api.CodeRunnerOrg); ae.Data.Field != "org" {
 		t.Fatalf("a host lease without an org: %+v", ae)
 	}
-	if _, _, err := (runner.Remote{Client: f.client}).Lease(ctx, "local", runner.PlacementHost, "", 0); !errors.Is(err, runner.ErrRunnerOrg) {
+	if _, _, err := (runner.Remote{Client: f.client}).Lease(ctx, "local", runner.PlacementHost, "", "", 0); !errors.Is(err, runner.ErrRunnerOrg) {
 		t.Fatalf("a remote host lease without an org: %v, want ErrRunnerOrg", err)
+	}
+	// A placement a runner declares is never trusted: a daemon with no placement verifier refuses
+	// every container lease, with a proof or without.
+	for _, proof := range []string{"", "test-proof"} {
+		_, err = f.client.RunnerLease(ctx, api.LeaseParams{Runner: "box", Placement: "container", Org: "acme", PlacementProof: proof})
+		if ae := wantCode(t, err, api.CodePlacementProof); ae.Data.Field != "placement" || !strings.Contains(ae.Data.Help, "berth#216 placement proof") {
+			t.Fatalf("a self-declared container lease with proof %q: %+v", proof, ae)
+		}
+	}
+	if _, _, err := (runner.Remote{Client: f.client}).Lease(ctx, "box", runner.PlacementContainer, "acme", "", 0); !errors.Is(err, runner.ErrPlacementProof) {
+		t.Fatalf("a remote container lease: %v, want ErrPlacementProof", err)
 	}
 	many := make([]api.RunEvent, 33)
 	for i := range many {
@@ -160,10 +177,10 @@ func TestHostOrgOverTheSocket(t *testing.T) {
 		t.Fatalf("acme's lease %+v, %v", l, err)
 	}
 	_, err = f.client.RunnerLease(ctx, api.LeaseParams{Runner: "b", Org: "beta"})
-	if ae := wantCode(t, err, api.CodeHostOrg); ae.Data.Field != "org" || !strings.Contains(ae.Data.Help, "container placement") {
+	if ae := wantCode(t, err, api.CodeHostOrg); ae.Data.Field != "org" || !strings.Contains(ae.Data.Help, "lucy runner host-org") || strings.Contains(ae.Data.Help, "container") {
 		t.Fatalf("beta's host lease: %+v", ae)
 	}
-	if _, _, err := (runner.Remote{Client: f.client}).Lease(ctx, "b", runner.PlacementHost, "beta", 0); !errors.Is(err, runner.ErrHostOrg) {
+	if _, _, err := (runner.Remote{Client: f.client}).Lease(ctx, "b", runner.PlacementHost, "beta", "", 0); !errors.Is(err, runner.ErrHostOrg) {
 		t.Fatalf("a remote host lease for beta: %v, want ErrHostOrg", err)
 	}
 	_, err = f.client.RunnerHostOrg(ctx, api.HostOrgParams{Org: "beta"})
@@ -254,7 +271,7 @@ func TestRunnerPermitRedactsExecAndFetch(t *testing.T) {
 // A runner placed in a container, on the far side of the socket, is told the org's container is
 // busy while it is held, takes it as lease again later, and leases once the hold is released.
 func TestContainerRunnerWaitsOutAHeldContainer(t *testing.T) {
-	f := start(t, os.Geteuid(), 0, withBroker)
+	f := start(t, os.Geteuid(), 0, withProvenPlacement)
 	b := f.srv.opts.Runs
 	if err := b.Submit(ctx, runner.Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}); err != nil {
 		t.Fatal(err)
@@ -263,10 +280,11 @@ func TestContainerRunnerWaitsOutAHeldContainer(t *testing.T) {
 		t.Fatalf("hold: %v, %v", held, err)
 	}
 	remote := runner.Remote{Client: f.client}
-	if _, _, err := remote.Lease(ctx, "box", runner.PlacementContainer, "", time.Minute); !errors.Is(err, runner.ErrSandboxBusy) {
+	if _, _, err := remote.Lease(ctx, "box", runner.PlacementContainer, "acme", "test-proof", time.Minute); !errors.Is(err, runner.ErrSandboxBusy) {
 		t.Fatalf("a container lease while acme is held: %v, want ErrSandboxBusy", err)
 	}
-	r, err := runner.New(runner.Config{ID: "box", Placement: runner.PlacementContainer, Protocol: remote, Executor: oneShotExecutor{},
+	r, err := runner.New(runner.Config{ID: "box", Placement: runner.PlacementContainer, Org: "acme", PlacementProof: "test-proof",
+		Protocol: remote, Executor: oneShotExecutor{},
 		Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)
@@ -292,7 +310,7 @@ func TestContainerRunnerWaitsOutAHeldContainer(t *testing.T) {
 // container, so that runner's polling never leases and adds nothing to the log: no api.command,
 // no audit record. A host runner, and an omitted placement, are still counted them.
 func TestHeldContainerRunnerPollsQuietly(t *testing.T) {
-	f := start(t, os.Geteuid(), 0, withBroker)
+	f := start(t, os.Geteuid(), 0, withProvenPlacement)
 	b := f.srv.opts.Runs
 	if err := b.Submit(ctx, runner.Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}); err != nil {
 		t.Fatal(err)
@@ -312,7 +330,8 @@ func TestHeldContainerRunnerPollsQuietly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := runner.New(runner.Config{ID: "box", Placement: runner.PlacementContainer, Protocol: runner.Remote{Client: f.client},
+	r, err := runner.New(runner.Config{ID: "box", Placement: runner.PlacementContainer, Org: "acme", PlacementProof: "test-proof",
+		Protocol: runner.Remote{Client: f.client},
 		Executor: oneShotExecutor{}, Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)
@@ -332,4 +351,15 @@ func TestHeldContainerRunnerPollsQuietly(t *testing.T) {
 	if ri, err := b.Run(ctx, "f1#1"); err != nil || ri.State != runner.StateQueued {
 		t.Fatalf("run while held: %+v, %v", ri, err)
 	}
+}
+
+// testPlacement is a test-only PlacementVerifier standing in for the Sandbox provider's: it
+// accepts the proof "test-proof" and nothing else.
+type testPlacement struct{}
+
+func (testPlacement) VerifyPlacement(_ context.Context, _, _, proof string) error {
+	if proof != "test-proof" {
+		return errors.New("not a placement proof")
+	}
+	return nil
 }
