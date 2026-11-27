@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 15
+version: 16
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-RUN-005, LUCY-OPS-005, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -95,7 +95,7 @@ lucy runner --org acme -- ./do-the-work.sh   # acme's runner, its id unique to t
 lucy runner --org acme --id spare --ttl 30 --root /path/to/scratch -- ./do-the-work.sh
 lucy runner --org acme --harness claude-code # drive Claude Code (`claude` on PATH) over its stream-json protocol
 lucy runner host-org beta                    # the owner: the host serves beta from now on (refused while a host run is live)
-lucy events --after 0             # run.queued, run.leased, run.event, run.renewed, run.resumed, run.answered, run.finished, run.expired
+lucy events --after 0             # run.queued, run.leased, run.event, run.renewed, run.resumed, run.answered, run.finished, run.expired, run.replaced
 ```
 
 With `--harness claude-code` a run fails without starting unless `claude --version` reports the
@@ -121,12 +121,14 @@ the runner sends under that fence afterwards (`fenced`). A runner that gets `fen
 and stops its work; that is expected after a long pause, not an error to retry.
 
 Restarting the daemon does not stop runners or their runs: a runner keeps its work going and
-retries while the daemon is down. On start, before it expires anything, the daemon gives every
-held lease a grace window of two lease lives (`run.resumed`; the log line "runner leases resumed
-after a restart" counts them), and a runner that heartbeats within it carries on under its fence.
-During the window the run's capability token is refused until its runner renews the lease. A
-lease already in a window is not extended by another restart, so a runner that is really gone is
-expired when its window ends.
+retries while the daemon is down. On start, before it expires anything, the daemon takes the time
+of the newest event in the log as when it stopped and moves every lease still live then later by
+the outage, leaving it at least 60 s (`run.resumed`; the log line "runner leases resumed after a
+restart" counts them and names the outage), and a runner that heartbeats in time carries on under
+its fence. A lease that had already run out before the daemon stopped is not moved. Until its
+runner renews the lease, the run's capability token is refused. A moved lease is not moved again
+by another restart, so a runner that is really gone is expired when its moved lease ends. A run
+whose flight queues a newer Pilot generation is fenced at once (`run.replaced`).
 
 ## Questions
 

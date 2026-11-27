@@ -73,6 +73,7 @@ type world struct {
 	runners []*runner.Runner
 	silent  map[int]bool // runners that do not step: cut off from the daemon
 	down    bool         // the daemon is down: no runner reaches it, and it expires nothing
+	stopped time.Time    // when the daemon went down; the next open resumes leases from it
 }
 
 func newWorld(t *testing.T, runners int) *world {
@@ -113,7 +114,7 @@ func (w *world) open() {
 	}
 	w.t.Cleanup(func() { st.Close() })
 	w.store, w.broker = st, runner.NewBroker(st, w.sim.Clock.Now)
-	if _, err := w.broker.Resume(context.Background(), 0); err != nil { // as the daemon does on start
+	if _, err := w.broker.Resume(context.Background(), w.stopped); err != nil { // as the daemon does on start
 		w.t.Fatal(err)
 	}
 	tw, err := tower.New(context.Background(), tower.Config{Store: st, Runtime: runner.Runtime{Broker: w.broker},
@@ -150,7 +151,11 @@ func (w *world) restart() {
 	if err := w.store.Close(); err != nil {
 		w.t.Fatal(err)
 	}
+	if w.stopped.IsZero() {
+		w.stopped = w.sim.Clock.Now() // no outage
+	}
 	w.open()
+	w.stopped = time.Time{}
 }
 
 func (w *world) dispatch(id string, steps ...sim.Step) {
@@ -327,7 +332,7 @@ func TestALongDaemonOutageKeepsTheRun(t *testing.T) {
 	w.fly(func(minute int) {
 		switch minute {
 		case 5:
-			w.down = true // three-minute leases; down for five
+			w.down, w.stopped = true, w.sim.Clock.Now() // three-minute leases; down for five
 		case 10:
 			w.restart()
 			w.down = false

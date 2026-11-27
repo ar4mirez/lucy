@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 16
+version: 17
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -17,11 +17,21 @@ Changes since the last release. When a version is cut, its section moves to
 ### Added
 
 - A daemon restart no longer loses runs whose runners kept working while it was down. Before it
-  expires anything, a restarted daemon gives every held lease a grace window of two lease lives,
+  expires anything, a restarted daemon moves every lease still live when it stopped (the time of
+  the newest event in the log) later by the outage, leaving it at least one default lease life,
   recorded as `run.resumed`, so each runner reattaches under its old fence and its flight keeps its
-  Pilot; a runner that is really gone is expired once the window ends. A capability token is not
-  honoured during the window until its runner renews the lease, and a lease already in a window
-  is not extended by another restart.
+  Pilot; a runner that is really gone is expired once its moved lease ends. A lease that had run
+  out before the daemon stopped is not moved, and a restart with no outage moves nothing. A
+  capability token is not honoured past the lease its runner last renewed, and a moved lease is
+  not moved again by another restart until its runner renews it.
+- A newer Pilot generation of a flight fences the flight's run that is still queued or leased in
+  the same transaction that queues it, recorded as `run.replaced`, so a flight never has two live
+  runs and the old runner is refused from then on; a generation that is not newer than the
+  flight's newest is refused.
+- Conformance scenarios sessions-03 (a restarted daemon reattaches to a live Pilot session) and
+  sessions-04 (a session is fenced before it is replaced) are executable: the corpus can fly its
+  Pilots through the runner protocol with runners of their own, and checks before every step that
+  no flight has two live runs.
 
 - Each run reaches its org's credential gateway through its own gateway socket, opened by the
   runner in the run's directory and named in `LUCY_RUN_GATEWAY`: the runner forwards each request

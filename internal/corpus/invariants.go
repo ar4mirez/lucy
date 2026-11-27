@@ -33,7 +33,9 @@ var finalTypes = map[string]bool{"task.takeoff": true, "task.merged_outside": tr
 //     records a takeoff;
 //  6. each flight's Pilot sessions are generations 1, 2, 3, ... and a new one starts only after
 //     the previous one exited: never two live sessions for one flight;
-//  7. every answer a Pilot received was the owner's recorded answer.
+//  7. every answer a Pilot received was the owner's recorded answer;
+//  8. with runners (Setup.Runners), no flight has two runs queued or leased before any Tower step
+//     (Env.liveRuns).
 func invariants(ctx context.Context, e *Env) []error {
 	var errs []error
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf("invariant: "+format, args...)) }

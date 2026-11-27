@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -36,6 +37,9 @@ type Setup struct {
 	HideMerger bool         // the forge cannot say who merged a pull request
 	Required   []string     // checks Repo's base branch requires
 	Flights    []Flight     // dispatched, in order, before the first step
+	// Runners, when not zero, flies the Pilots through the runner protocol with that many runners
+	// of Org's runs (sim.Options.Runners); zero lets the Tower drive the fake runtime directly.
+	Runners int
 }
 
 // Flight is a flight dispatched at setup.
@@ -104,6 +108,7 @@ type Env struct {
 	hooks    []*hook
 	built    map[string]built
 	requests map[string]decided
+	live     []error // flights seen with two live runs, by liveRuns
 }
 
 type built struct {
@@ -158,7 +163,7 @@ func Play(ctx context.Context, dir string, s Scenario, v Variant) (Result, error
 	if cfg.Patience == 0 {
 		cfg.Patience = DefaultPatience
 	}
-	w, err := sim.Open(ctx, worldDir, s.Seed(), sim.Options{Tower: cfg})
+	w, err := sim.Open(ctx, worldDir, s.Seed(), sim.Options{Tower: cfg, Runners: s.Setup.Runners, RunnerOrg: Org})
 	if err != nil {
 		return Result{}, err
 	}
@@ -193,6 +198,7 @@ func Play(ctx context.Context, dir string, s Scenario, v Variant) (Result, error
 			errs = append(errs, fmt.Errorf("the hook %q never fired", h.name))
 		}
 	}
+	errs = append(errs, e.live...)
 	errs = append(errs, invariants(ctx, e)...)
 	log, err := w.Log(ctx)
 	if err != nil {
@@ -220,6 +226,9 @@ func (e *Env) beforeStep(ctx context.Context, w *sim.World, _ int) error {
 			return err
 		}
 	}
+	if err := e.liveRuns(ctx); err != nil {
+		return err
+	}
 	for _, h := range e.hooks {
 		if h.fired {
 			continue
@@ -236,6 +245,30 @@ func (e *Env) beforeStep(ctx context.Context, w *sim.World, _ int) error {
 			if err := a.Do(ctx, e); err != nil {
 				return fmt.Errorf("hook %s: %s: %w", h.name, a.Name, err)
 			}
+		}
+	}
+	return nil
+}
+
+// liveRuns records, with runners, every flight that has more than one run queued or leased: the
+// broker fences a flight's live run before it queues the next (invariant 8).
+func (e *Env) liveRuns(ctx context.Context) error {
+	if e.World.Broker == nil {
+		return nil
+	}
+	runs, err := e.World.Broker.Runs(ctx, 0, 1000)
+	if err != nil {
+		return err
+	}
+	live := map[string][]string{}
+	for _, r := range runs {
+		if !r.State.Final() {
+			live[r.Org+"/"+r.Flight] = append(live[r.Org+"/"+r.Flight], r.Run)
+		}
+	}
+	for _, f := range slices.Sorted(maps.Keys(live)) {
+		if len(live[f]) > 1 {
+			e.live = append(e.live, fmt.Errorf("invariant: flight %s has live runs %v at %s", f, live[f], e.World.Clock.Now().Format(time.RFC3339)))
 		}
 	}
 	return nil

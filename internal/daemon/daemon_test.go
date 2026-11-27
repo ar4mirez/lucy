@@ -336,11 +336,12 @@ func TestRunResumesLeasesHeldWhileDown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := eventstore.Open(ctx, o.DBPath, eventstore.Options{Registry: reg, Projectors: Projectors(), SnapshotDir: o.SnapshotDir})
+	hourAgo := func() time.Time { return time.Now().Add(-time.Hour) }
+	store, err := eventstore.Open(ctx, o.DBPath, eventstore.Options{Registry: reg, Projectors: Projectors(), SnapshotDir: o.SnapshotDir,
+		Now: hourAgo}) // the run was leased an hour ago, and then the daemon stopped
 	if err != nil {
 		t.Fatal(err)
 	}
-	hourAgo := func() time.Time { return time.Now().Add(-time.Hour) }
 	b := runner.NewBroker(store, hourAgo)
 	if err := b.Submit(ctx, runner.Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}); err != nil {
 		t.Fatal(err)

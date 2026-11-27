@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: []
 ---
@@ -114,15 +114,20 @@ slice table, requirement status and exit tests stay in the plan.
      (LUCY-CRED-005): slice 15.
   6. Capability actions narrower than the org's routes, per task: slice 7a.
 - **5, session ownership.** A run's lease outlives the daemon. A runner keeps its work going while
-  the daemon is down and retries; a restarted daemon, before it expires anything, gives every held
-  lease a grace window (`runner.DefaultGrace`, two lease lives) recorded as `run.resumed`, so the
-  runner renews under its old fence and the Tower sees the same Pilot rather than a lost one. The
-  window keeps the run, not the runner's authority: a capability token is honoured only up to the
-  expiry the runner itself last earned (`RunInfo.Earned`), and a lease already in a window is not
-  extended by another restart. Left: the corpus flying its Pilots through the runner protocol
-  (sessions-03); a newer Pilot generation fencing the live older one before it is leased
-  (sessions-04); a runner restart that keeps its work alive and reattaches (`Runner.Shutdown` still
-  finishes held runs as lost); a daemon upgrade in place with live runs.
+  the daemon is down and retries; a restarted daemon, before it expires anything, moves every lease
+  still live when it stopped (the newest event in the log) later by the outage, at least
+  `runner.DefaultTTL` from now, recorded as `run.resumed` (`Broker.Resume`), so the runner renews
+  under its old fence and the Tower sees the same Pilot rather than a lost one; a restart with no
+  outage moves nothing. The move keeps the run, not the runner's authority: a capability token is
+  honoured only up to the expiry the runner itself last earned (`RunInfo.Earned`), and a moved
+  lease is not moved again before its runner renews it. Queuing a newer Pilot generation fences
+  the flight's live run in the same transaction (`run.replaced`), and a stale generation is
+  refused. `sim.World` flies Pilots through the runner protocol when `Options.Runners` is set, with
+  faults for a daemon outage (`Down`) and a runner cut off (`Cut`); the corpus uses it for
+  sessions-03 and sessions-04. A runner cut off from the daemon keeps its Pilot running until it
+  reconnects and is fenced; the Pilot's capability token dies with the lease, so it cannot act
+  through the gateway meanwhile. Left: a runner restart that keeps its work alive and reattaches
+  (`Runner.Shutdown` still finishes held runs as lost); a daemon upgrade in place with live runs.
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real

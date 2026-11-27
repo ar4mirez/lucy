@@ -490,12 +490,21 @@ func sessionScenarios() []Scenario {
 		{
 			ID: "sessions-03", Title: "A restarted daemon reattaches to a live Pilot session before it starts another",
 			Class: ClassSessions, Source: FromIncident, Severity: Critical,
-			Pending: &Pending{Milestone: "m1", Requirements: []string{"LUCY-RUN-004", "LUCY-RUN-005"}, Needs: "session leases on the runner protocol"},
+			Setup: Setup{Runners: 1, Flights: []Flight{Fly("f1", policy.PostureGreen, sim.Work(time.Hour), sim.OpenPR(sim.Passing("ci", time.Minute)))}},
+			// Down for three lease lives: the runner keeps its Pilot going and reattaches under its fence.
+			Steps:  []Action{OnLeased("f1", 1, DaemonDown(3*sim.RunnerTTL)), Proceed()},
+			Expect: []Assertion{Ends("f1", tower.StateTakeoff, ""), PilotsStarted("f1", 1), Runs("f1", 1), Merges(1)},
 		},
 		{
 			ID: "sessions-04", Title: "A supervisor session is fenced before it is replaced: never two live sessions per role",
 			Class: ClassSessions, Source: FromIncident, Severity: Critical,
-			Pending: &Pending{Milestone: "m1", Requirements: []string{"LUCY-RUN-004"}, Needs: "session leases with fencing tokens"},
+			Setup: Setup{Runners: 2, Flights: []Flight{Fly("f1", policy.PostureGreen, sim.Work(3*time.Hour), sim.OpenPR(sim.Passing("ci", time.Minute))).
+				Then(sim.Work(30*time.Minute), sim.OpenPR(sim.Passing("ci", time.Minute)))}},
+			// The first runner is cut off mid-work: its lease expires, generation 2 goes to the other
+			// runner, and when the first comes back everything it sends is refused and it stops its Pilot.
+			Steps: []Action{OnLeased("f1", 1, CutRunner(0)), OnLeased("f1", 2, ReconnectRunner(0)), Proceed()},
+			Expect: []Assertion{Ends("f1", tower.StateTakeoff, ""), PilotsStarted("f1", 2), Runs("f1", 2), Fenced("f1", 1),
+				PilotsStopped(1), Merges(1)},
 		},
 		{
 			ID: "sessions-05", Title: "Steering is addressed by airspace, flight and session generation, and refused when stale or ambiguous",
