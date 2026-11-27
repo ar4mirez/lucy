@@ -37,8 +37,9 @@ How a worker reaches a service without ever holding its credential (TECH.md sect
   for an answer the scrubber cannot read whole.
 - **Policy and audit.** Each forwarded request is a `credential_use` by the org's gateway, decided
   by the policy engine (rule `credential.gateway-only`, the route's scope as a fact, the worker's
-  request as an untrusted `agent` input, so the record is marked tainted) and recorded on the
-  `policy` stream with a `gateway.forwarded` event, in one transaction, before anything is sent.
+  request as an untrusted `agent` input, so the record is marked tainted). The decision is recorded
+  on the `policy` stream and a `gateway.forwarded` event on the org's `gateway/<org>` stream, in one
+  transaction, before anything is sent. Every gateway event is on that org stream.
   The outcome follows as `gateway.completed` (status, how many echoed copies were scrubbed, or that
   the call failed). A refused request is a `gateway.denied` event with its reason. Paths are
   recorded redacted as `policy.RecordedResource` records a fetch; no event holds a credential, a
