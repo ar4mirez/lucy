@@ -15,6 +15,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/api/client"
 	"github.com/ar4mirez/lucy/internal/eventstore"
+	"github.com/ar4mirez/lucy/internal/runner"
 	"github.com/ar4mirez/lucy/internal/spec"
 )
 
@@ -321,5 +322,42 @@ func TestDaemonRefusesUnreadableConfig(t *testing.T) {
 	}
 	if err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "not a directory") {
 		t.Fatalf("Run = %v, want a refusal", err)
+	}
+}
+
+// A runner kept working while the daemon was down for an hour, far past its lease: the daemon
+// that starts again resumes the lease, so the runner's heartbeat under its old fence is accepted
+// rather than fenced, and the run is not lost (LUCY-OPS-005, LUCY-RUN-005).
+func TestRunResumesLeasesHeldWhileDown(t *testing.T) {
+	dir := shortTempDir(t)
+	o := opts(dir)
+	ctx := context.Background()
+	reg, err := Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := eventstore.Open(ctx, o.DBPath, eventstore.Options{Registry: reg, Projectors: Projectors(), SnapshotDir: o.SnapshotDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hourAgo := func() time.Time { return time.Now().Add(-time.Hour) }
+	b := runner.NewBroker(store, hourAgo)
+	if err := b.Submit(ctx, runner.Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	l, ok, err := b.Lease(ctx, "r1", runner.PlacementHost, "acme", "", 0)
+	if err != nil || !ok {
+		t.Fatalf("lease: %v %v", ok, err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	r := startDaemon(t, o)
+	c := client.New(r.sock, "test", "0")
+	defer c.Close()
+	beat, err := c.RunnerHeartbeat(ctx, api.HeartbeatParams{Runner: "r1", Run: l.Run, Fence: l.Fence})
+	if err != nil || !beat.ExpiresAt.After(time.Now()) {
+		t.Fatalf("heartbeat under the old fence: %+v, %v", beat, err)
 	}
 }

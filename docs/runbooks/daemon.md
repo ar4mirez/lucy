@@ -2,9 +2,9 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 14
+version: 15
 owner: ar4mirez
-requirements: [LUCY-RUN-001, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
+requirements: [LUCY-RUN-001, LUCY-RUN-005, LUCY-OPS-005, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
 
 # The daemon and its API
@@ -95,7 +95,7 @@ lucy runner --org acme -- ./do-the-work.sh   # acme's runner, its id unique to t
 lucy runner --org acme --id spare --ttl 30 --root /path/to/scratch -- ./do-the-work.sh
 lucy runner --org acme --harness claude-code # drive Claude Code (`claude` on PATH) over its stream-json protocol
 lucy runner host-org beta                    # the owner: the host serves beta from now on (refused while a host run is live)
-lucy events --after 0             # run.queued, run.leased, run.event, run.renewed, run.answered, run.finished, run.expired
+lucy events --after 0             # run.queued, run.leased, run.event, run.renewed, run.resumed, run.answered, run.finished, run.expired
 ```
 
 With `--harness claude-code` a run fails without starting unless `claude --version` reports the
@@ -119,6 +119,14 @@ like Ctrl-C; start it under `nohup` to keep it running past the terminal. A runn
 60 s by default) loses the run: the daemon records `run.expired` within 5 s and refuses anything
 the runner sends under that fence afterwards (`fenced`). A runner that gets `fenced` drops the run
 and stops its work; that is expected after a long pause, not an error to retry.
+
+Restarting the daemon does not stop runners or their runs: a runner keeps its work going and
+retries while the daemon is down. On start, before it expires anything, the daemon gives every
+held lease a grace window of two lease lives (`run.resumed`; the log line "runner leases resumed
+after a restart" counts them), and a runner that heartbeats within it carries on under its fence.
+During the window the run's capability token is refused until its runner renews the lease. A
+lease already in a window is not extended by another restart, so a runner that is really gone is
+expired when its window ends.
 
 ## Questions
 

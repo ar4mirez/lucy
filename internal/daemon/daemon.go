@@ -155,6 +155,13 @@ func Run(ctx context.Context, opts Options) error {
 		log.Warn("socket connection refused", "uid", cred.UID, "pid", cred.PID, "err", err)
 	}
 	broker := runner.NewBroker(store, nil)
+	// Runners kept working while the daemon was down; before anything is expired, every held
+	// lease gets a grace window to reconnect under its fence (LUCY-OPS-005, LUCY-RUN-005).
+	if n, err := broker.Resume(ctx, 0); err != nil {
+		return fmt.Errorf("daemon: resume runner leases: %w", err)
+	} else if n > 0 {
+		log.Info("runner leases resumed after a restart", "runs", n, "grace", runner.DefaultGrace)
+	}
 	caps := &capability.Issuer{Store: store, Leases: broker}
 	gateways.Capabilities = caps
 	srv, err := server.New(server.Options{

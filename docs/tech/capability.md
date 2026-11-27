@@ -2,7 +2,7 @@
 id: tech-capability
 title: Capability tokens
 status: active
-version: 2
+version: 3
 owner: ar4mirez
 requirements: [LUCY-CRED-003]
 ---
@@ -33,8 +33,9 @@ is `internal/capability`; the gateway checks tokens through the daemon
   daemon checks the token in `gateway.verify` before the gateway reads the credential or looks the
   upstream up, and again in `gateway.use`, before the policy decision: it must be one it issued
   (compared on the digest in constant time), not revoked, for this org and for this route, before
-  its expiry, and its run must still be leased under the same fence with that lease not run out.
-  So a token dies with its run, and a token from a replaced or expired lease is refused, even
+  its expiry, and its run must still be leased under the same fence, before the lease expiry the
+  runner itself last earned: a restarted daemon's grace window keeps the run for its runner but
+  lends the token nothing until the runner renews the lease. So a token dies with its run, and a token from a replaced or expired lease is refused, even
   before the daemon records the expiry. A refused token is recorded as `gateway.denied` with its
   id and run and the reason (unknown, revoked, expired, out of scope, run ended); a cleared request
   records the run and capability id with its decision, and the run is an input of the decision.

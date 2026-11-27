@@ -13,7 +13,9 @@
 //   - finish: the runner reports the run's outcome.
 //   - expiry: a lease that is not renewed in time expires; the run is lost, and every later call
 //     under its fence is refused (ErrFenced), so a runner that was cut off and comes back can
-//     never report into, or finish, work the Tower has already replaced.
+//     never report into, or finish, work the Tower has already replaced. A restarted daemon first
+//     gives every held lease a grace window (Broker.Resume), so a runner that kept working while
+//     the daemon was down reattaches under its fence rather than being replaced.
 //
 // The daemon side is the Broker, a projection over the run streams; the runner side is the Runner
 // loop with an Executor that runs the work. Runtime adapts the Broker to the Tower's Runtime seam,

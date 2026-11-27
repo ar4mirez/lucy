@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 15
+version: 16
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,13 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Added
+
+- A daemon restart no longer loses runs whose runners kept working while it was down. Before it
+  expires anything, a restarted daemon gives every held lease a grace window of two lease lives,
+  recorded as `run.resumed`, so each runner reattaches under its old fence and its flight keeps its
+  Pilot; a runner that is really gone is expired once the window ends. A capability token is not
+  honoured during the window until its runner renews the lease, and a lease already in a window
+  is not extended by another restart.
 
 - Each run reaches its org's credential gateway through its own gateway socket, opened by the
   runner in the run's directory and named in `LUCY_RUN_GATEWAY`: the runner forwards each request
