@@ -164,10 +164,12 @@ slice table, requirement status and exit tests stay in the plan.
   Runway of its namespace, else False naming what it lacks; a complete research Flight is False with
   reason Unsupported, since lucy does not fly research Flights yet. The Tower refuses to dispatch a flight
   that is not ready (`tower.Readiness`, `ErrNotReady`) and records nothing; it no longer assumes the
-  owner posture. The daemon hosts the Tower: it dispatches every Ready Flight it loads (by name,
-  once), steps it on its poll interval, and serves its Pilots' questions through `lucy questions`
-  and `lucy answer`; its forge is a stub that reads no pull request and merges nothing until the
-  validation slice, so no Flight may point at a real repository before shadow mode. Left in 7a: decisions
+  owner posture. The daemon hosts the Tower: it steps its flights on its poll interval and serves its
+  Pilots' questions through `lucy questions` and `lucy answer`; only started with `--dispatch` does
+  it dispatch the Ready Flights it loads (by name, once), each recorded with a `Dispatched`
+  condition (DispatchDisabled, TakeoverGate, NameInUse, DispatchFailed when not). A Runway whose
+  remote is not a local fixture is refused until #36 and the owner's go/no-go, and the gateway
+  refuses every git push; its forge is a stub that merges nothing until the validation slice. Left in 7a: decisions
   as Decision resources (LUCY-SPEC-013), pipelines (LUCY-SPEC-014), roles (LUCY-SPEC-015) and Core
   conformance (LUCY-SPEC-017).
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;

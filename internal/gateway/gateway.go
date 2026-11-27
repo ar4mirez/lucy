@@ -35,6 +35,30 @@ import (
 // Methods are the HTTP methods the gateway forwards; any other is refused before anything else.
 var Methods = []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
 
+// ErrPush refuses a route that names git-receive-pack: Pilots get no push capability while the
+// takeover gate is closed, that is until runs have an OS boundary of their own (issue #36) and
+// the owner's go/no-go.
+var ErrPush = errors.New("gateway: git push is refused until the takeover gate opens (issue #36, runs with an OS boundary of their own, and the owner's go/no-go)")
+
+// pushReason is why a git push request is refused.
+const pushReason = "git push is refused until the takeover gate opens (issue #36 and the owner's go/no-go)"
+
+// gitPush is the git service a push calls.
+const gitPush = "git-receive-pack"
+
+// pushes reports whether r asks for a git push: a path that ends in /git-receive-pack, or a
+// query that asks for that service, as info/refs?service=git-receive-pack does.
+func pushes(r *http.Request) bool {
+	if strings.HasSuffix(strings.ToLower(r.URL.Path), "/"+gitPush) {
+		return true
+	}
+	q, err := url.QueryUnescape(r.URL.RawQuery)
+	if err != nil {
+		q = r.URL.RawQuery
+	}
+	return strings.Contains(strings.ToLower(q), gitPush)
+}
+
 // MaxMethod is the longest method a refusal records; a longer one is recorded clipped.
 const MaxMethod = 16
 
@@ -172,6 +196,9 @@ func checkRoute(r Route) (route, error) {
 		if len(rule.Methods) == 0 || rule.Path == "" || rule.Path != path.Clean(rule.Path) || !strings.HasPrefix(rule.Path, "/") {
 			return route{}, fmt.Errorf("gateway: route %s: rule %+v needs methods and a clean absolute path", r.Name, rule)
 		}
+		if strings.Contains(strings.ToLower(rule.Path), gitPush) {
+			return route{}, fmt.Errorf("%w: route %s allows %s", ErrPush, r.Name, rule.Path)
+		}
 	}
 	return route{Route: r, upstream: u, header: http.CanonicalHeaderKey(header)}, nil
 }
@@ -255,6 +282,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	name, rest, err := workerPath(r)
 	if err != nil {
 		deny(http.StatusBadRequest, "", err.Error())
+		return
+	}
+	if pushes(r) {
+		deny(http.StatusForbidden, "", pushReason)
 		return
 	}
 	rt, ok := g.routes[name]

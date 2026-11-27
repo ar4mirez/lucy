@@ -17,8 +17,8 @@ import (
 )
 
 const daemonUsage = `Usage:
-  lucy daemon [--socket <path>] [--db <path>] [--resources <dir>]   run the daemon in the foreground
-  lucy daemon stop [--socket <path>]                                ask the running daemon to stop
+  lucy daemon [--socket <path>] [--db <path>] [--resources <dir>] [--dispatch]   run the daemon in the foreground
+  lucy daemon stop [--socket <path>]                                             ask the running daemon to stop
 
 The daemon serves lucy's API on a unix socket only ($XDG_RUNTIME_DIR/lucy/lucy.sock by
 default; 0600, in a 0700 directory, refusing other users). It opens the event store at
@@ -26,6 +26,12 @@ $XDG_DATA_HOME/lucy/lucy.db unless --db names another file. At start it loads th
 resources in $XDG_CONFIG_HOME/lucy/resources (or --resources) the way ` + "`lucy config validate`" + `
 does and records their status in the event store; refused resources are recorded, not
 admitted. Stop it with Ctrl-C, SIGTERM or ` + "`lucy daemon stop`" + `.
+
+The daemon hosts the Tower but dispatches no Flight unless started with --dispatch; each Ready
+Flight's status then says DispatchDisabled. Even with --dispatch, a Flight whose Runway names a
+repository is dispatched only when its remote is a local fixture under lucy's data directory or
+the system temp directory: a real repository is refused (TakeoverGate) until runs have an OS
+boundary of their own (issue #36) and the owner's go/no-go.
 `
 
 // signalContext is swapped in tests.
@@ -44,13 +50,14 @@ func runDaemon(args []string, stdout, stderr io.Writer) int {
 	sock := fs.String("socket", "", "")
 	db := fs.String("db", "", "")
 	resources := fs.String("resources", "", "")
+	dispatch := fs.Bool("dispatch", false, "")
 	if code, ok := parseFlags(fs, args, daemonUsage, "lucy daemon --help", stdout, stderr); !ok {
 		return code
 	}
 	ctx, cancel := signalContext()
 	defer cancel()
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	err := daemon.Run(ctx, daemon.Options{SocketPath: *sock, DBPath: *db, ResourcesDir: *resources, Version: version, Log: log})
+	err := daemon.Run(ctx, daemon.Options{SocketPath: *sock, DBPath: *db, ResourcesDir: *resources, Dispatch: *dispatch, Version: version, Log: log})
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		if errors.Is(err, daemon.ErrAlreadyRunning) {

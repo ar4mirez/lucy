@@ -1,6 +1,7 @@
 package gateway_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -58,6 +59,7 @@ func TestBindingFrom(t *testing.T) {
 		"no rules":              {"        allow:\n          - { methods: [GET, POST], path: /repos/acme/web }\n", "        allow: []\n"},
 		"a relative path":       {"path: /repos/acme/web", "path: repos"},
 		"a number for a string": {"scope: repo:acme/web", "scope: 7"},
+		"a git push path":       {"path: /repos/acme/web", "path: /acme/web.git/git-receive-pack"},
 	}
 	for name, c := range bad {
 		doc := strings.Replace(binding, c[0], c[1], 1)
@@ -67,6 +69,13 @@ func TestBindingFrom(t *testing.T) {
 		if _, _, ok, err := gateway.BindingFrom(admit(t, doc)); !ok || err == nil {
 			t.Errorf("%s: read (%v, %v)", name, ok, err)
 		}
+	}
+}
+
+func TestABindingThatAllowsAPushIsRefused(t *testing.T) {
+	doc := strings.Replace(binding, "path: /repos/acme/web", "path: /acme/web.git/git-receive-pack", 1)
+	if _, _, ok, err := gateway.BindingFrom(admit(t, doc)); !ok || !errors.Is(err, gateway.ErrPush) {
+		t.Fatalf("read (%v, %v), want ErrPush", ok, err)
 	}
 }
 

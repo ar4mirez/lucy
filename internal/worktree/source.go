@@ -87,6 +87,13 @@ func (s *Source) repoOf(org string, rw runway) (Repo, error) {
 	return Repo{Org: org, Name: strings.ToLower(name), Remote: remote}, nil
 }
 
+// RemoteOf returns the remote a run of org's project fetches, as Acquire resolves it, and
+// whether the project's Runway names a repository at all.
+func (s *Source) RemoteOf(org, project string) (remote string, ok bool, err error) {
+	repo, _, ok, err := s.repo(org, project)
+	return repo.Remote, ok, err
+}
+
 // repoNamed is org's pool repository name, from the org's Runways, and whether one names it.
 func (s *Source) repoNamed(org, name string) (Repo, bool) {
 	for key, rw := range s.runways {

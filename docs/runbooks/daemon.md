@@ -160,12 +160,22 @@ lucy questions                       # every flight that is asking, oldest first
 lucy answer f1 use the staging account   # relayed to the Pilot by the Tower; the log keeps a digest
 ```
 
-The daemon hosts the Tower: at start it dispatches every Flight in the config directory whose
-`Ready` condition is True (`lucy config status` shows it) and that it does not fly yet, by the
-Flight's name, starting its Pilot through the runner protocol, and it steps every minute. A Flight
-that is not Ready is never dispatched. Until the validation slice connects a forge, the Tower's
-forge is a stub that reads no pull request and merges nothing, so a flight never lands: point no
-Flight at a real repository before shadow mode (m1 slice 10).
+The daemon hosts the Tower and steps the flights in its log every minute, but it dispatches no
+Flight unless started with `lucy daemon --dispatch`. With it, at start it dispatches every Flight
+in the config directory whose `Ready` condition is True and that it does not fly yet, by the
+Flight's name, starting its Pilot through the runner protocol. A Flight that is not Ready is never
+dispatched. `lucy config status` shows each Ready Flight's `Dispatched` condition:
+
+| Status / reason | Meaning |
+|---|---|
+| True / `Dispatched` | the Tower flies it |
+| False / `DispatchDisabled` | the daemon was started without `--dispatch` |
+| False / `TakeoverGate` | its Runway names a repository whose remote, symlinks resolved, is not a `file://` URL or absolute path under lucy's data directory or the system temp directory; real repositories are refused until runs have an OS boundary of their own (#36) and the owner's go/no-go |
+| False / `NameInUse` | a flight of another org or runway holds its name; rename the Flight |
+| False / `DispatchFailed` | the Tower refused it; the message says why |
+
+The Tower's forge is a stub that reads no pull request and merges nothing until the validation
+slice, and the gateway refuses every git push (see [gateway](../tech/gateway.md)).
 
 ## Container operations
 

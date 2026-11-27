@@ -16,11 +16,20 @@ Changes since the last release. When a version is cut, its section moves to
 
 ### Added
 
-- The daemon hosts the Tower: at start it dispatches every Flight in the config directory whose
-  `Ready` condition is True, once, by the Flight's name, and starts its Pilot through the runner
-  protocol; `lucy questions` lists its Pilots' open questions and `lucy answer` relays the owner's
-  answer. Until the validation slice connects a forge, the Tower's forge is a stub that reads no
-  pull request and merges nothing, so no flight lands: point no Flight at a real repository yet.
+- The daemon hosts the Tower: `lucy questions` lists its Pilots' open questions and `lucy answer`
+  relays the owner's answer. It dispatches nothing unless started with `lucy daemon --dispatch`;
+  then it dispatches every Flight in the config directory whose `Ready` condition is True, once, by
+  the Flight's name, and starts its Pilot through the runner protocol. Each Ready Flight carries a
+  `Dispatched` condition (`lucy config status`): True, or False with reason `DispatchDisabled`,
+  `TakeoverGate` (its Runway names a repository whose remote is not a local fixture under lucy's
+  data directory or the system temp directory: real repositories are refused until #36 and the
+  owner's go/no-go), `NameInUse` (a flight of another org or runway has its name) or
+  `DispatchFailed`. The Tower's forge is a stub that reads no pull request and merges nothing until
+  the validation slice.
+- The credential gateway refuses every git push while the takeover gate is closed: a request whose
+  path ends in `/git-receive-pack` or whose query asks for `git-receive-pack` is refused, recorded
+  as `gateway.denied` and never forwarded, and a binding whose route allows a path naming
+  `git-receive-pack` is refused at load. Reads are not affected.
 
 - Flights have a readiness check: a `Flight` resource states its `goal`, its delivery path
   (`runway`, and `delivery`: `pull-request` for a ship Flight, `report` for a research one), its
