@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 8
+version: 9
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,18 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Added
+
+- The per-org credential gateway, the start of m1 slice 4: a worker calls `/<route>/<path>` on its
+  org's gateway instead of the service, and the gateway forwards only what the route's allowlist
+  names (methods on a path prefix) to an `https://` upstream, with the worker's own credential
+  headers removed and the route's credential added. An upstream that resolves to a private,
+  loopback, link-local, metadata or other non-public address is refused, and the connection goes
+  only to the address that was checked. Each forwarded request is decided by the policy engine and
+  recorded before anything is sent; a redirect goes back to the worker and is never followed; a
+  credential the upstream echoes back is scrubbed from the answer; and every request, forwarded or
+  refused, is in the audit chain without its credential. Any failure refuses. A test proves a
+  Pilot's environment holds none of the runner's credentials. The gateway does not run as its own
+  process yet, and credentials come from the vault in a later change.
 
 - The org sandbox seam, the start of m1 slice 3: a Sandbox provider runs an org's container, named
   by an ai-sdlc `AdapterBinding` with `interface: Sandbox`, and berth is the first one, reached only
