@@ -170,8 +170,8 @@ before returning it. The request model, facts, rule order, decision record and p
   Tower's answer reaches the broker, which records `run.answered` (the id and a digest) and gives
   the text in every heartbeat reply until the runner acknowledges the id (on `run.renewed`) once
   its work took it. An asking event for an answered id is recorded as activity, so no buffer
-  re-opens the question; an answer a restart lost was never acknowledged, so the runner asks again. The recorded transcripts in `testdata/<version>`
-  are the contract, replayed in CI.
+  re-opens the question; an answer a restart lost was never acknowledged, so the runner asks
+  again. The recorded transcripts in `testdata/<version>` are the contract, replayed in CI.
 - **Sessions:** structured protocols first (Claude Code's stream-json, built; Codex app-server; ACP
   later). Leases with generation and heartbeat; reattach before spawn; fence, then replace.
 - **Worktree pool:** `git worktree` slots per org and repo, leased in SQLite, reset on acquire,

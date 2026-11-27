@@ -21,7 +21,7 @@ func runnerActor(id string) string { return "runner/" + id }
 // Broker is the daemon's side of the runner protocol. Its state is the runner_runs projection,
 // and every call reads and appends in one store transaction (the store has one writer), so it is
 // safe for concurrent use. The one thing it holds in memory is an answer on its way to a runner:
-// the log keeps only the answer's digest, so the text waits here for the run's next heartbeat.
+// the log keeps only the answer's digest, so the text waits here until the runner acknowledges it.
 //
 // The store must register Payloads() and the Projector.
 type Broker struct {

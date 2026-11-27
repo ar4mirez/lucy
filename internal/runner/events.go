@@ -50,8 +50,8 @@ type Streamed struct {
 type StopRequested struct{}
 
 // Answered records that the Tower relayed the owner's answer to the run's question under Fence.
-// Only the answer's digest is kept: its text goes to the runner once, on its next heartbeat, and
-// never into the log.
+// Only the answer's digest is kept: its text goes to the runner on each heartbeat until the runner
+// acknowledges it (Renewed.Answered), and never into the log.
 type Answered struct {
 	Fence        int64  `json:"fence"`
 	Question     string `json:"question"` // the id of the question answered
