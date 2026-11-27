@@ -11,6 +11,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/audit"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/policy"
+	"github.com/ar4mirez/lucy/internal/runner"
 	"github.com/ar4mirez/lucy/internal/tower"
 )
 
@@ -34,10 +35,10 @@ type World struct {
 	config tower.Config
 }
 
-// Registry returns the event registry a World's store opens with: the Tower's events and policy
-// decisions.
+// Registry returns the event registry a World's store opens with: the Tower's events, policy
+// decisions and the runner protocol's run events, so a scenario can drive the daemon's broker.
 func Registry() (*eventstore.Registry, error) {
-	return eventstore.NewRegistry(append(tower.Payloads(), policy.DecisionRecord{})...)
+	return eventstore.NewRegistry(append(append(tower.Payloads(), policy.DecisionRecord{}), runner.Payloads()...)...)
 }
 
 // Open starts a World whose store lives in dir (a directory the caller owns, such as
@@ -64,7 +65,7 @@ func (w *World) open(ctx context.Context) error {
 		return err
 	}
 	store, err := eventstore.Open(ctx, filepath.Join(w.dir, "lucy", eventstore.DefaultFile), eventstore.Options{
-		Registry: reg, Projectors: []eventstore.Projector{audit.Projector{}}, Now: w.Clock.Now,
+		Registry: reg, Projectors: []eventstore.Projector{runner.Projector{}, audit.Projector{}}, Now: w.Clock.Now,
 		SnapshotDir: filepath.Join(w.dir, "lucy", "state"),
 	})
 	if err != nil {

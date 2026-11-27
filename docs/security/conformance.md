@@ -15,7 +15,7 @@ an agent supervisor must keep, and every class of past incident, is a scenario t
 lucy on the simulation harness (LUCY-CORP-001, LUCY-CORP-002). An airspace moves onto lucy only
 when its corpus is green. `mise run conformance` runs it, and CI runs it on every change.
 
-Corpus v1: 88 scenarios, **58 executable** (green: CI fails on any red one) and **30 pending** on
+Corpus v1: 88 scenarios, **59 executable** (green: CI fails on any red one) and **29 pending** on
 the milestone named in their row. Each executable scenario runs twice, as written and with the
 daemon restarted before every step, and both runs must leave the same event log.
 
@@ -30,7 +30,7 @@ daemon restarted before every step, and both runs must leave the same event log.
 | bounded-retry | 4 | 1 |
 | liveness | 5 | 2 |
 | owner-channel | 3 | 2 |
-| untrusted-input | 3 | 1 |
+| untrusted-input | 4 | 0 |
 | roles | 4 | 0 |
 | org-isolation | 1 | 1 |
 | delete-guard | 8 | 3 |
@@ -91,7 +91,7 @@ requirements that make it executable.
 | trust-01 | untrusted-input | rule | critical | Outside text alone never backs a privileged action, whoever asks and whatever the other facts | executable |
 | trust-02 | untrusted-input | rule | high | A request that rests partly on outside text is marked tainted in its record | executable |
 | trust-03 | untrusted-input | rule | high | An input from a source lucy does not know is refused | executable |
-| trust-04 | untrusted-input | rule | critical | Every input is tagged with its source where it enters lucy, never by the model that read it | pending: m1 (LUCY-RUN-002, LUCY-POL-004) |
+| trust-04 | untrusted-input | rule | critical | Every input is tagged with its source where it enters lucy, never by the model that read it | executable |
 | roles-01 | roles | rule | critical | A Pilot never merges, not even its own green pull request with the owner's approval | executable |
 | roles-02 | roles | incident | critical | The supervisor never writes to a project; only a ship worker does | executable |
 | roles-03 | roles | rule | critical | Only the airspace's credential gateway uses credentials; no agent, the owner or the daemon ever does directly | executable |

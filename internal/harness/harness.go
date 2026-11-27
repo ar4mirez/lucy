@@ -117,16 +117,31 @@ type Conn interface {
 }
 
 // VarRef reports whether p holds a "$" a shell or the harness could read as a variable or command
-// reference: "${", "$(", or a "$" and a letter or underscore starting a path element. Any other
-// "$" in a name, as in posts.$slug.tsx, is a plain character.
+// reference: "${", "$(", or a whole path element that is an environment-style name, "$" and an
+// upper-case letter or underscore followed only by upper-case letters, digits and underscores
+// ($HOME, $TMPDIR, $X). Claude Code passes file-tool paths literally, so any other "$", as in the
+// route files posts.$slug.tsx and $postId.tsx, is a plain character.
 func VarRef(p string) bool {
 	if strings.Contains(p, "${") || strings.Contains(p, "$(") {
 		return true
 	}
 	for _, e := range strings.Split(p, "/") {
-		if len(e) > 1 && e[0] == '$' && (e[1] == '_' || 'a' <= e[1]|32 && e[1]|32 <= 'z') {
+		if envName(e) {
 			return true
 		}
 	}
 	return false
+}
+
+// envName reports whether e is "$" and an environment-style variable name.
+func envName(e string) bool {
+	if len(e) < 2 || e[0] != '$' || !(e[1] == '_' || 'A' <= e[1] && e[1] <= 'Z') {
+		return false
+	}
+	for _, c := range e[2:] {
+		if c != '_' && !('A' <= c && c <= 'Z') && !('0' <= c && c <= '9') {
+			return false
+		}
+	}
+	return true
 }
