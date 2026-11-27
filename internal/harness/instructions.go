@@ -27,7 +27,8 @@ var InstructionFiles = []string{"CLAUDE.md", "AGENTS.md"}
 // Every file is read through dir as a root, so an import or a symlink that leads out of dir is
 // dropped. Imports are followed one level deep: an imported file's own imports are not. A file
 // over MaxInstructionFile, one that is not UTF-8 text without NUL bytes, or one that would take the
-// total over MaxInstructionTotal, is dropped whole, as is any file that cannot be read. No instruction file is not an error: it returns "".
+// total over MaxInstructionTotal, is dropped whole, as is any file that cannot be read. No
+// instruction file is not an error: it returns "".
 func Instructions(dir string) (string, error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {

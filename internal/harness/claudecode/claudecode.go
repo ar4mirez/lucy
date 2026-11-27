@@ -5,11 +5,11 @@
 // The session is started with its limits as arguments: no MCP servers but an empty set, no
 // settings file of any source but lucy's own (an owner's notification hooks or messaging servers
 // would be a channel from the Pilot to the owner, LUCY-RUN-013, and a repository's committed
-// settings could pre-allow tools), no hooks, skills or slash commands, no session saved to disk, and every
-// permission prompt sent to the host, which is this adapter. The adapter allows exactly one tool
-// by prompt, AskUserQuestion, whose question it reports as asking and answers only with what the
-// Tower relays; every other prompted tool is refused. What a session may do without a prompt is
-// what its permission mode allows.
+// settings could pre-allow tools), no hooks, skills or slash commands, no session saved to disk,
+// and every permission prompt sent to the host, which is this adapter. The adapter allows exactly
+// one tool by prompt, AskUserQuestion, whose question it reports as asking and answers only with
+// what the Tower relays; every other prompted tool is refused. What a session may do without a
+// prompt is what its permission mode allows.
 //
 // The adapter supports one Claude Code version, Pinned (LUCY-RUN-003). A runner refuses to start
 // any other: its recorded protocol fixtures under testdata/<version> are the contract, and the

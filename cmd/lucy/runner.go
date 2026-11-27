@@ -44,9 +44,10 @@ MCP servers, no settings file but lucy's own (so neither the user's nor a reposi
 no saved transcript. lucy reads the run directory's CLAUDE.md (or AGENTS.md) and the files it
 imports with @path inside that directory, one level deep and size-capped, and appends them to the
 system prompt as repository text, which grants no permission; until the worktree pool (m1 slice
-6) checks the repository out there, the run directory is empty and nothing is injected. Its question to the owner is streamed as asking and answered only with what the Tower relays. A prompted file tool (read,
-edit or write) on a path inside the run's directory is decided by the daemon's policy engine, as
-the Pilot; every other permission prompt is refused.
+6) checks the repository out there, the run directory is empty and nothing is injected. Its
+question to the owner is streamed as asking and answered only with what the Tower relays. A
+prompted file tool (read, edit or write) on a path inside the run's directory is decided by the
+daemon's policy engine, as the Pilot; every other permission prompt is refused.
 `
 
 // runnerSignalContext is swapped in tests.
