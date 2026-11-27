@@ -185,3 +185,38 @@ func (c *Client) VerifyAudit(ctx context.Context) (api.AuditReport, error) {
 	err := c.Call(ctx, api.MethodAudit, nil, &r)
 	return r, err
 }
+
+// RunnerQueued calls runner.queued.
+func (c *Client) RunnerQueued(ctx context.Context) (api.QueuedResult, error) {
+	var r api.QueuedResult
+	err := c.Call(ctx, api.MethodQueued, api.NoParams{}, &r)
+	return r, err
+}
+
+// RunnerLease calls runner.lease.
+func (c *Client) RunnerLease(ctx context.Context, p api.LeaseParams) (api.LeaseResult, error) {
+	var r api.LeaseResult
+	err := c.Call(ctx, api.MethodLease, p, &r)
+	return r, err
+}
+
+// RunnerHeartbeat calls runner.heartbeat.
+func (c *Client) RunnerHeartbeat(ctx context.Context, p api.HeartbeatParams) (api.HeartbeatResult, error) {
+	var r api.HeartbeatResult
+	err := c.Call(ctx, api.MethodHeartbeat, p, &r)
+	return r, err
+}
+
+// RunnerFinish calls runner.finish.
+func (c *Client) RunnerFinish(ctx context.Context, p api.FinishParams) (api.FinishResult, error) {
+	var r api.FinishResult
+	err := c.Call(ctx, api.MethodFinish, p, &r)
+	return r, err
+}
+
+// Runs calls runs.list.
+func (c *Client) Runs(ctx context.Context, p api.RunsParams) (api.RunsPage, error) {
+	var r api.RunsPage
+	err := c.Call(ctx, api.MethodRuns, p, &r)
+	return r, err
+}

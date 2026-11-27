@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.1.0"
+    "version": "1.2.0"
   },
   "servers": [
     {
@@ -914,10 +914,484 @@
       "x-lucy-scope": "read",
       "x-lucy-mutating": false,
       "x-lucy-group": "query"
+    },
+    {
+      "name": "runner.queued",
+      "summary": "How many runs wait for a runner. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "queued": {
+              "description": "Runs waiting for a runner.",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "queued"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "run",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
+    },
+    {
+      "name": "runner.lease",
+      "summary": "Lease the oldest queued run under a new fencing token.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "runner",
+          "description": "The runner's id: 1-63 of a-z, 0-9, '.', '_' and '-', starting with a letter or digit.",
+          "required": true,
+          "schema": {
+            "maxLength": 63,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "placement",
+          "description": "host (this machine; the default) or container (an org's container).",
+          "required": false,
+          "schema": {
+            "maxLength": 16,
+            "type": "string"
+          }
+        },
+        {
+          "name": "ttl_seconds",
+          "description": "The lease's life; 0 means 60, and values below 5 mean 5.",
+          "required": false,
+          "schema": {
+            "maximum": 300,
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "leased": {
+              "description": "False when no run was queued; run is then empty.",
+              "type": "boolean"
+            },
+            "run": {
+              "description": "The leased run.",
+              "properties": {
+                "base": {
+                  "description": "The branch the work targets.",
+                  "type": "string"
+                },
+                "expires_at": {
+                  "description": "When the lease expires unless renewed, UTC.",
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "fence": {
+                  "description": "The fencing token: name it on every heartbeat and finish. Fences only grow; an old one is refused.",
+                  "type": "integer"
+                },
+                "flight": {
+                  "description": "The flight (task) the run is for.",
+                  "type": "string"
+                },
+                "generation": {
+                  "description": "The flight's Pilot generation: 1, then +1 for each replacement.",
+                  "type": "integer"
+                },
+                "goal": {
+                  "description": "What the run is for. Data for the work, never instructions to lucy.",
+                  "type": "string"
+                },
+                "org": {
+                  "description": "The org (airspace) the run belongs to.",
+                  "type": "string"
+                },
+                "project": {
+                  "description": "The project (runway).",
+                  "type": "string"
+                },
+                "run": {
+                  "description": "The run's id; a Pilot run is \u003cflight\u003e#\u003cgeneration\u003e.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "run",
+                "org",
+                "project",
+                "flight",
+                "generation",
+                "goal",
+                "base",
+                "fence",
+                "expires_at"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "leased",
+            "run"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "run",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
+    },
+    {
+      "name": "runner.heartbeat",
+      "summary": "Renew a lease and record the run's newly streamed events, in one transaction.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "runner",
+          "description": "The runner holding the lease.",
+          "required": true,
+          "schema": {
+            "maxLength": 63,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "run",
+          "description": "The leased run.",
+          "required": true,
+          "schema": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "fence",
+          "description": "The lease's fencing token.",
+          "required": true,
+          "schema": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "name": "ttl_seconds",
+          "description": "The renewed life; 0 means 60, and values below 5 mean 5.",
+          "required": false,
+          "schema": {
+            "maximum": 300,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        {
+          "name": "events",
+          "description": "The run's new events, numbered from 1 without gaps; a resent event is skipped.",
+          "required": false,
+          "schema": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "description": "output, activity or asking.",
+                  "maxLength": 16,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "seq": {
+                  "description": "The event's number in its run, from 1.",
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "text": {
+                  "description": "The event's text: a line of output, a summary, or the question. Untrusted.",
+                  "maxLength": 1024,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "seq",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "maxItems": 32,
+            "type": "array"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "accepted": {
+              "description": "The highest event number recorded for the run.",
+              "type": "integer"
+            },
+            "expires_at": {
+              "description": "The lease's new expiry, UTC.",
+              "format": "date-time",
+              "type": "string"
+            },
+            "stop": {
+              "description": "The Tower asked for the run to stop: stop the work and finish the run as stopped.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "expires_at",
+            "stop",
+            "accepted"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "run",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
+    },
+    {
+      "name": "runner.finish",
+      "summary": "Finish a leased run with its outcome.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "runner",
+          "description": "The runner holding the lease.",
+          "required": true,
+          "schema": {
+            "maxLength": 63,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "run",
+          "description": "The leased run.",
+          "required": true,
+          "schema": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "fence",
+          "description": "The lease's fencing token.",
+          "required": true,
+          "schema": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "name": "outcome",
+          "description": "done, failed, stopped or lost.",
+          "required": true,
+          "schema": {
+            "maxLength": 16,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "pr",
+          "description": "When done: the pull request the work opened.",
+          "required": false,
+          "schema": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        {
+          "name": "reason",
+          "description": "When not done: why. Untrusted.",
+          "required": false,
+          "schema": {
+            "maxLength": 1024,
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "state": {
+              "description": "The run's final state: done, failed, stopped or lost.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "run",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
+    },
+    {
+      "name": "runs.list",
+      "summary": "Runs and their leases, in the order they were queued.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "after",
+          "description": "Return runs queued after this position; 0 starts at the beginning.",
+          "required": false,
+          "schema": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        {
+          "name": "limit",
+          "description": "At most this many runs; 0 means 100.",
+          "required": false,
+          "schema": {
+            "maximum": 500,
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "more": {
+              "description": "Whether runs after this page existed when it was read.",
+              "type": "boolean"
+            },
+            "next": {
+              "description": "Pass as after to read the next page.",
+              "type": "integer"
+            },
+            "runs": {
+              "description": "The runs, in the order they were queued.",
+              "items": {
+                "properties": {
+                  "accepted": {
+                    "description": "Events recorded for the run.",
+                    "type": "integer"
+                  },
+                  "activity": {
+                    "description": "When the run last did something, UTC.",
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "asking": {
+                    "description": "The run's last event was a question.",
+                    "type": "boolean"
+                  },
+                  "expires_at": {
+                    "description": "When leased: the lease's expiry, UTC.",
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "fence": {
+                    "description": "The current or last lease's fencing token.",
+                    "type": "integer"
+                  },
+                  "flight": {
+                    "description": "The flight the run is for.",
+                    "type": "string"
+                  },
+                  "generation": {
+                    "description": "The flight's Pilot generation.",
+                    "type": "integer"
+                  },
+                  "org": {
+                    "description": "The org.",
+                    "type": "string"
+                  },
+                  "placement": {
+                    "description": "host or container.",
+                    "type": "string"
+                  },
+                  "position": {
+                    "description": "The run's place in the queue; pass as after to page.",
+                    "type": "integer"
+                  },
+                  "pr": {
+                    "description": "When done: the pull request.",
+                    "type": "integer"
+                  },
+                  "project": {
+                    "description": "The project.",
+                    "type": "string"
+                  },
+                  "reason": {
+                    "description": "When failed, stopped or lost: why. Untrusted.",
+                    "type": "string"
+                  },
+                  "run": {
+                    "description": "The run's id.",
+                    "type": "string"
+                  },
+                  "runner": {
+                    "description": "The runner that holds or held it.",
+                    "type": "string"
+                  },
+                  "state": {
+                    "description": "queued, leased, done, failed, stopped or lost.",
+                    "type": "string"
+                  },
+                  "stop": {
+                    "description": "A stop was requested.",
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "run",
+                  "org",
+                  "project",
+                  "flight",
+                  "generation",
+                  "state",
+                  "accepted",
+                  "activity",
+                  "position"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "runs",
+            "next",
+            "more"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "read",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
     }
   ],
   "components": {
     "errors": {
+      "fenced": {
+        "code": -32006,
+        "message": "lease no longer held"
+      },
       "forbidden": {
         "code": -32001,
         "message": "forbidden"

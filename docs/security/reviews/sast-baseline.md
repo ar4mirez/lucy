@@ -2,7 +2,7 @@
 id: sast-baseline
 title: "SAST baseline: reviewed gosec suppressions"
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-SEC-002]
 ---
@@ -20,7 +20,7 @@ in its pull request.
 Reviewed in m0 slice 9 against gosec v2.30.0. Of the first scan's 23 findings, 12 were fixed in
 the code: ten unchecked `Close`, `Rollback` and `Write` calls on error paths now discard their
 error explicitly (G104), and the doc checker reads through an `os.Root` (G122 and a G304). The
-other 11 are below.
+other 11 are below. m1 slice 1 added one, the runner's process executor (G204).
 
 | File | Rule | Why it is safe |
 |---|---|---|
@@ -30,6 +30,7 @@ other 11 are below.
 | `internal/eventstore/migrate.go` | G304 | Syncs lucy's own pre-migration snapshot and its state dir, both paths lucy built |
 | `internal/eventstore/store.go` | G304 | Opens the database path the owner chose; its directory is checked first and the file's owner and mode right after |
 | `internal/spec/load.go` | G304 | Reading the owner's config tree is the loader's job; the walk refuses symlinks and caps file and tree sizes |
+| `internal/runner/process.go` | G204 | Runs the program the runner's operator configured (`lucy runner -- <command>`), never text from a task; no shell, and an environment of only PATH, HOME, TMPDIR and `LUCY_RUN_*` |
 | `internal/selfupdate/selfupdate.go` | G204 | Runs mise from PATH with fixed arguments and a version that matched `versionRe`; no shell |
 | `internal/policy/policy.go` | G101 | `KindCredentialUse` is an action kind's name, `credential_use`, not a credential |
 | `internal/policy/rules.go` | G101 | A map of stale-approval reasons keyed by action kind; it holds no credential |

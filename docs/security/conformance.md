@@ -75,7 +75,7 @@ requirements that make it executable.
 | retry-02 | bounded-retry | rule | high | A lost Pilot is replaced a bounded number of times, then the flight is grounded | executable |
 | retry-03 | bounded-retry | incident | critical | A refused merge is never recorded as landed | executable |
 | retry-04 | bounded-retry | rule | high | A merge refused for a conflict needs a fresh Clearance once the forge reports it resolved | executable |
-| retry-05 | bounded-retry | incident | medium | A Pilot that cannot start during a transient outage is retried with backoff, not grounded or left idle | pending: m1 (LUCY-SPEC-008, LUCY-RUN-001) |
+| retry-05 | bounded-retry | incident | medium | A Pilot that cannot start during a transient outage is retried with backoff, not grounded or left idle | pending: m1 (LUCY-SPEC-008) |
 | liveness-01 | liveness | incident | medium | A busy Pilot is not stuck: steady activity is never timed out, however long the work | executable |
 | liveness-02 | liveness | rule | medium | A silent Pilot is stopped and the flight grounded after the Pilot timeout | executable |
 | liveness-03 | liveness | rule | medium | A Pilot waiting on the owner's answer is never timed out, and resumes on the answer | executable |

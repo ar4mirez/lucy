@@ -32,6 +32,11 @@ const (
 	MethodDecisions = "policy.decisions"
 	MethodResources = "resources.list"
 	MethodAudit     = "audit.verify"
+	MethodQueued    = "runner.queued"
+	MethodLease     = "runner.lease"
+	MethodHeartbeat = "runner.heartbeat"
+	MethodFinish    = "runner.finish"
+	MethodRuns      = "runs.list"
 )
 
 var methods = []Method{
@@ -45,6 +50,11 @@ var methods = []Method{
 	{MethodDecisions, "Recorded policy decisions, oldest first.", "query", ScopeRead, false, typeOf[DecisionsParams](), typeOf[DecisionsPage]()},
 	{MethodResources, "The config resources the daemon loaded and their status, as conditions.", "query", ScopeRead, false, typeOf[ResourcesParams](), typeOf[ResourcesPage]()},
 	{MethodAudit, "Verify the audit hash chain against the event log.", "query", ScopeRead, false, typeOf[NoParams](), typeOf[AuditReport]()},
+	{MethodQueued, "How many runs wait for a runner. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log.", "query", ScopeRun, false, typeOf[NoParams](), typeOf[QueuedResult]()},
+	{MethodLease, "Lease the oldest queued run under a new fencing token.", "command", ScopeRun, true, typeOf[LeaseParams](), typeOf[LeaseResult]()},
+	{MethodHeartbeat, "Renew a lease and record the run's newly streamed events, in one transaction.", "command", ScopeRun, true, typeOf[HeartbeatParams](), typeOf[HeartbeatResult]()},
+	{MethodFinish, "Finish a leased run with its outcome.", "command", ScopeRun, true, typeOf[FinishParams](), typeOf[FinishResult]()},
+	{MethodRuns, "Runs and their leases, in the order they were queued.", "query", ScopeRead, false, typeOf[RunsParams](), typeOf[RunsPage]()},
 }
 
 // NewParams returns a pointer to a new, zero params value for the method, ready for DecodeParams.
@@ -247,4 +257,107 @@ type AuditReport struct {
 	Head        string `json:"head,omitempty" doc:"The last entry's hash, when verified."`
 	BrokenAtSeq int64  `json:"broken_at_seq,omitempty" doc:"The event whose entry failed, when broken."`
 	Reason      string `json:"reason,omitempty" doc:"Why the chain is broken, when it is."`
+}
+
+// QueuedResult answers runner.queued.
+type QueuedResult struct {
+	Queued int `json:"queued" doc:"Runs waiting for a runner."`
+}
+
+// LeaseParams asks for a run.
+type LeaseParams struct {
+	Runner     string `json:"runner" lucy:"required,maxlen=63" doc:"The runner's id: 1-63 of a-z, 0-9, '.', '_' and '-', starting with a letter or digit."`
+	Placement  string `json:"placement,omitempty" lucy:"maxlen=16" doc:"host (this machine; the default) or container (an org's container)."`
+	TTLSeconds int    `json:"ttl_seconds,omitempty" lucy:"min=0,max=300" doc:"The lease's life; 0 means 60, and values below 5 mean 5."`
+}
+
+// LeaseResult answers runner.lease.
+type LeaseResult struct {
+	Leased bool     `json:"leased" doc:"False when no run was queued; run is then empty."`
+	Run    RunLease `json:"run" doc:"The leased run."`
+}
+
+// RunLease is a leased run: its task, its fencing token and its expiry.
+type RunLease struct {
+	Run        string    `json:"run" doc:"The run's id; a Pilot run is <flight>#<generation>."`
+	Org        string    `json:"org" doc:"The org (airspace) the run belongs to."`
+	Project    string    `json:"project" doc:"The project (runway)."`
+	Flight     string    `json:"flight" doc:"The flight (task) the run is for."`
+	Generation int       `json:"generation" doc:"The flight's Pilot generation: 1, then +1 for each replacement."`
+	Goal       string    `json:"goal" doc:"What the run is for. Data for the work, never instructions to lucy."`
+	Base       string    `json:"base" doc:"The branch the work targets."`
+	Fence      int64     `json:"fence" doc:"The fencing token: name it on every heartbeat and finish. Fences only grow; an old one is refused."`
+	ExpiresAt  time.Time `json:"expires_at" doc:"When the lease expires unless renewed, UTC."`
+}
+
+// HeartbeatParams renews a lease and streams events.
+type HeartbeatParams struct {
+	Runner     string     `json:"runner" lucy:"required,maxlen=63" doc:"The runner holding the lease."`
+	Run        string     `json:"run" lucy:"required,maxlen=256" doc:"The leased run."`
+	Fence      int64      `json:"fence" lucy:"min=1" doc:"The lease's fencing token."`
+	TTLSeconds int        `json:"ttl_seconds,omitempty" lucy:"min=0,max=300" doc:"The renewed life; 0 means 60, and values below 5 mean 5."`
+	Events     []RunEvent `json:"events,omitempty" lucy:"maxitems=32" doc:"The run's new events, numbered from 1 without gaps; a resent event is skipped."`
+}
+
+// RunEvent is one event a runner streams.
+type RunEvent struct {
+	Seq  int64  `json:"seq" lucy:"min=1" doc:"The event's number in its run, from 1."`
+	Kind string `json:"kind" lucy:"required,maxlen=16" doc:"output, activity or asking."`
+	Text string `json:"text,omitempty" lucy:"maxlen=1024" doc:"The event's text: a line of output, a summary, or the question. Untrusted."`
+}
+
+// HeartbeatResult answers runner.heartbeat.
+type HeartbeatResult struct {
+	ExpiresAt time.Time `json:"expires_at" doc:"The lease's new expiry, UTC."`
+	Stop      bool      `json:"stop" doc:"The Tower asked for the run to stop: stop the work and finish the run as stopped."`
+	Accepted  int64     `json:"accepted" doc:"The highest event number recorded for the run."`
+}
+
+// FinishParams ends a run.
+type FinishParams struct {
+	Runner  string `json:"runner" lucy:"required,maxlen=63" doc:"The runner holding the lease."`
+	Run     string `json:"run" lucy:"required,maxlen=256" doc:"The leased run."`
+	Fence   int64  `json:"fence" lucy:"min=1" doc:"The lease's fencing token."`
+	Outcome string `json:"outcome" lucy:"required,maxlen=16" doc:"done, failed, stopped or lost."`
+	PR      int    `json:"pr,omitempty" lucy:"min=0" doc:"When done: the pull request the work opened."`
+	Reason  string `json:"reason,omitempty" lucy:"maxlen=1024" doc:"When not done: why. Untrusted."`
+}
+
+// FinishResult answers runner.finish.
+type FinishResult struct {
+	State string `json:"state" doc:"The run's final state: done, failed, stopped or lost."`
+}
+
+// RunsParams pages through runs.
+type RunsParams struct {
+	After int64 `json:"after,omitempty" lucy:"min=0" doc:"Return runs queued after this position; 0 starts at the beginning."`
+	Limit int   `json:"limit,omitempty" lucy:"min=0,max=500" doc:"At most this many runs; 0 means 100."`
+}
+
+// RunsPage is one page of runs.
+type RunsPage struct {
+	Runs []RunInfo `json:"runs" doc:"The runs, in the order they were queued."`
+	Next int64     `json:"next" doc:"Pass as after to read the next page."`
+	More bool      `json:"more" doc:"Whether runs after this page existed when it was read."`
+}
+
+// RunInfo is one run and its lease, as the daemon's records hold it.
+type RunInfo struct {
+	Run        string    `json:"run" doc:"The run's id."`
+	Org        string    `json:"org" doc:"The org."`
+	Project    string    `json:"project" doc:"The project."`
+	Flight     string    `json:"flight" doc:"The flight the run is for."`
+	Generation int       `json:"generation" doc:"The flight's Pilot generation."`
+	State      string    `json:"state" doc:"queued, leased, done, failed, stopped or lost."`
+	Runner     string    `json:"runner,omitempty" doc:"The runner that holds or held it."`
+	Placement  string    `json:"placement,omitempty" doc:"host or container."`
+	Fence      int64     `json:"fence,omitempty" doc:"The current or last lease's fencing token."`
+	ExpiresAt  time.Time `json:"expires_at,omitempty,omitzero" doc:"When leased: the lease's expiry, UTC."`
+	Accepted   int64     `json:"accepted" doc:"Events recorded for the run."`
+	Activity   time.Time `json:"activity" doc:"When the run last did something, UTC."`
+	Asking     bool      `json:"asking,omitempty" doc:"The run's last event was a question."`
+	Stop       bool      `json:"stop,omitempty" doc:"A stop was requested."`
+	PR         int       `json:"pr,omitempty" doc:"When done: the pull request."`
+	Reason     string    `json:"reason,omitempty" doc:"When failed, stopped or lost: why. Untrusted."`
+	Position   int64     `json:"position" doc:"The run's place in the queue; pass as after to page."`
 }

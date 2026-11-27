@@ -43,12 +43,13 @@ func TestClientCommandsWithoutADaemon(t *testing.T) {
 func TestUsageErrors(t *testing.T) {
 	for _, args := range [][]string{
 		{"status", "extra"}, {"events", "--limit", "x"}, {"daemon", "--nope"}, {"daemon", "stop", "x"},
+		{"runner"}, {"runner", "--id", "Bad Id", "--", "true"}, {"runner", "--placement", "moon", "--", "true"}, {"runner", "--nope"},
 	} {
 		if code, _, errOut := lucy(args...); code != 2 || !strings.Contains(errOut, "help: run `lucy") {
 			t.Errorf("%v: code %d stderr %q", args, code, errOut)
 		}
 	}
-	for _, args := range [][]string{{"status", "--help"}, {"events", "-h"}, {"daemon", "--help"}} {
+	for _, args := range [][]string{{"status", "--help"}, {"events", "-h"}, {"daemon", "--help"}, {"runner", "--help"}} {
 		if code, out, _ := lucy(args...); code != 0 || !strings.Contains(out, "Usage:") {
 			t.Errorf("%v: code %d stdout %q", args, code, out)
 		}

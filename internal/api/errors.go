@@ -21,6 +21,7 @@ const (
 	CodeTooLarge           Code = -32003 // the request exceeds a size limit
 	CodeUnavailable        Code = -32004 // the daemon cannot serve now (shutting down, store down)
 	CodeTimeout            Code = -32005 // the call ran past its deadline
+	CodeFenced             Code = -32006 // a runner's lease no longer holds the run: expired, finished or replaced
 )
 
 // codeInfo is the fixed message and kind of each code. Messages never carry request-specific or
@@ -36,12 +37,13 @@ var codeInfo = map[Code]struct{ kind, message string }{
 	CodeTooLarge:           {"too_large", "request too large"},
 	CodeUnavailable:        {"unavailable", "daemon unavailable"},
 	CodeTimeout:            {"timeout", "deadline exceeded"},
+	CodeFenced:             {"fenced", "lease no longer held"},
 }
 
 // Codes lists every error code, in a stable order.
 var Codes = []Code{
 	CodeParseError, CodeInvalidRequest, CodeMethodNotFound, CodeInvalidParams, CodeInternal,
-	CodeForbidden, CodeUnsupportedVersion, CodeTooLarge, CodeUnavailable, CodeTimeout,
+	CodeForbidden, CodeUnsupportedVersion, CodeTooLarge, CodeUnavailable, CodeTimeout, CodeFenced,
 }
 
 // Kind is the code's stable machine-readable name, for example "invalid_params".

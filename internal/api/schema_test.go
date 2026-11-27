@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"os"
+	"reflect"
 	"testing"
 )
 
@@ -43,6 +44,16 @@ func TestOpenRPCDocument(t *testing.T) {
 	}
 }
 
+// hasRequired reports whether a params struct declares a required field.
+func hasRequired(t reflect.Type) bool {
+	for i := range t.NumField() {
+		if parseBounds(t.Field(i)).required {
+			return true
+		}
+	}
+	return false
+}
+
 // TestMethodTable checks every declared method is well formed: a valid name, a scope, a params
 // struct whose bounds parse, and a result type the schema generator understands.
 func TestMethodTable(t *testing.T) {
@@ -58,7 +69,7 @@ func TestMethodTable(t *testing.T) {
 		if m.Mutating && m.Group != "command" {
 			t.Errorf("%s: a mutating method must be a command", m.Name)
 		}
-		if err := DecodeParams(nil, m.NewParams()); err != nil && m.Name != MethodHello && m.Name != MethodEvaluate {
+		if err := DecodeParams(nil, m.NewParams()); err != nil && !hasRequired(m.Params) {
 			t.Errorf("%s: empty params refused: %v (only methods with required params may refuse them)", m.Name, err)
 		}
 		schemaOf(m.Params, bounds{}, true)
