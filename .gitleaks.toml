@@ -2,11 +2,12 @@
 #
 # The allowlist names the exact made-up credentials in lucy's redaction test fixtures
 # (internal/policy/redact_test.go, internal/runner/permit_test.go, internal/server/runner_test.go),
-# which assert that a policy decision record and policy.decisions never hold them. None is a real
-# credential. Each entry is one whole made-up value, anchored, so it holds wherever its line moves
-# and in every commit of the history, and allows no other value: a different secret in the same
-# file is still a finding. (Entries are not narrowed to those paths: gitleaks skips a whole file
-# whose path an allowlist names, even with condition = "AND", which would allow any secret in it.)
+# which assert that a policy decision record and policy.decisions never hold them, and one made-up
+# temp key file name in internal/vault/vault_test.go. None is a real credential. Each entry is one
+# whole made-up value, anchored, so it holds wherever its line moves and in every commit of the
+# history, and allows no other value: a different secret in the same file is still a finding.
+# (Entries are not narrowed to those paths: gitleaks skips a whole file whose path an allowlist
+# names, even with condition = "AND", which would allow any secret in it.)
 # Add a value only after review, in the same pull request as the fixture; see
 # docs/runbooks/security-scans.md.
 
@@ -20,4 +21,5 @@ regexes = [
   '''^abc\.def\.ghi$''',                    # curl-auth-header, internal/policy/redact_test.go
   '''^abc\.bearer\.value$''',               # curl-auth-header, internal/server/runner_test.go
   '''^ghp_0123456789abcdefABCDEF0123$''',   # generic-api-key, internal/runner/permit_test.go
+  '''^acme\.key\.tmp-0011223344556677$''',  # generic-api-key, internal/vault/vault_test.go (a file name)
 ]

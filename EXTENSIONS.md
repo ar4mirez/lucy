@@ -2,7 +2,7 @@
 id: extensions
 title: "lucy: configuration and extension specification"
 status: active
-version: 6
+version: 7
 owner: ar4mirez
 requirements: [LUCY-SPEC-001, LUCY-SPEC-002, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-006, LUCY-SPEC-016, LUCY-SBX-002, LUCY-VAL-010, LUCY-BRD-001]
 ---
@@ -115,7 +115,7 @@ or an external process behind a versioned contract test.
 | Interface | First provider | Later |
 |---|---|---|
 | `Sandbox` | berth containers via berth's API (`internal/sandbox`, [built](docs/tech/sandbox.md)) | host sandbox fallback; Agent Substrate runner (LUCY-SBX-002) |
-| `SecretStore` | lucy's per-org gateway (`lucy-gateway` bindings, [built](docs/tech/gateway.md)) and vault | - |
+| `SecretStore` | lucy's per-org gateway (`lucy-gateway` bindings, [built](docs/tech/gateway.md)) and [vault](docs/tech/vault.md) | - |
 | `SourceControl` | lucy's GitHub API client | other forges |
 | `CodeAnalysis` | lucy's lean pipeline | the no-mistakes skill as an optional import (LUCY-VAL-010) |
 | `EventBus`, `AuditSink` | lucy's event log and hash-chained audit | OpenTelemetry export |

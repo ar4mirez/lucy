@@ -2,7 +2,7 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 22
+version: 23
 owner: ar4mirez
 requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-001, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-009, LUCY-SIM-001, LUCY-SIM-002, LUCY-RUN-001, LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-013, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007, LUCY-SEC-002]
 ---
@@ -21,9 +21,9 @@ One Go binary ([D1](docs/decisions/D1-language-go.md)); every box is a mode of i
 
 | Mode | Role |
 |---|---|
-| `lucy daemon` | The Tower, the control plane: API, policy engine, event store, scheduler, supervisor loop, forge pollers, validation orchestrator, vault |
+| `lucy daemon` | The Tower, the control plane: API, policy engine, event store, scheduler, supervisor loop, forge pollers, validation orchestrator |
 | `lucy runner` | Owns agent processes on one machine or inside one org container; speaks the runner protocol |
-| `lucy gateway` | Per-org egress credential gateway, a separate process outside the agents' container |
+| `lucy gateway` | Per-org egress credential gateway, a separate process outside the agents' container; the only reader of its org's vault |
 | `lucy mcp` | MCP server for Claude chat; `--remote` forwards to a daemon over the tailnet |
 | `lucy hook <event>` | Hook entrypoint for harnesses with only command hooks; not built yet (Claude Code hooks arrive as stream-json host callbacks: [harness](docs/tech/harness.md)) |
 | CLI, TUI, `lucy attach` | Thin clients of the API |
@@ -32,7 +32,7 @@ One Go binary ([D1](docs/decisions/D1-language-go.md)); every box is a mode of i
  surfaces: CLI · TUI · web · Claude chat (MCP) · paired devices      (thin, one API)
         │ unix socket (local) · HTTPS/WebSocket on loopback or tailnet (remote)
  ┌──────▼──────────────────── lucy daemon (control plane) ───────────────────────┐
- │ API · policy engine · event store + hash-chained audit · scheduler · vault    │
+ │ API · policy engine · event store + hash-chained audit · scheduler            │
  │ supervisor (rules → small model → large model) · validation orchestrator     │
  └──────┬────────────────────────────────────────────────────────────────────────┘
         │ runner protocol: lease, events, heartbeat, fencing token
@@ -47,7 +47,7 @@ One Go binary ([D1](docs/decisions/D1-language-go.md)); every box is a mode of i
 | Kind | Location (Linux; macOS uses `~/Library` equivalents) | Contents |
 |---|---|---|
 | Config | `$XDG_CONFIG_HOME/lucy/` | `config.toml` (lucy's settings, [EXTENSIONS.md](EXTENSIONS.md) section 3), spec resources in `resources/` (section 10), instruction overlays |
-| Data | `$XDG_DATA_HOME/lucy/` | `lucy.db`, pools, materialized skills, pinned toolchain |
+| Data | `$XDG_DATA_HOME/lucy/` | `lucy.db`, pools, materialized skills, pinned toolchain, the credential vault (`vault/`) |
 | State | `$XDG_STATE_HOME/lucy/` | logs, pre-migration database snapshots, daily database backups |
 | Runtime | `$XDG_RUNTIME_DIR/lucy/` | daemon and runner sockets |
 
@@ -172,7 +172,8 @@ before returning it. The request model, facts, rule order, decision record and p
 - **Worktree pool:** `git worktree` slots per org and repo, leased in SQLite, reset on acquire,
   released only with a landed-work proof; per-task TMPDIR; path guard on every delete.
 - **Credentials:** the per-org gateway adds tokens only to allowlisted hosts and paths
-  ([gateway](docs/tech/gateway.md)); capability tokens come with slice 4b.
+  ([gateway](docs/tech/gateway.md)), from the org's encrypted [vault](docs/tech/vault.md);
+  capability tokens come with slice 4b.
 
 ## 7. External dependencies
 
@@ -215,7 +216,7 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 
 | Path | Contents |
 |---|---|
-| `cmd/lucy/` | The binary's entrypoint: version, help, self-update, `daemon`, `status`, `events`, `config`, `audit`, `runner`, `questions`, `answer`, `sandbox`, `gateway` |
+| `cmd/lucy/` | The binary's entrypoint: version, help, self-update, `daemon`, `status`, `events`, `config`, `audit`, `runner`, `questions`, `answer`, `sandbox`, `gateway`, `vault` |
 | `internal/api/` | The API's method table, wire format, errors and generated OpenRPC schema (section 4) |
 | `internal/api/client/` | The Go client of the API |
 | `internal/server/` | The API's HTTP handler, peer-credential listener and authorizer seam |
@@ -231,6 +232,7 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 | `internal/policy/` | The policy engine: request model, rules, rule-set hash, decision record (section 5) |
 | `internal/runner/` | The runner protocol: broker and its projection, the Tower's Runtime over it, the runner loop, the process executor (section 6) |
 | `internal/gateway/` | The credential gateway (section 6) |
+| `internal/vault/` | The per-org credential vault (section 6) |
 | `internal/sandbox/` | The runtime seam: providers, the guard, berth's client, a fake berth (section 6) |
 | `internal/harness/` | The harness adapter seam; `claudecode/` is the Claude Code adapter and its recorded transcripts, `harnesstest/` replays them (section 6) |
 | `internal/tower/` | The flight state machine and its seams: Pilot runtime, forge, clock (section 11) |

@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 8
+version: 9
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-SEC-002, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -27,7 +27,7 @@ from a STRIDE threat model over eight trust boundaries, recorded as decision
 [D12](docs/decisions/D12-threat-model.md):
 
 1. Owner surfaces to the daemon (CLI, TUI, dashboard, MCP, paired devices)
-2. The daemon (API, policy engine, event store, vault)
+2. The daemon (API, policy engine, event store)
 3. Runners and berth containers
 4. The per-org credential gateway
 5. Agents (harness sessions)
@@ -57,6 +57,29 @@ The controls that answer most of those threats:
 - **lucy's own scans:** govulncheck, gosec with a reviewed baseline, gitleaks and dependency review
   fail CI on a finding; OpenSSF Scorecard reports to code scanning (LUCY-SEC-002,
   [security scans](docs/runbooks/security-scans.md)).
+
+## Credential keys at rest
+
+An org's credentials are kept in lucy's vault ([vault](docs/tech/vault.md)), each sealed with
+AES-256-GCM under that org's own 32-byte key and bound to its org and name, so one org's key opens
+nothing of another's and a sealed file moved or changed does not open (LUCY-CRED-002).
+
+- **Where the keys are.** `keys/<org>.key` in the vault directory (0700), each 0600, written once
+  from the system's random source; the sealed credentials are under `orgs/`, apart from them. A
+  copy of `orgs/` alone, a backup without `keys/` (lucy's backups, m2, leave it out), reveals
+  nothing.
+- **Who reads them.** Only the org's gateway process, for its own org; no agent, runner or
+  container ever has a key or a credential, and the daemon holds neither.
+- **What this protects against.** A copy of the vault's data without its keys, and one org's
+  gateway reaching another's credentials through the vault. It does not protect against someone
+  who can already read the owner's files, who can read the keys too: that is the host's account
+  security (`lucy preflight --check`, m1 slice 15). Keeping the keys in an OS keystore instead is a
+  later choice for the owner.
+- **Rotation and erasure.** Replacing a credential is `lucy vault set`; deleting an org's key
+  erases all its credentials at once, which offboarding will use (m2). A crash while a key is being
+  published can leave `keys/<org>.key.tmp-<hex>`, a second copy of the live key, so erasing an org
+  deletes `keys/<org>.key` and every `keys/<org>.key.tmp-*` beside it.
+- **Tests** use keys and credentials they generate; nothing reads a real credential.
 
 ## Audit and log data
 

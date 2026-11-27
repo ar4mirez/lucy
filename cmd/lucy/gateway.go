@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,7 +17,7 @@ import (
 )
 
 const gatewayUsage = `Usage:
-  lucy gateway --org <org> [--socket <path>] [--listen <path>]
+  lucy gateway --org <org> [--socket <path>] [--listen <path>] [--vault <dir>]
 
 Runs an org's credential gateway: the one place the org's credentials are used, outside its
 container. A worker calls http://<gateway>/<route>/<path> instead of the service; the gateway
@@ -29,22 +28,15 @@ The routes come from the org's SecretStore AdapterBinding (type lucy-gateway), a
 loaded it. The gateway listens on a Unix socket (by default gateway/<org>.sock in lucy's runtime
 directory, 0600) and records every request through the daemon.
 
-The org's credentials come from its vault, which is not built yet (m1 slice 4b): until then the
-gateway refuses every request that needs a credential, and records the refusal.
+The org's credentials come from the vault (` + "`lucy vault`" + `), and only that org's: a route whose
+credential the vault does not hold is refused, and the refusal recorded.
 
 Flags:
   --org <org>        the org whose gateway this is (required)
   --socket <path>    the daemon's socket
   --listen <path>    the gateway's own socket
+  --vault <dir>      the vault (vault/ in lucy's data directory by default)
 `
-
-// noVault is the gateway's credential source until the vault lands: every credential is
-// unavailable, so every request that needs one is refused (fail closed).
-type noVault struct{}
-
-func (noVault) Credential(context.Context, string, string) ([]byte, error) {
-	return nil, errors.New("the org's vault is not built yet (m1 slice 4b)")
-}
 
 func runGateway(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("gateway", flag.ContinueOnError)
@@ -52,6 +44,7 @@ func runGateway(args []string, stdout, stderr io.Writer) int {
 	sock := fs.String("socket", "", "")
 	org := fs.String("org", "", "")
 	listen := fs.String("listen", "", "")
+	vaultDir := fs.String("vault", "", "")
 	if code, ok := parseFlags(fs, args, gatewayUsage, "lucy gateway --help", stdout, stderr); !ok {
 		return code
 	}
@@ -73,6 +66,12 @@ func runGateway(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
+	v, err := openVault(*vaultDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+	defer v.Close()
 	c, code := dial(*sock, stderr)
 	if c == nil {
 		return code
@@ -86,7 +85,7 @@ func runGateway(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	if err := serveGateway(ctx, c, *org, ln, noVault{}, log); err != nil {
+	if err := serveGateway(ctx, c, *org, ln, orgVault{v: v, org: *org}, log); err != nil {
 		return callFailed(err, c, stderr)
 	}
 	return 0

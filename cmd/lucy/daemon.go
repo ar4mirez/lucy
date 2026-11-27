@@ -85,16 +85,25 @@ func runDaemonStop(args []string, stdout, stderr io.Writer) int {
 // parseFlags parses args; ok is false when the caller should return code (help shown, or a usage
 // error reported).
 func parseFlags(fs *flag.FlagSet, args []string, usage, helpCmd string, stdout, stderr io.Writer) (int, bool) {
+	if code, ok := parseFlagsAllowingArgs(fs, args, usage, helpCmd, stdout, stderr); !ok {
+		return code, false
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(stderr, "error: unexpected argument %q\nhelp: run `%s`\n", fs.Arg(0), helpCmd)
+		return 2, false
+	}
+	return 0, true
+}
+
+// parseFlagsAllowingArgs parses flags like parseFlags and leaves the arguments after them to the
+// caller.
+func parseFlagsAllowingArgs(fs *flag.FlagSet, args []string, usage, helpCmd string, stdout, stderr io.Writer) (int, bool) {
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprint(stdout, usage)
 			return 0, false
 		}
 		fmt.Fprintf(stderr, "error: %v\nhelp: run `%s`\n", err, helpCmd)
-		return 2, false
-	}
-	if fs.NArg() > 0 {
-		fmt.Fprintf(stderr, "error: unexpected argument %q\nhelp: run `%s`\n", fs.Arg(0), helpCmd)
 		return 2, false
 	}
 	return 0, true

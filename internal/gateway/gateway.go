@@ -263,6 +263,14 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		deny(http.StatusForbidden, name, "the route does not allow "+r.Method+" on this path")
 		return
 	}
+	// The credential is read before the upstream's name is looked up, so a request that cannot be
+	// served touches no network at all.
+	secret, err := g.cfg.Credentials.Credential(ctx, g.cfg.Org, rt.Credential)
+	if err != nil || len(secret) == 0 {
+		deny(http.StatusBadGateway, name, "the route's credential is unavailable")
+		return
+	}
+	defer clear(secret)
 	host := rt.upstream.Hostname()
 	port := rt.upstream.Port()
 	if port == "" {
@@ -273,12 +281,6 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		deny(http.StatusForbidden, name, "the upstream's address is refused")
 		return
 	}
-	secret, err := g.cfg.Credentials.Credential(ctx, g.cfg.Org, rt.Credential)
-	if err != nil || len(secret) == 0 {
-		deny(http.StatusBadGateway, name, "the route's credential is unavailable")
-		return
-	}
-	defer clear(secret)
 
 	// The credential's use is decided and recorded before anything is sent (LUCY-POL-002).
 	d, err := g.cfg.Recorder.Decide(ctx, g.cfg.Org, Use{Route: name, Method: r.Method, Path: recorded, Upstream: rt.upstream.Host})

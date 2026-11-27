@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 10
+version: 11
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -16,6 +16,13 @@ Changes since the last release. When a version is cut, its section moves to
 
 ### Added
 
+- The per-org credential vault: `lucy vault set --org <org> <name>` stores a credential, read from
+  stdin only (never an argument, the environment or a terminal), sealed with AES-256-GCM under
+  that org's own key and bound to its org and name; `lucy vault ls` lists names and when each was
+  set, never a value; `lucy vault rm` deletes one. Keys are kept apart from the sealed credentials,
+  and every file stays inside the vault directory. `lucy gateway` now reads its org's credentials
+  from the vault, and only its own; a route whose credential is missing is refused before any
+  upstream is looked up.
 - The per-org credential gateway, the start of m1 slice 4: a worker calls `/<route>/<path>` on its
   org's gateway instead of the service, and the gateway forwards only what the route's allowlist
   names (methods on a path prefix) to an `https://` upstream, with the worker's own credential
@@ -26,8 +33,7 @@ Changes since the last release. When a version is cut, its section moves to
   credential the upstream echoes back is scrubbed from the answer, which is asked for whole and
   unencoded (an encoded answer is refused); and every request, forwarded or
   refused, is in the audit chain without its credential. Any failure refuses. A test proves a
-  Pilot's environment holds none of the runner's credentials. Credentials come from the vault in a
-  later change.
+  Pilot's environment holds none of the runner's credentials.
 - `lucy gateway --org <org>` runs an org's credential gateway as its own process. Its routes are an
   ai-sdlc `AdapterBinding` with `interface: SecretStore` and `type: lucy-gateway` in the org's
   namespace, which the daemon reads strictly: a binding that does not read gives the org no routes.
@@ -36,8 +42,7 @@ Changes since the last release. When a version is cut, its section moves to
   elsewhere. A path of any length is recorded, with the SHA-256 of the whole path, and a method
   other than GET, HEAD, POST, PUT, PATCH, DELETE or OPTIONS is refused and recorded. The API gains
   the `gateway` scope and `gateway.routes`, `gateway.use`, `gateway.deny` and `gateway.complete`
-  (OpenRPC revision 10). Until the vault lands the gateway has no credentials, so it refuses every
-  request that needs one.
+  (OpenRPC revision 10).
 - The org sandbox seam, the start of m1 slice 3: a Sandbox provider runs an org's container, named
   by an ai-sdlc `AdapterBinding` with `interface: Sandbox`, and berth is the first one, reached only
   through its documented API on its socket. Starting, restarting or stopping an org's container
