@@ -92,7 +92,7 @@ func TestPermitForStaysInsideTheRun(t *testing.T) {
 			t.Errorf("%s: %v %q", p, ok, why)
 		}
 	}
-	for _, p := range []string{"$HOME/x", "${HOME}/x", "$(pwd)/x", "src/$X"} {
+	for _, p := range []string{"$HOME/x", "${HOME}/x", "$(pwd)/x", "src/$X", "$HOME.bak/../.ssh/x", "$TMPDIR-1/x"} {
 		if ok, why := permit("Write", harness.Write, p); ok || !strings.Contains(why, "variable reference") {
 			t.Errorf("%s: %v %q", p, ok, why)
 		}

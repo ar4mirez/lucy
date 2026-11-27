@@ -333,6 +333,9 @@ func TestSearchToolPath(t *testing.T) {
 		{"Glob", `{"pattern":"app/routes/posts.$slug.tsx"}`, ""},
 		{"Glob", `{"pattern":"app/routes/$postId.tsx"}`, ""},
 		{"Grep", `{"pattern":"secret","glob":"$TMPDIR/*"}`, varRef},
+		{"Glob", `{"pattern":"$HOME.bak/*"}`, varRef},
+		{"Grep", `{"pattern":"secret","glob":"$TMPDIR-1/*"}`, varRef},
+		{"Glob", `{"pattern":"routes/$_index.tsx"}`, ""},
 	} {
 		var asked []string
 		permit := func(tool string, _ harness.Access, path string) (bool, string) {
