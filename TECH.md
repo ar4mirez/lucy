@@ -21,9 +21,9 @@ One Go binary ([D1](docs/decisions/D1-language-go.md)); every box is a mode of i
 
 | Mode | Role |
 |---|---|
-| `lucy daemon` | The Tower, the control plane: API, policy engine, event store, scheduler, supervisor loop, forge pollers, validation orchestrator, vault |
+| `lucy daemon` | The Tower, the control plane: API, policy engine, event store, scheduler, supervisor loop, forge pollers, validation orchestrator |
 | `lucy runner` | Owns agent processes on one machine or inside one org container; speaks the runner protocol |
-| `lucy gateway` | Per-org egress credential gateway, a separate process outside the agents' container |
+| `lucy gateway` | Per-org egress credential gateway, a separate process outside the agents' container; the only reader of its org's vault |
 | `lucy mcp` | MCP server for Claude chat; `--remote` forwards to a daemon over the tailnet |
 | `lucy hook <event>` | Hook entrypoint for harnesses with only command hooks; not built yet (Claude Code hooks arrive as stream-json host callbacks: [harness](docs/tech/harness.md)) |
 | CLI, TUI, `lucy attach` | Thin clients of the API |
@@ -32,7 +32,7 @@ One Go binary ([D1](docs/decisions/D1-language-go.md)); every box is a mode of i
  surfaces: CLI · TUI · web · Claude chat (MCP) · paired devices      (thin, one API)
         │ unix socket (local) · HTTPS/WebSocket on loopback or tailnet (remote)
  ┌──────▼──────────────────── lucy daemon (control plane) ───────────────────────┐
- │ API · policy engine · event store + hash-chained audit · scheduler · vault    │
+ │ API · policy engine · event store + hash-chained audit · scheduler            │
  │ supervisor (rules → small model → large model) · validation orchestrator     │
  └──────┬────────────────────────────────────────────────────────────────────────┘
         │ runner protocol: lease, events, heartbeat, fencing token
@@ -47,7 +47,7 @@ One Go binary ([D1](docs/decisions/D1-language-go.md)); every box is a mode of i
 | Kind | Location (Linux; macOS uses `~/Library` equivalents) | Contents |
 |---|---|---|
 | Config | `$XDG_CONFIG_HOME/lucy/` | `config.toml` (lucy's settings, [EXTENSIONS.md](EXTENSIONS.md) section 3), spec resources in `resources/` (section 10), instruction overlays |
-| Data | `$XDG_DATA_HOME/lucy/` | `lucy.db`, pools, materialized skills, pinned toolchain |
+| Data | `$XDG_DATA_HOME/lucy/` | `lucy.db`, pools, materialized skills, pinned toolchain, the credential vault (`vault/`) |
 | State | `$XDG_STATE_HOME/lucy/` | logs, pre-migration database snapshots, daily database backups |
 | Runtime | `$XDG_RUNTIME_DIR/lucy/` | daemon and runner sockets |
 

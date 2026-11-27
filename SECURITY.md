@@ -27,7 +27,7 @@ from a STRIDE threat model over eight trust boundaries, recorded as decision
 [D12](docs/decisions/D12-threat-model.md):
 
 1. Owner surfaces to the daemon (CLI, TUI, dashboard, MCP, paired devices)
-2. The daemon (API, policy engine, event store, vault)
+2. The daemon (API, policy engine, event store)
 3. Runners and berth containers
 4. The per-org credential gateway
 5. Agents (harness sessions)
