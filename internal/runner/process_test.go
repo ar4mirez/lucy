@@ -521,3 +521,44 @@ func TestHarnessIgnoresProjectSettings(t *testing.T) {
 		t.Errorf("the control did not load the repository's settings, so the test proves nothing: %s", control)
 	}
 }
+
+// recordArgs is the Claude Code adapter, keeping the launch arguments it gave.
+type recordArgs struct {
+	claudecode.Adapter
+	got *[]string
+}
+
+func (a recordArgs) Args(s harness.Session) []string {
+	*a.got = a.Adapter.Args(s)
+	return *a.got
+}
+
+// TestHarnessGetsRepositoryInstructions seeds the run's directory with a CLAUDE.md that imports
+// AGENTS.md and checks the session is launched with the AGENTS.md text in its system prompt.
+func TestHarnessGetsRepositoryInstructions(t *testing.T) {
+	pf := newProc(t)
+	var argv []string
+	pf.ex.Harness = recordArgs{got: &argv}
+	pf.ex.prepare = func(dir string) error {
+		if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("@AGENTS.md\n"), 0o600); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("run-dir-agents-9c1e\n"), 0o600)
+	}
+	x, err := pf.ex.Start(context.Background(), procLease("harness - "+transcript(t, "done")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lines, res := drain(t, x); res.Outcome != OutcomeDone {
+		t.Fatalf("result %+v, events %q", res, lines)
+	}
+	i := slices.Index(argv, "--append-system-prompt")
+	var framed string
+	if i >= 0 && i+1 < len(argv) {
+		_, rest, _ := strings.Cut(argv[i+1], "<repository-instructions>\n")
+		framed, _, _ = strings.Cut(rest, "\n</repository-instructions>")
+	}
+	if !strings.Contains(framed, "run-dir-agents-9c1e") {
+		t.Errorf("the launch arguments lack the run directory's AGENTS.md: %q", argv)
+	}
+}

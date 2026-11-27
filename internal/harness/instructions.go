@@ -9,8 +9,11 @@ import (
 
 // Caps on the repository instructions a session is given.
 const (
-	MaxInstructionFile  = 64 << 10  // a larger file is dropped whole
-	MaxInstructionTotal = 256 << 10 // a file that would take the total past this is dropped whole
+	MaxInstructionFile = 64 << 10 // a larger file is dropped whole
+	// MaxInstructionTotal keeps the instructions, with the adapter's own system prompt around them,
+	// well inside Linux's 128 KiB cap on one argument; a file that would take the total past it is
+	// dropped whole.
+	MaxInstructionTotal = 96 << 10
 )
 
 // InstructionFiles are the files Instructions reads, in order of preference: the first one
@@ -49,7 +52,7 @@ func Instructions(dir string) (string, error) {
 		}
 		seen[name] = true
 		t, ok := readCapped(root, name)
-		if !ok || b.Len()+len(t) > MaxInstructionTotal {
+		if !ok || b.Len()+len("\n\n")+len(t) > MaxInstructionTotal {
 			continue
 		}
 		b.WriteString("\n\n" + t)

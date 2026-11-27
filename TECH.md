@@ -164,14 +164,14 @@ before returning it. The request model, facts, rule order, decision record and p
 - **Harness adapters** (LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-013), in `internal/harness`: an
   `Adapter` gives a session's arguments, refuses any but its pinned version (the upgrade is held)
   and decodes the structured output into tagged events. `claudecode` runs `claude --print` over
-  stream-json both ways, with an empty MCP set, only lucy's own settings (lucy appends the repo's
-  CLAUDE.md or AGENTS.md as framed repo text), no saved session and every prompt sent to it: a file tool inside the run's dir goes to `runner.permit` (the engine decides,
-  the Pilot as a worker of the lease's org); AskUserQuestion streams as `asking` with the
+  stream-json both ways, with an empty MCP set, only lucy's own settings (plus the run dir's
+  CLAUDE.md or AGENTS.md as framed repo text; empty until slice 6), no saved session and every
+  prompt sent to it: a file tool in the run's dir goes to `runner.permit` (the engine decides, as
+  the lease org's worker); AskUserQuestion streams as `asking` with the
   question's id on every repeat; the rest are refused. The broker records `run.answered` (id and
   digest) and resends the text in each heartbeat reply until the runner acknowledges the id; an
   asking event for an answered id is activity, and an answer a restart lost was never
-  acknowledged, so the runner asks again. `testdata/<version>` transcripts are the contract, replayed
-  in CI.
+  acknowledged, so the runner asks again. `testdata/<version>` transcripts are the CI contract.
 - **Sessions:** structured protocols first (Claude Code's stream-json, built; Codex app-server; ACP
   later). Leases with generation and heartbeat; reattach before spawn; fence, then replace.
 - **Worktree pool:** `git worktree` slots per org and repo, leased in SQLite, reset on acquire,

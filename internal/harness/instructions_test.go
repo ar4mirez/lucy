@@ -75,15 +75,13 @@ func TestInstructionsDropsWhatIsNotInTheRepository(t *testing.T) {
 
 func TestInstructionsCapsTheTotal(t *testing.T) {
 	dir := t.TempDir()
-	var main strings.Builder
-	for i := range 5 {
-		name := string(rune('a'+i)) + ".md"
-		write(t, filepath.Join(dir, name), name+strings.Repeat("x", MaxInstructionFile-10))
-		main.WriteString("@" + name + " ")
-	}
-	write(t, filepath.Join(dir, "CLAUDE.md"), main.String())
+	main := "@a.md @b.md"
+	write(t, filepath.Join(dir, "CLAUDE.md"), main)
+	write(t, filepath.Join(dir, "a.md"), "a"+strings.Repeat("x", MaxInstructionFile-1))
+	over := MaxInstructionTotal - len(main) - MaxInstructionFile - 2*len("\n\n") + 1
+	write(t, filepath.Join(dir, "b.md"), "b-text"+strings.Repeat("y", over-len("b-text")))
 	got := instructions(t, dir)
-	if len(got) > MaxInstructionTotal || !strings.Contains(got, "a.md") || strings.Contains(got, "e.md"+"x") {
-		t.Errorf("instructions are %d bytes, cap %d; the last file must be dropped", len(got), MaxInstructionTotal)
+	if len(got) > MaxInstructionTotal || !strings.Contains(got, "axxx") || strings.Contains(got, "b-text") {
+		t.Errorf("instructions are %d bytes, cap %d; a.md must be kept and b.md, one byte over with its separator, dropped", len(got), MaxInstructionTotal)
 	}
 }

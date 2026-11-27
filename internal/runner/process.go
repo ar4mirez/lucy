@@ -52,6 +52,8 @@ type ProcessExecutor struct {
 	// engine; without one every prompted tool is refused. A path outside the run's directory is
 	// refused before the engine is asked.
 	Permitter Permitter
+
+	prepare func(dir string) error // tests: seeds a run's directory before the harness reads it
 }
 
 // Bounds on what one process run buffers between polls.
@@ -103,6 +105,12 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 		log = slog.Default()
 	}
 	pe := &processExecution{guard: guard, dir: dir, log: log}
+	if p.prepare != nil {
+		if err := p.prepare(dir); err != nil {
+			pe.cleanup()
+			return nil, err
+		}
+	}
 	env := []string{
 		"PATH=" + path,
 		"HOME=" + home, // TODO(LUCY-RUN-006): a synthetic HOME per org (m1 step 6)
@@ -130,6 +138,8 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 			pe.cleanup()
 			return nil, err
 		}
+		// TODO(LUCY-RUN-006): the run's directory is an empty scratch dir until slice 6 checks the
+		// repository out into it; slice 6 must point the reader at that checkout.
 		if session.Instructions, err = harness.Instructions(dir); err != nil {
 			pe.cleanup()
 			return nil, err

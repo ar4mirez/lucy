@@ -454,3 +454,14 @@ func TestRepositoryInstructions(t *testing.T) {
 		t.Errorf("the control did not load the repository's settings, so the check proves nothing: stdout %q, stderr %q", out, errs)
 	}
 }
+
+// TestInstructionsFitOneArgument checks that instructions at the reader's cap, with lucy's system
+// prompt and the framing, stay under Linux's 128 KiB limit on one argument, so a session in a
+// repository with large instructions still starts.
+func TestInstructionsFitOneArgument(t *testing.T) {
+	argv := Adapter{}.Args(harness.Session{Goal: "g", Instructions: strings.Repeat("x", harness.MaxInstructionTotal)})
+	prompt := argv[slices.Index(argv, "--append-system-prompt")+1]
+	if !strings.Contains(prompt, strings.Repeat("x", harness.MaxInstructionTotal)) || len(prompt) >= 128<<10 {
+		t.Errorf("--append-system-prompt is %d bytes at the instructions cap, want under %d", len(prompt), 128<<10)
+	}
+}
