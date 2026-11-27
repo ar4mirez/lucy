@@ -179,7 +179,7 @@ func Run(ctx context.Context, opts Options) error {
 	expiring := make(chan struct{})
 	go func() {
 		defer close(expiring)
-		expireLeases(ctx, broker, log)
+		expireLeases(ctx, broker, caps, log)
 	}()
 	log.Info("lucy daemon serving", "socket", sock, "api", api.Path, "version", opts.Version)
 	if opts.OnReady != nil {
@@ -215,8 +215,9 @@ func Run(ctx context.Context, opts Options) error {
 }
 
 // expireLeases expires runner leases that were not renewed in time, every ExpiryInterval, until
-// ctx ends. A run whose runner went silent is then lost, and its fence refused (LUCY-RUN-001).
-func expireLeases(ctx context.Context, b *runner.Broker, log *slog.Logger) {
+// ctx ends. A run whose runner went silent is then lost, and its fence refused (LUCY-RUN-001), and
+// the capability tokens of every run no longer leased under them are revoked (LUCY-CRED-003).
+func expireLeases(ctx context.Context, b *runner.Broker, caps *capability.Issuer, log *slog.Logger) {
 	t := time.NewTicker(ExpiryInterval)
 	defer t.Stop()
 	for {
@@ -231,6 +232,13 @@ func expireLeases(ctx context.Context, b *runner.Broker, log *slog.Logger) {
 			log.Warn("could not expire runner leases", "err", err)
 		case n > 0:
 			log.Info("runner leases expired", "runs", n)
+		}
+		n, err = caps.RevokeEnded(ctx)
+		switch {
+		case err != nil && ctx.Err() == nil:
+			log.Warn("could not revoke ended runs' capabilities", "err", err)
+		case n > 0:
+			log.Info("capabilities of ended runs revoked", "capabilities", n)
 		}
 	}
 }

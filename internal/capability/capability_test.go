@@ -209,3 +209,108 @@ func TestRevoke(t *testing.T) {
 		t.Errorf("an expired token is listed: %+v", live)
 	}
 }
+
+// Each heartbeat's renewal keeps a live run's gateway access past DefaultTTL with its newest
+// token, and the token before it is refused as rotated.
+func TestRenewKeepsALiveRunsAccess(t *testing.T) {
+	f := open(t)
+	l, tok, first := f.lease("acme", "f1", "github")
+	for range 4 {
+		f.clock.add(50 * time.Second)
+		if _, err := f.b.Heartbeat(ctx, "r1", l.Run, l.Fence, 5*time.Minute, nil, ""); err != nil {
+			t.Fatal(err)
+		}
+		f.clock.add(70 * time.Second)
+		if _, err := f.b.Heartbeat(ctx, "r1", l.Run, l.Fence, 5*time.Minute, nil, ""); err != nil {
+			t.Fatal(err)
+		}
+		next, c, err := f.iss.Renew(ctx, l.Run, l.Fence)
+		if err != nil || next == tok || c.Org != "acme" || strings.Join(c.Routes, ",") != "github" || !c.Start.Equal(first.Start) {
+			t.Fatalf("renew %+v, %v", c, err)
+		}
+		if _, err := f.iss.Verify(ctx, tok, "acme", "github"); !errors.Is(err, capability.ErrRevoked) {
+			t.Fatalf("the rotated token: %v", err)
+		}
+		tok = next
+	}
+	if _, err := f.iss.Verify(ctx, tok, "acme", "github"); err != nil {
+		t.Fatalf("the newest token, %s after the lease began: %v", 8*time.Minute, err)
+	}
+	all, err := f.iss.List(ctx, true)
+	if err != nil || len(all) != 5 {
+		t.Fatalf("list %+v, %v", all, err)
+	}
+	for _, c := range all[1:] {
+		if !c.Revoked || c.RevokedReason != "rotated" {
+			t.Fatalf("an older token %+v", c)
+		}
+	}
+}
+
+// No renewal reaches past MaxTTL from the lease's first token, and a revoked token is not renewed.
+func TestRenewLimits(t *testing.T) {
+	t.Run("MaxTTL from the lease's start", func(t *testing.T) {
+		f := open(t)
+		l, _, first := f.lease("acme", "f1", "github")
+		if _, err := f.b.Heartbeat(ctx, "r1", l.Run, l.Fence, 5*time.Minute, nil, ""); err != nil {
+			t.Fatal(err)
+		}
+		var last capability.Capability
+		for {
+			f.clock.add(4 * time.Minute)
+			if _, err := f.b.Heartbeat(ctx, "r1", l.Run, l.Fence, 5*time.Minute, nil, ""); err != nil {
+				t.Fatal(err)
+			}
+			_, c, err := f.iss.Renew(ctx, l.Run, l.Fence)
+			if errors.Is(err, capability.ErrExpired) {
+				break
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			last = c
+		}
+		if end := first.Start.Add(capability.MaxTTL); last.Expires.After(end) || f.clock.Now().Before(end) {
+			t.Fatalf("the last token expires %v, the lease began %v, refused at %v", last.Expires, first.Start, f.clock.Now())
+		}
+	})
+	t.Run("revoked", func(t *testing.T) {
+		f := open(t)
+		l, tok, _ := f.lease("acme", "f1", "github")
+		if _, err := f.iss.Revoke(ctx, capability.ID(tok), "owner", "test"); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := f.iss.Renew(ctx, l.Run, l.Fence); !errors.Is(err, capability.ErrRevoked) {
+			t.Fatalf("%v", err)
+		}
+	})
+	t.Run("a lease without a token", func(t *testing.T) {
+		f := open(t)
+		l, _, _ := f.lease("acme", "f1", "github")
+		if _, _, err := f.iss.Renew(ctx, l.Run, l.Fence+1); !errors.Is(err, capability.ErrUnknown) {
+			t.Fatalf("%v", err)
+		}
+	})
+}
+
+// RevokeRun revokes a run's tokens under its fence and older ones, and no other run's.
+func TestRevokeRun(t *testing.T) {
+	f := open(t)
+	l, tok, _ := f.lease("acme", "f1", "github")
+	_, other, _ := f.lease("acme", "f2", "github")
+	if err := f.iss.RevokeRun(ctx, l.Run, l.Fence-1, "replaced"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.iss.Verify(ctx, tok, "acme", "github"); err != nil {
+		t.Fatalf("a token of a newer fence: %v", err)
+	}
+	if err := f.iss.RevokeRun(ctx, l.Run, l.Fence, "finished"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.iss.Verify(ctx, tok, "acme", "github"); !errors.Is(err, capability.ErrRevoked) {
+		t.Fatalf("%v", err)
+	}
+	if _, err := f.iss.Verify(ctx, other, "acme", "github"); err != nil {
+		t.Fatalf("another run's token: %v", err)
+	}
+}

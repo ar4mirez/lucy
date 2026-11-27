@@ -86,9 +86,13 @@ nothing of another's and a sealed file moved or changed does not open (LUCY-CRED
 A run proves to its org's gateway that it may use a route with a capability token
 ([capabilities](docs/tech/capability.md), LUCY-CRED-003): 32 random bytes, issued by the daemon on
 the run's lease and given only to its runner, scoped to the org, the run under that lease, the
-org's routes, and an hour at most four. The daemon stores only the token's SHA-256 and compares it
-in constant time; a token is refused once revoked, past its expiry, for another org or route, or
-once its run's lease has ended or been replaced. The gateway never forwards it. Until the owner
+org's routes, and five minutes. Each heartbeat of the live lease renews it with a fresh token and
+revokes the one before, never past four hours from the lease's start; finishing or stopping the
+run, or its lease running out, revokes its tokens. The daemon stores only the token's SHA-256 and
+compares it in constant time; a token is refused once revoked, past its expiry, for another org or
+route, or once its run's lease has ended or been replaced. The daemon checks it before the gateway
+reads any credential or resolves any upstream, and again when deciding. The gateway never
+forwards it. Until the owner
 decides how a Pilot's tools get it, no token is in a Pilot's environment.
 
 ## Audit and log data

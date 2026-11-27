@@ -261,6 +261,13 @@ func (c *Client) GatewayComplete(ctx context.Context, p api.GatewayCompleteParam
 	return c.Call(ctx, api.MethodGwDone, p, &r)
 }
 
+// GatewayVerify calls gateway.verify.
+func (c *Client) GatewayVerify(ctx context.Context, p api.GatewayUseParams) (api.GatewayVerified, error) {
+	var r api.GatewayVerified
+	err := c.Call(ctx, api.MethodGwVerify, p, &r)
+	return r, err
+}
+
 // Capabilities calls capabilities.list.
 func (c *Client) Capabilities(ctx context.Context, all bool) (api.CapabilitiesList, error) {
 	var r api.CapabilitiesList

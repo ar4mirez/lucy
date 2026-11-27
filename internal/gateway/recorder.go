@@ -43,6 +43,10 @@ type Decision struct {
 // the audit chain (LUCY-CRED-004). StoreRecorder is the daemon's; Remote reaches it over the API
 // from a gateway process.
 type Recorder interface {
+	// Verify checks the capability a Use carries, before the gateway reads any credential or looks
+	// up any upstream; ok is false when it is refused, and the refusal is recorded as
+	// gateway.denied. Decide checks it again.
+	Verify(ctx context.Context, org string, u Use) (ok bool, err error)
 	// Decide decides the credential's use through the policy engine and records the decision and a
 	// gateway.forwarded (or, when not cleared, gateway.denied) event, in one transaction.
 	Decide(ctx context.Context, org string, u Use) (Decision, error)
@@ -124,32 +128,62 @@ func actor(org string) policy.Actor {
 	return policy.Actor{ID: "org/" + org + "/gateway", Role: policy.RoleGateway, Org: org}
 }
 
-// Decide implements Recorder.
-func (s *StoreRecorder) Decide(ctx context.Context, org string, u Use) (Decision, error) {
+// Verify implements Recorder.
+func (s *StoreRecorder) Verify(ctx context.Context, org string, u Use) (bool, error) {
+	rt, err := s.known(org, u)
+	if err != nil {
+		return false, err
+	}
+	_, refused, err := s.capability(ctx, org, rt, u)
+	return err == nil && refused == "", err
+}
+
+// known returns the route a Use names, which must be org's with the Use's upstream.
+func (s *StoreRecorder) known(org string, u Use) (route, error) {
 	if e := orgLabel(org); e != "" {
-		return Decision{}, fmt.Errorf("gateway: org %q %s", org, e)
+		return route{}, fmt.Errorf("gateway: org %q %s", org, e)
 	}
 	rt, ok := s.route(org, u.Route)
 	if !ok || rt.upstream.Host != u.Upstream {
-		return Decision{}, fmt.Errorf("%w: %s/%s", ErrUnknownRoute, org, u.Route)
+		return route{}, fmt.Errorf("%w: %s/%s", ErrUnknownRoute, org, u.Route)
 	}
-	a := actor(org)
-	// The capability comes first: without a valid one for this org, route and a live run,
-	// nothing is decided and the refusal is recorded (LUCY-CRED-003).
-	var c capability.Capability
+	return rt, nil
+}
+
+// capability verifies the token a Use carries: without a valid one for this org, route and a live
+// run, nothing is decided and the refusal is recorded (LUCY-CRED-003). refused says why it was
+// refused, empty when it was not.
+func (s *StoreRecorder) capability(ctx context.Context, org string, rt route, u Use) (c capability.Capability, refused string, err error) {
 	var cerr error
 	if s.Capabilities == nil {
 		cerr = errors.New("this daemon verifies no capabilities")
 	} else {
 		c, cerr = s.Capabilities.Verify(ctx, u.Capability, org, rt.Name)
 	}
-	if cerr != nil {
-		reason := "capability refused: " + capabilityReason(cerr)
-		d := Denied{Route: rt.Name, Method: u.Method, Path: u.Path, Reason: reason, Run: c.Run, Capability: c.ID}
-		if _, err := s.Store.Append(ctx, Stream(org), eventstore.AnyVersion, a.ID, d); err != nil {
-			return Decision{}, err
-		}
-		return Decision{Rule: "capability", Reason: reason}, nil
+	if cerr == nil {
+		return c, "", nil
+	}
+	refused = "capability refused: " + capabilityReason(cerr)
+	d := Denied{Route: rt.Name, Method: u.Method, Path: u.Path, Reason: refused, Run: c.Run, Capability: c.ID}
+	if _, err := s.Store.Append(ctx, Stream(org), eventstore.AnyVersion, actor(org).ID, d); err != nil {
+		return c, refused, err
+	}
+	return c, refused, nil
+}
+
+// Decide implements Recorder.
+func (s *StoreRecorder) Decide(ctx context.Context, org string, u Use) (Decision, error) {
+	rt, err := s.known(org, u)
+	if err != nil {
+		return Decision{}, err
+	}
+	a := actor(org)
+	c, refused, err := s.capability(ctx, org, rt, u)
+	if err != nil {
+		return Decision{}, err
+	}
+	if refused != "" {
+		return Decision{Rule: "capability", Reason: refused}, nil
 	}
 	req := policy.Request{Actor: a, Kind: policy.KindCredentialUse,
 		Target: policy.Target{Org: org, Resource: rt.Credential},
@@ -158,7 +192,7 @@ func (s *StoreRecorder) Decide(ctx context.Context, org string, u Use) (Decision
 	facts := policy.Facts{CredentialScope: rt.Scope}
 	d := policy.Evaluate(req, facts)
 	out := Decision{Cleared: d.Outcome == policy.Cleared, Rule: d.Rule, Reason: d.Reason}
-	err := s.Store.Update(ctx, func(tx *eventstore.Tx) error {
+	err = s.Store.Update(ctx, func(tx *eventstore.Tx) error {
 		evs, err := tx.Append(ctx, policy.Stream, eventstore.AnyVersion, a.ID, policy.NewRecord(req, facts, d))
 		if err != nil {
 			return err

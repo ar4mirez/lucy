@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/api"
+	"github.com/ar4mirez/lucy/internal/capability"
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/runner"
 )
@@ -101,7 +102,34 @@ func (s *Server) runnerHeartbeat(ctx context.Context, p *api.HeartbeatParams) (a
 	if err != nil {
 		return api.HeartbeatResult{}, runnerError(err)
 	}
-	return api.HeartbeatResult{ExpiresAt: beat.Expires, Stop: beat.Stop, Accepted: beat.Accepted, Answer: beat.Answer, Question: beat.Question, Asking: beat.Asking}, nil
+	res := api.HeartbeatResult{ExpiresAt: beat.Expires, Stop: beat.Stop, Accepted: beat.Accepted, Answer: beat.Answer, Question: beat.Question, Asking: beat.Asking}
+	if s.opts.Capabilities == nil {
+		return res, nil
+	}
+	if beat.Stop {
+		return res, s.revokeRun(ctx, p.Run, p.Fence, "stopped")
+	}
+	// A live lease's token is renewed on each heartbeat and the one before it rotated out, up to
+	// MaxTTL from the lease's start; a revoked token is not renewed. A lease that ran out gets no
+	// heartbeat, and the daemon's expiry timer revokes its tokens.
+	tok, _, err := s.opts.Capabilities.Renew(ctx, p.Run, p.Fence)
+	switch {
+	case err == nil:
+		res.Capability = tok
+	case errors.Is(err, capability.ErrUnknown), errors.Is(err, capability.ErrRevoked), errors.Is(err, capability.ErrExpired):
+	default:
+		return api.HeartbeatResult{}, err
+	}
+	return res, nil
+}
+
+// revokeRun revokes run's tokens under fence and every older one, for reason, when this daemon
+// issues any.
+func (s *Server) revokeRun(ctx context.Context, run string, fence int64, reason string) error {
+	if s.opts.Capabilities == nil {
+		return nil
+	}
+	return s.opts.Capabilities.RevokeRun(ctx, run, fence, reason)
 }
 
 func (s *Server) runnerFinish(ctx context.Context, p *api.FinishParams) (api.FinishResult, error) {
@@ -112,6 +140,9 @@ func (s *Server) runnerFinish(ctx context.Context, p *api.FinishParams) (api.Fin
 	res := runner.Result{Outcome: runner.Outcome(p.Outcome), PR: p.PR, Reason: p.Reason}
 	if err := b.Finish(ctx, p.Runner, p.Run, p.Fence, res); err != nil {
 		return api.FinishResult{}, runnerError(err)
+	}
+	if err := s.revokeRun(ctx, p.Run, p.Fence, "finished"); err != nil {
+		return api.FinishResult{}, err
 	}
 	ri, err := b.Run(ctx, p.Run)
 	if err != nil {

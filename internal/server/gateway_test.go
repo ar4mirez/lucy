@@ -18,7 +18,9 @@ import (
 	"net/netip"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/capability"
@@ -345,4 +347,160 @@ func TestCapabilitiesListAndRevoke(t *testing.T) {
 	}
 	_, err = bare.client.CapabilityRevoke(ctx, api.RevokeParams{ID: c.ID})
 	wantCode(t, err, api.CodeUnavailable)
+}
+
+type testClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *testClock) Now() time.Time { c.mu.Lock(); defer c.mu.Unlock(); return c.now }
+func (c *testClock) add(d time.Duration) {
+	c.mu.Lock()
+	c.now = c.now.Add(d)
+	c.mu.Unlock()
+}
+
+// Each runner.heartbeat renews a live run's capability: the run keeps gateway access past
+// capability.DefaultTTL with its newest token while the rotated one is refused, and a run whose
+// lease ran out and was replaced loses it at once, its old tokens revoked.
+func TestHeartbeatRenewsTheCapability(t *testing.T) {
+	clock := &testClock{now: time.Now()}
+	routes := []gateway.Route{{Name: "github", Upstream: "https://example.com", Credential: "github",
+		Allow: []gateway.Rule{{Methods: []string{"GET"}, Path: "/"}}}}
+	f := start(t, os.Geteuid(), 0, func(o *Options) {
+		o.Gateways = &gateway.StoreRecorder{Store: o.Store}
+		if err := o.Gateways.SetRoutes(map[string][]gateway.Route{"acme": routes}); err != nil {
+			t.Fatal(err)
+		}
+		o.Runs = runner.NewBroker(o.Store, clock.Now)
+		o.Capabilities = &capability.Issuer{Store: o.Store, Leases: o.Runs, Now: clock.Now}
+		o.Gateways.Capabilities = o.Capabilities
+	})
+	tok := leaseCapability(t, f)
+	use := func(tok string) gateway.Decision {
+		t.Helper()
+		ok, err := f.srv.opts.Gateways.Verify(ctx, "acme", gateway.Use{Route: "github", Method: "GET", Path: "/x", Upstream: "example.com", Capability: tok})
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := f.srv.opts.Gateways.Decide(ctx, "acme", gateway.Use{Route: "github", Method: "GET", Path: "/x", Upstream: "example.com", Capability: tok})
+		if err != nil || ok != d.Cleared {
+			t.Fatalf("verified %v, decided %+v, %v", ok, d, err)
+		}
+		return d
+	}
+	runs, err := f.client.Runs(ctx, api.RunsParams{})
+	if err != nil || len(runs.Runs) != 1 {
+		t.Fatalf("runs %+v, %v", runs, err)
+	}
+	fence := runs.Runs[0].Fence
+	for range 7 {
+		clock.add(50 * time.Second)
+		beat, err := f.client.RunnerHeartbeat(ctx, api.HeartbeatParams{Runner: "r1", Run: "f1#1", Fence: fence, TTLSeconds: 60})
+		if err != nil || !strings.HasPrefix(beat.Capability, capability.Prefix) || beat.Capability == tok {
+			t.Fatalf("heartbeat %+v, %v", beat, err)
+		}
+		if d := use(tok); d.Cleared || !strings.Contains(d.Reason, "revoked") {
+			t.Fatalf("the rotated token: %+v", d)
+		}
+		tok = beat.Capability
+	}
+	if d := use(tok); !d.Cleared {
+		t.Fatalf("the newest token past DefaultTTL: %+v", d)
+	}
+
+	// Finishing the run revokes its token.
+	if _, err := f.client.RunnerFinish(ctx, api.FinishParams{Runner: "r1", Run: "f1#1", Fence: fence, Outcome: "failed", Reason: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	list, err := f.client.Capabilities(ctx, true)
+	if err != nil || len(list.Capabilities) != 8 {
+		t.Fatalf("list %+v, %v", list, err)
+	}
+	for _, c := range list.Capabilities {
+		if !c.Revoked {
+			t.Fatalf("a finished run's token is live: %+v", c)
+		}
+	}
+	if d := use(tok); d.Cleared || !strings.Contains(d.Reason, "revoked") {
+		t.Fatalf("a finished run's token: %+v", d)
+	}
+}
+
+// A run whose lease ran out loses gateway access at once, gets no renewal, and its tokens are
+// revoked by the daemon's expiry sweep.
+func TestAnExpiredLeaseLosesItsCapability(t *testing.T) {
+	clock := &testClock{now: time.Now()}
+	routes := []gateway.Route{{Name: "github", Upstream: "https://example.com", Credential: "github",
+		Allow: []gateway.Rule{{Methods: []string{"GET"}, Path: "/"}}}}
+	f := start(t, os.Geteuid(), 0, func(o *Options) {
+		o.Gateways = &gateway.StoreRecorder{Store: o.Store}
+		if err := o.Gateways.SetRoutes(map[string][]gateway.Route{"acme": routes}); err != nil {
+			t.Fatal(err)
+		}
+		o.Runs = runner.NewBroker(o.Store, clock.Now)
+		o.Capabilities = &capability.Issuer{Store: o.Store, Leases: o.Runs, Now: clock.Now}
+		o.Gateways.Capabilities = o.Capabilities
+	})
+	tok := leaseCapability(t, f)
+	runs, err := f.client.Runs(ctx, api.RunsParams{})
+	if err != nil || len(runs.Runs) != 1 {
+		t.Fatalf("runs %+v, %v", runs, err)
+	}
+	fence := runs.Runs[0].Fence
+	clock.add(30 * time.Second)
+	beat, err := f.client.RunnerHeartbeat(ctx, api.HeartbeatParams{Runner: "r1", Run: "f1#1", Fence: fence, TTLSeconds: 60})
+	if err != nil || beat.Capability == "" {
+		t.Fatalf("heartbeat %+v, %v", beat, err)
+	}
+	tok = beat.Capability
+	clock.add(90 * time.Second) // the lease ran out; the token's own expiry has not
+	ok, err := f.srv.opts.Gateways.Verify(ctx, "acme", gateway.Use{Route: "github", Method: "GET", Path: "/x", Upstream: "example.com", Capability: tok})
+	if err != nil || ok {
+		t.Fatalf("after the lease ran out: %v, %v", ok, err)
+	}
+	if n, err := f.srv.opts.Capabilities.RevokeEnded(ctx); err != nil || n != 1 {
+		t.Fatalf("the sweep revoked %d, %v", n, err)
+	}
+	_, err = f.client.RunnerHeartbeat(ctx, api.HeartbeatParams{Runner: "r1", Run: "f1#1", Fence: fence, TTLSeconds: 60})
+	wantCode(t, err, api.CodeFenced)
+	list, err := f.client.Capabilities(ctx, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range list.Capabilities {
+		if !c.Revoked {
+			t.Fatalf("a token of the expired lease is live: %+v", c)
+		}
+	}
+}
+
+// A run the Tower asked to stop gets no renewal, and its token is revoked.
+func TestAStoppedRunLosesItsCapability(t *testing.T) {
+	routes := []gateway.Route{{Name: "github", Upstream: "https://example.com", Credential: "github",
+		Allow: []gateway.Rule{{Methods: []string{"GET"}, Path: "/"}}}}
+	f := start(t, os.Geteuid(), 0, func(o *Options) {
+		o.Gateways = &gateway.StoreRecorder{Store: o.Store}
+		if err := o.Gateways.SetRoutes(map[string][]gateway.Route{"acme": routes}); err != nil {
+			t.Fatal(err)
+		}
+		withCapabilities(o)
+	})
+	tok := leaseCapability(t, f)
+	if err := f.srv.opts.Runs.Stop(ctx, "f1#1"); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := f.client.Runs(ctx, api.RunsParams{})
+	if err != nil || len(runs.Runs) != 1 {
+		t.Fatalf("runs %+v, %v", runs, err)
+	}
+	beat, err := f.client.RunnerHeartbeat(ctx, api.HeartbeatParams{Runner: "r1", Run: "f1#1", Fence: runs.Runs[0].Fence, TTLSeconds: 60})
+	if err != nil || !beat.Stop || beat.Capability != "" {
+		t.Fatalf("heartbeat %+v, %v", beat, err)
+	}
+	ok, err := f.srv.opts.Gateways.Verify(ctx, "acme", gateway.Use{Route: "github", Method: "GET", Path: "/x", Upstream: "example.com", Capability: tok})
+	if err != nil || ok {
+		t.Fatalf("a stopped run's token: %v, %v", ok, err)
+	}
 }

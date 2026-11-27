@@ -177,6 +177,9 @@ type Beat struct {
 	Answer   string    // the owner's answer to the run's question, relayed by the Tower; given until acknowledged
 	Question string    // with Answer: the id of the question it answers, to acknowledge
 	Asking   bool      // the run's last recorded event is a question still waiting on an answer
+	// Capability is the run's renewed capability token, replacing the lease's, when the daemon
+	// issued one. Like Lease.Capability it is kept in memory only.
+	Capability string
 }
 
 // RunID returns the run id of a flight's Pilot generation.

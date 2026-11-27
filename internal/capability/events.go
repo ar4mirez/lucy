@@ -16,6 +16,7 @@ type Issued struct {
 	Run       string    `json:"run"`
 	Fence     int64     `json:"fence"`
 	Routes    []string  `json:"routes"`
+	StartedAt time.Time `json:"started_at,omitzero"` // when the lease's first token was issued
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
@@ -41,7 +42,7 @@ type Projector struct{}
 func (Projector) Name() string { return "capabilities" }
 
 // Version implements eventstore.Projector.
-func (Projector) Version() int { return 1 }
+func (Projector) Version() int { return 2 }
 
 // Reset implements eventstore.Projector.
 func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
@@ -55,11 +56,13 @@ func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
 			fence          INTEGER NOT NULL,
 			routes         TEXT NOT NULL,
 			issued_ns      INTEGER NOT NULL,
+			start_ns       INTEGER NOT NULL,
 			expires_ns     INTEGER NOT NULL,
 			revoked        INTEGER NOT NULL DEFAULT 0,
 			revoked_reason TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE INDEX capabilities_issued ON capabilities (issued_ns)`,
+		`CREATE INDEX capabilities_run ON capabilities (run, fence)`,
 	} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return err
@@ -90,9 +93,13 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO capabilities (id, digest, org, run, fence, routes, issued_ns, expires_ns)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, p.Digest[:idHexLen], p.Digest, org, p.Run, p.Fence, string(routes),
-			e.Time.UnixNano(), p.ExpiresAt.UnixNano())
+		start := p.StartedAt
+		if start.IsZero() {
+			start = e.Time
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO capabilities (id, digest, org, run, fence, routes, issued_ns, start_ns, expires_ns)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, p.Digest[:idHexLen], p.Digest, org, p.Run, p.Fence, string(routes),
+			e.Time.UnixNano(), start.UnixNano(), p.ExpiresAt.UnixNano())
 		return err
 	case Revoked{}.EventType():
 		var p Revoked

@@ -33,18 +33,35 @@ func (s *Server) gatewayRoutes(_ context.Context, p *api.GatewayRoutesParams) (a
 	return out, nil
 }
 
+func gatewayUse(p *api.GatewayUseParams) gateway.Use {
+	return gateway.Use{Route: p.Route, Method: p.Method, Path: p.Path, Upstream: p.Upstream, Capability: p.Capability}
+}
+
+func gatewayError(err error) error {
+	if errors.Is(err, gateway.ErrUnknownRoute) {
+		return api.FieldError(api.CodeInvalidParams, "route", "the daemon's config has no such route for the org, or not with that upstream")
+	}
+	return err
+}
+
+func (s *Server) gatewayVerify(ctx context.Context, p *api.GatewayUseParams) (api.GatewayVerified, error) {
+	if s.opts.Gateways == nil {
+		return api.GatewayVerified{}, s.noGateway()
+	}
+	ok, err := s.opts.Gateways.Verify(ctx, p.Org, gatewayUse(p))
+	if err != nil {
+		return api.GatewayVerified{}, gatewayError(err)
+	}
+	return api.GatewayVerified{Verified: ok}, nil
+}
+
 func (s *Server) gatewayUse(ctx context.Context, p *api.GatewayUseParams) (api.GatewayDecision, error) {
 	if s.opts.Gateways == nil {
 		return api.GatewayDecision{}, s.noGateway()
 	}
-	d, err := s.opts.Gateways.Decide(ctx, p.Org, gateway.Use{Route: p.Route, Method: p.Method, Path: p.Path, Upstream: p.Upstream,
-		Capability: p.Capability})
-	if errors.Is(err, gateway.ErrUnknownRoute) {
-		return api.GatewayDecision{}, api.FieldError(api.CodeInvalidParams, "route",
-			"the daemon's config has no such route for the org, or not with that upstream")
-	}
+	d, err := s.opts.Gateways.Decide(ctx, p.Org, gatewayUse(p))
 	if err != nil {
-		return api.GatewayDecision{}, err
+		return api.GatewayDecision{}, gatewayError(err)
 	}
 	return api.GatewayDecision{Decision: d.Seq, Cleared: d.Cleared, Rule: d.Rule, Reason: d.Reason}, nil
 }

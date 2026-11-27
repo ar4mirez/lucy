@@ -45,6 +45,20 @@ func token(t *testing.T) string {
 
 type creds map[string]string
 
+// countingCreds counts every credential read.
+type countingCreds struct {
+	creds
+	mu    sync.Mutex
+	reads int
+}
+
+func (c *countingCreds) Credential(ctx context.Context, org, name string) ([]byte, error) {
+	c.mu.Lock()
+	c.reads++
+	c.mu.Unlock()
+	return c.creds.Credential(ctx, org, name)
+}
+
 func (c creds) Credential(_ context.Context, org, name string) ([]byte, error) {
 	v, ok := c[org+"/"+name]
 	if !ok {
@@ -56,12 +70,31 @@ func (c creds) Credential(_ context.Context, org, name string) ([]byte, error) {
 // verifier stands in for the daemon's capability issuer: the tokens it knows, valid for their
 // org and routes unless revoked.
 type verifier struct {
-	mu      sync.Mutex
-	tokens  map[string]capability.Capability
-	revoked map[string]bool
+	mu       sync.Mutex
+	tokens   map[string]capability.Capability
+	revoked  map[string]bool
+	expired  map[string]bool
+	onVerify func(token string) // called after each check, outside the lock
 }
 
 func (v *verifier) Verify(_ context.Context, token, org, route string) (capability.Capability, error) {
+	c, err := v.check(token, org, route)
+	if v.onVerify != nil {
+		v.onVerify(token)
+	}
+	return c, err
+}
+
+func (v *verifier) revoke(token string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.revoked == nil {
+		v.revoked = map[string]bool{}
+	}
+	v.revoked[token] = true
+}
+
+func (v *verifier) check(token, org, route string) (capability.Capability, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	c, ok := v.tokens[token]
@@ -70,6 +103,8 @@ func (v *verifier) Verify(_ context.Context, token, org, route string) (capabili
 		return capability.Capability{}, capability.ErrInvalid
 	case v.revoked[token]:
 		return c, capability.ErrRevoked
+	case v.expired[token]:
+		return c, capability.ErrExpired
 	case c.Org != org || !slices.Contains(c.Routes, route):
 		return c, capability.ErrScope
 	}
@@ -702,5 +737,63 @@ func TestCapabilityIsRequired(t *testing.T) {
 	h.rec.Capabilities = nil
 	if status, _, _ := h.call("GET", "/github/repos/acme/web", nil); status != http.StatusForbidden || h.up.count() != 0 {
 		t.Fatalf("no verifier: status %d, upstream %d", status, h.up.count())
+	}
+}
+
+// LUCY-CRED-003: a forged or expired capability is refused before the gateway reads the route's
+// credential or looks its upstream up, and the refusal is recorded as gateway.denied.
+func TestARefusedCapabilityTouchesNoCredential(t *testing.T) {
+	for _, tc := range []struct {
+		name, reason string
+		capability   func(f *fixture) string
+	}{
+		{"forged", "not a token lucy issued", func(*fixture) string { return "lcap_" + strings.TrimPrefix(token(t), "test_") }},
+		{"expired", "expired", func(f *fixture) string {
+			f.verifier.mu.Lock()
+			f.verifier.expired = map[string]bool{f.cap: true}
+			f.verifier.mu.Unlock()
+			return f.cap
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var cc *countingCreds
+			f := open(t, func(c *gateway.Config) {
+				cc = &countingCreds{creds: c.Credentials.(creds)}
+				c.Credentials = cc
+			})
+			status, _, _ := f.call("GET", "/github/repos/acme/web", http.Header{gateway.CapabilityHeader: {tc.capability(f)}})
+			if status != http.StatusForbidden || f.up.count() != 0 {
+				t.Fatalf("status %d, upstream %d", status, f.up.count())
+			}
+			if cc.reads != 0 || f.res.calls != 0 {
+				t.Fatalf("%d credential reads and %d lookups for a refused capability", cc.reads, f.res.calls)
+			}
+			if types := f.events(); len(types) != 1 || types[0] != "gateway.denied" {
+				t.Fatalf("events %v", types)
+			}
+			d, err := eventstore.DecodeAs[gateway.Denied](f.store.Registry(), f.lastGateway())
+			if err != nil || !strings.Contains(d.Reason, tc.reason) {
+				t.Fatalf("denied %+v, %v", d, err)
+			}
+			if p, _ := f.store.ReadStream(context.Background(), policy.Stream, 0, 10); len(p) != 0 {
+				t.Error("a credential use was decided for a refused capability")
+			}
+		})
+	}
+}
+
+// A capability revoked after the gateway's first check is refused by the decision itself.
+func TestACapabilityRevokedBeforeTheDecisionIsRefused(t *testing.T) {
+	f := open(t, nil)
+	f.verifier.onVerify = func(tok string) { f.verifier.revoke(tok) }
+	if status, _, _ := f.call("GET", "/github/repos/acme/web", nil); status != http.StatusForbidden || f.up.count() != 0 {
+		t.Fatalf("status %d, upstream %d", status, f.up.count())
+	}
+	if types := f.events(); len(types) != 1 || types[0] != "gateway.denied" {
+		t.Fatalf("events %v", types)
+	}
+	d, err := eventstore.DecodeAs[gateway.Denied](f.store.Registry(), f.lastGateway())
+	if err != nil || !strings.Contains(d.Reason, "revoked") {
+		t.Fatalf("denied %+v, %v", d, err)
 	}
 }
