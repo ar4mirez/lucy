@@ -87,7 +87,7 @@ func TestPermitForStaysInsideTheRun(t *testing.T) {
 	l := Lease{Task: Task{Run: "f1#1"}, Runner: "r1", Fence: 3}
 	pm := &fakePermitter{perm: Permission{Outcome: policy.Cleared}}
 	permit := permitFor(dir, l, pm, slog.New(slog.DiscardHandler))
-	for _, p := range []string{"/etc/hosts", filepath.Join(dir, "..", "x"), filepath.Join(dir, "escape", "x"), "escape/x"} {
+	for _, p := range []string{"/etc/hosts", filepath.Join(dir, "..", "x"), filepath.Join(dir, "escape", "x"), "escape/x", "~/.ssh/id_rsa", "$HOME/x"} {
 		if ok, why := permit("Write", harness.Write, p); ok || !strings.Contains(why, "outside") {
 			t.Errorf("%s: %v %q", p, ok, why)
 		}
@@ -118,9 +118,10 @@ func TestPermitForStaysInsideTheRun(t *testing.T) {
 	}
 }
 
-// TestPermitForSearchGlobs: through the Claude Code adapter, a Glob or Grep whose glob reaches past
-// the run's directory is refused without asking the engine, and a relative Glob with no path is
-// asked about with the run's directory as its path.
+// TestPermitForSearchGlobs: through the Claude Code adapter, a path or glob that may reach past the
+// run's directory, by climbing, "~", "$" or braces, is refused without asking the engine; a
+// relative Glob with no path is asked about with the run's directory as its path, and an absolute
+// one inside the run with its static part.
 func TestPermitForSearchGlobs(t *testing.T) {
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -134,7 +135,13 @@ func TestPermitForSearchGlobs(t *testing.T) {
 	}{
 		{"Glob", `{"pattern":"/home/someone/.ssh/*"}`, false},
 		{"Grep", `{"pattern":"secret","glob":"../../*"}`, false},
-		{"Glob", `{"pattern":"**/*.go"}`, true},
+		{"Read", `{"file_path":"~/.ssh/id_rsa"}`, false},
+		{"Glob", `{"pattern":"~/.ssh/*"}`, false},
+		{"Glob", `{"pattern":"{/etc,src}/*"}`, false},
+		{"Glob", `{"pattern":"{..,x}/*"}`, false},
+		{"Grep", `{"pattern":"secret","glob":"$HOME/*"}`, false},
+		{"Glob", `{"pattern":"src/**/*.go"}`, true},
+		{"Glob", `{"pattern":"` + dir + `/src/*.go"}`, true},
 	} {
 		in := &recorder{}
 		conn, err := claudecode.Adapter{}.Open(in, session)
@@ -147,7 +154,7 @@ func TestPermitForSearchGlobs(t *testing.T) {
 			t.Errorf("%s %s: %+v, wrote %s", c.tool, c.input, evs, in.String())
 		}
 	}
-	want := []PermitRequest{{Tool: "Glob", Kind: policy.KindRead, Path: dir}}
+	want := []PermitRequest{{Tool: "Glob", Kind: policy.KindRead, Path: dir}, {Tool: "Glob", Kind: policy.KindRead, Path: filepath.Join(dir, "src")}}
 	if !slices.Equal(pm.asked, want) {
 		t.Fatalf("asked %+v, want %+v", pm.asked, want)
 	}

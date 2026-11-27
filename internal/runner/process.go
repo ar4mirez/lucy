@@ -457,8 +457,12 @@ func permitFor(dir string, l Lease, pm Permitter, log *slog.Logger) harness.Perm
 }
 
 // insideDir resolves path, relative to dir when it is not absolute, through any symlinks in its
-// existing part, and reports whether it is dir or inside it.
+// existing part, and reports whether it is dir or inside it. A path that starts with "~" or holds
+// "$" may be expanded elsewhere, so it is refused.
 func insideDir(dir, path string) (string, bool) {
+	if strings.HasPrefix(path, "~") || strings.Contains(path, "$") {
+		return "", false
+	}
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(dir, path)
 	}

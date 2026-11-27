@@ -233,15 +233,14 @@ var fileTools = map[string]harness.Access{
 	"Edit": harness.Write, "MultiEdit": harness.Write, "Write": harness.Write, "NotebookEdit": harness.Write,
 }
 
-// patternFields are the glob inputs of the search tools; a glob that is absolute or climbs with
-// ".." reaches past the tool's path.
+// patternFields are the glob inputs of the search tools.
 var patternFields = map[string]string{"Glob": "pattern", "Grep": "glob"}
 
-// toolPath reads the path a file tool's input names; empty when it names none. For a search tool
-// whose glob is absolute or holds a ".." element, it is the farthest directory the glob can reach:
-// its static part, everything before the first element with a glob metacharacter, climbed once
-// more for every ".." after it.
-func toolPath(tool string, input map[string]any) string {
+// toolPath reads the path a file tool's input names; empty when it names none. A search tool's
+// glob is accepted only when nothing in it can be expanded or climb: no "~", "$", "{", "}" and no
+// ".." element. A relative glob is then decided by the tool's path; an absolute one by its static
+// part, cut back to the last separator before the first of "*?[". Any other glob is refused.
+func toolPath(tool string, input map[string]any) (string, bool) {
 	var base string
 	for _, k := range []string{"file_path", "notebook_path", "path"} {
 		if p, _ := input[k].(string); p != "" {
@@ -250,27 +249,16 @@ func toolPath(tool string, input map[string]any) string {
 		}
 	}
 	glob, _ := input[patternFields[tool]].(string)
-	elems := strings.Split(glob, "/")
-	if glob == "" || !strings.HasPrefix(glob, "/") && !slices.Contains(elems, "..") {
-		return base
+	if strings.ContainsAny(glob, "~${}") || slices.Contains(strings.Split(glob, "/"), "..") {
+		return "", false
 	}
-	for i, e := range elems {
-		if strings.ContainsAny(e, "*?[{") {
-			rest := elems[i:]
-			elems = elems[:i:i]
-			for _, e := range rest {
-				if e == ".." {
-					elems = append(elems, "..")
-				}
-			}
-			break
-		}
+	if !strings.HasPrefix(glob, "/") {
+		return base, true
 	}
-	static := strings.Join(elems, "/")
-	if strings.HasPrefix(glob, "/") {
-		return path.Clean("/" + static)
+	if i := strings.IndexAny(glob, "*?["); i >= 0 {
+		glob = glob[:strings.LastIndex(glob[:i], "/")+1]
 	}
-	return path.Join(base, static)
+	return path.Clean(glob), true
 }
 
 type question struct {
@@ -408,7 +396,12 @@ func (c *conn) control(m message) []harness.Event {
 	}
 	tool := capped(m.Request.ToolName, 64)
 	if access, ok := fileTools[m.Request.ToolName]; ok && c.permit != nil {
-		if allowed, why := c.permit(m.Request.ToolName, access, toolPath(m.Request.ToolName, m.Request.Input)); !allowed {
+		p, ok := toolPath(m.Request.ToolName, m.Request.Input)
+		allowed, why := false, "the pattern may reach outside the run's directory"
+		if ok {
+			allowed, why = c.permit(m.Request.ToolName, access, p)
+		}
+		if !allowed {
 			_ = c.respond(m.RequestID, permission{Behavior: "deny", Message: "lucy: " + tool + " was refused: " + why})
 			return []harness.Event{ev(harness.Activity, "refused tool: "+tool+": "+capped(why, 200))}
 		}
