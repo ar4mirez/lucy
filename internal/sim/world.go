@@ -48,7 +48,7 @@ func Open(ctx context.Context, dir string, seed uint64, opts Options) (*World, e
 	if start.IsZero() {
 		start = Epoch
 	}
-	rng := rand.New(rand.NewPCG(seed, seed^0x6c756379)) // "lucy"
+	rng := rand.New(rand.NewPCG(seed, seed^0x6c756379)) // #nosec G404 -- deterministic simulation from a test seed (0x6c756379 is "lucy"); never for secrets
 	clock := NewClock(start)
 	forge := newForge(clock, rng)
 	w := &World{Seed: seed, Clock: clock, Forge: forge, Runtime: newRuntime(clock, rng, forge), dir: dir, config: opts.Tower}
@@ -74,7 +74,7 @@ func (w *World) open(ctx context.Context) error {
 	cfg.Store, cfg.Runtime, cfg.Forge, cfg.Clock, cfg.ForgeIdentity = store, w.Runtime, w.Forge, w.Clock, w.Forge.Identity
 	t, err := tower.New(ctx, cfg)
 	if err != nil {
-		store.Close() //nolint:errcheck // the Tower's error is what matters
+		_ = store.Close() // the Tower's error is what matters
 		return err
 	}
 	w.Store, w.Tower = store, t

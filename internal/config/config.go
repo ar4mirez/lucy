@@ -142,7 +142,7 @@ func LoadDefault() (Config, error) {
 
 // Load reads the settings file at path. A missing file is the defaults, not an error.
 func Load(path string) (Config, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- the owner's own settings file
 	if errors.Is(err, fs.ErrNotExist) {
 		return Config{}, nil
 	}

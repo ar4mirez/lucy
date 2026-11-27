@@ -91,7 +91,7 @@ func (c *evalCtx) use(id string) []string {
 
 // staleReason says which bound facts an approval for this action no longer matches.
 func (c *evalCtx) staleReason() string {
-	changed := map[Kind]string{
+	changed := map[Kind]string{ // #nosec G101 -- reasons keyed by action kind; no credential
 		KindMerge:         "the pull request's head or base changed",
 		KindDelete:        "the path now resolves elsewhere",
 		KindCredentialUse: "the credential's scope changed",

@@ -185,7 +185,7 @@ var errTooLarge = errors.New("too large")
 // readCapped reads a regular file of at most MaxFileBytes, refusing it if it changed into a
 // symlink or something else since the walk saw it.
 func readCapped(p string) ([]byte, error) {
-	f, err := os.Open(p)
+	f, err := os.Open(p) // #nosec G304 -- reading the owner's config tree is the point; the walk refuses symlinks and caps sizes
 	if err != nil {
 		return nil, err
 	}

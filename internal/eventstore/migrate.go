@@ -229,12 +229,12 @@ func writeSnapshot(ctx context.Context, db *sql.DB, dir, base string, version in
 // syncPath flushes a file's contents, or a directory's entries, to disk. On macOS Go's Sync issues
 // F_FULLFSYNC.
 func syncPath(p string) error {
-	f, err := os.Open(p)
+	f, err := os.Open(p) // #nosec G304 -- only lucy's own snapshot file and state dir
 	if err != nil {
 		return err
 	}
 	if err := f.Sync(); err != nil {
-		f.Close() //nolint:errcheck // the sync error is what matters
+		_ = f.Close() // the sync error is what matters
 		return err
 	}
 	return f.Close()

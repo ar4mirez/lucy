@@ -2,7 +2,7 @@
 id: runbook-release
 title: Cutting a release
 status: active
-version: 2
+version: 3
 owner: ar4mirez
 requirements: [LUCY-REL-001, LUCY-REL-002, LUCY-REL-003, LUCY-REL-004, LUCY-REL-005, LUCY-REL-006, LUCY-REL-008, LUCY-REPO-005]
 ---
@@ -59,6 +59,12 @@ read-only. Tool versions are pinned in the workflow (`GORELEASER_VERSION`, `COSI
 2. Verify it as a user would: [verify-release.md](verify-release.md).
 3. On Linux and on macOS: `mise use -g github:ar4mirez/lucy@<version>`, then `lucy --version` prints
    `lucy <version>`.
+
+The release workflow ends by doing step 3 for you: its `install` job calls
+[install.yml](../../.github/workflows/install.yml), which installs the published release through
+mise in a clean HOME on `ubuntu-latest` and `macos-latest`, with mise's attestation checks forced
+on, and checks `lucy --version`. Run it on demand for any release with
+`gh workflow run install.yml -f version=<version>` (no version: the latest).
 
 ## Before a tag: prove the config
 

@@ -50,7 +50,7 @@ const (
 	KindForcePush      Kind = "force_push"      // push a branch with --force
 	KindBranchDelete   Kind = "branch_delete"   // delete a branch
 	KindHistoryRewrite Kind = "history_rewrite" // rebase, amend or filter published history
-	KindCredentialUse  Kind = "credential_use"  // use a stored credential
+	KindCredentialUse  Kind = "credential_use"  // #nosec G101 -- use a stored credential; this is the kind's name, not a credential
 )
 
 // Source is where an input to a request came from. It is set by lucy where the text enters the

@@ -1,0 +1,93 @@
+name: install
+
+# m0 exit test 1 (docs/milestones/m0.md, LUCY-REL-004): the published release installs through mise
+# on Linux and macOS, mise verifying its attestations, as a user would. release.yml calls this after
+# publishing; it also runs on demand and on pull requests that change this file, against the latest
+# release.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Release to install, such as 0.2.0; empty means the latest"
+        type: string
+        required: false
+        default: ""
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release to install, such as 0.2.0; empty means the latest"
+        type: string
+        required: false
+        default: ""
+  pull_request:
+    paths: [.github/workflows/install.yml]
+
+# Least privilege: the token can only read the repository. No job uses secrets; the job's own
+# read-only token only lifts the API rate limit.
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: install (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      # Pinned mise, at least 2026.10.19: the first release whose attestation and SLSA checks fail
+      # closed (internal/selfupdate minMise).
+      - name: Set up mise
+        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+        with:
+          version: 2026.11.12
+          install: false
+          cache: false
+
+      - name: Install the release through mise
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${VERSION_INPUT#v}"
+          if [ -z "$version" ]; then
+            tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+            version="${tag#v}"
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::not a release version: '$version'"
+            exit 1
+          fi
+
+          # A clean HOME: nothing from the runner's mise state is used.
+          home="$RUNNER_TEMP/home"
+          mkdir -p "$home"
+          export HOME="$home"
+          export XDG_CONFIG_HOME="$home/.config" XDG_DATA_HOME="$home/.local/share"
+          export XDG_CACHE_HOME="$home/.cache" XDG_STATE_HOME="$home/.local/state"
+          export MISE_DATA_DIR="$home/mise/data" MISE_CACHE_DIR="$home/mise/cache"
+          export MISE_CONFIG_DIR="$home/mise/config" MISE_STATE_DIR="$home/mise/state"
+          export MISE_GLOBAL_CONFIG_FILE="$home/mise/config/config.toml"
+
+          # The verification lucy self-update forces on (internal/selfupdate verifyEnv).
+          export MISE_GITHUB_GITHUB_ATTESTATIONS=true MISE_GITHUB_SLSA=true
+          export MISE_GITHUB_ATTESTATIONS=true MISE_SLSA=true
+
+          log="$RUNNER_TEMP/mise-install.log"
+          mise use -g --verbose "github:ar4mirez/lucy@$version" 2>&1 | tee "$log"
+          if ! grep -q "GitHub artifact attestations verified" "$log"; then
+            echo "::error::mise did not report the attestations verified"
+            exit 1
+          fi
+
+          got="$(mise exec "github:ar4mirez/lucy@$version" -- lucy --version)"
+          if [ "$got" != "lucy $version" ]; then
+            echo "::error::lucy --version printed '$got', want 'lucy $version'"
+            exit 1
+          fi
+          echo "installed lucy $version through mise on $RUNNER_OS; attestations verified"

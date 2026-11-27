@@ -2,9 +2,9 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 10
+version: 11
 owner: ar4mirez
-requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-001, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-009, LUCY-SIM-001, LUCY-SIM-002, LUCY-RUN-001, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007]
+requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-001, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-009, LUCY-SIM-001, LUCY-SIM-002, LUCY-RUN-001, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007, LUCY-SEC-002]
 ---
 
 # lucy: technical specification
@@ -12,7 +12,8 @@ requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-
 Status: m0. The skeleton, the release pipeline, the event store (section 3), the first part of the
 API with `lucy daemon` (section 4), the policy engine (section 5), lucy's settings file (section
 2), the spec model with the audit chain (section 10) and the flight state machine with its
-simulation harness (section 11) exist; the rest below is the design the m0-m3 slices build.
+simulation harness (section 11) and lucy's own security scans (section 9) exist; the rest
+below is the design the m0-m3 slices build.
 
 ## 1. Shape
 
@@ -135,54 +136,9 @@ Operations: [daemon runbook](docs/runbooks/daemon.md).
 ## 5. Policy engine
 
 "LLM proposes, policy disposes" (LUCY-POL-001): models and agents only request; deterministic Go in
-`internal/policy` decides every privileged action. No policy language is embedded: the rules are a
-small Go table, and the spec model's `AutonomyPolicy` and `QualityGate` resources (m1,
-LUCY-SPEC-010) feed them data, not code.
-
-- **Request.** Actor (id, role, org: set by the daemon from the authenticated caller), kind (`read`,
-  `write`, `merge`, `delete`, `force_push`, `branch_delete`, `history_rewrite`, `credential_use`),
-  target (org, project, resource) and inputs, each with its source (`owner`, `config`, `daemon`,
-  `task` are trusted; `agent`, `tool_output`, `repo_content`, `issue`, `pr_body`, `pr_comment`,
-  `web`, `email` are not). The requester never sets trust (LUCY-POL-004).
-- **Facts.** What the daemon knows from trusted sources: posture (owner by default), check state,
-  unreported required checks, fixed-list categories, a PR's head SHA, base ref and base SHA, the
-  credential's scope, default branch, home, declared roots, the symlink-resolved delete target and
-  owner approvals. Approvals come only from decision records and name two digests: the action's
-  (`action_sha256`, over actor, kind, target), so one cannot be reused for another action, and the
-  bound facts' (`facts_sha256`, the SHA-256 of `{"kind":..., "facts":{...}}` holding a merge's head
-  SHA, base ref and base SHA, a delete's resolved path, a credential use's scope, or the default
-  branch for force-push, branch delete and history rewrite), so an approval lapses when those
-  change: a matching approval made under other facts is a deny, not an escalation (LUCY-POL-002,
-  rule set version 2; version 3 renamed the outcomes, roles and postures to the glossary's terms).
-- **Rules, in order; the first with an opinion decides:** `request.valid`, `facts.valid`,
-  `org.isolation` (an org-bound role acts only in its org), `taint.trusted-basis` (a privileged
-  request needs a trusted input), `read.in-org`, `write.worker-only`, `credential.gateway-only`,
-  `merge.role`, `merge.head-known` (deny when the PR's head SHA is unknown), `merge.checks-green` (never red, pending, unknown or with a required check
-  unreported), `merge.closing-refs`, `merge.fixed-list` (needs the owner's approval, then lets
-  the posture decide, so a client-posture fixed-list merge needs both the owner's approval and
-  the relayed client confirmation), `merge.posture`, `destructive.role`, `delete.path-guard`,
-  `delete.scratch` (cleared), `delete.project` (owner), `git.default-branch` (denied; the target
-  must be a plain branch name by git check-ref-format rules and is compared case-insensitively),
-  `git.owner`, and `default.deny`.
-- **Decision** (a clearance). `cleared`, `denied` or `holding` (waiting on the owner), with the
-  rule, a reason, every approval it rested on (`approvals_used`, in the order the rules used them;
-  empty unless cleared), whether any input was untrusted, and the rule set's version and SHA-256 (LUCY-POL-006). The hash
-  covers every non-test source file of `internal/policy` (embedded, in sorted order) and the path
-  guard's version;
-  `internal/policy/testdata/ruleset.sum` records each version's hash and a test refuses a changed
-  rule set under an old version. `Evaluate` is pure; a panic, an unknown outcome or facts the
-  daemon could not gather are denied under `engine.error`.
-- **Recording.** `policy.evaluate` appends a `policy.decision` event (stream `policy`) before it
-  returns the decision; an unrecorded decision is never returned (LUCY-POL-003).
-  `policy.decisions` pages them. TODO(LUCY-POL-001): the privileged executors of m1 (merge, delete,
-  push, the gateway) call the engine and act only on a recorded clearance.
-- **Path guard** (`internal/pathguard`, LUCY-POL-007): refuses `/`, `$HOME` and its ancestors, the
-  roots themselves, relative paths, `.`, `..` and empty components, control, invisible and
-  lookalike characters, and anything not strictly inside a declared root, checking both the
-  requested spelling and the symlink-resolved path; roots that are `/`, home or contain home are
-  refused when declared. A delete inside the task's scratch root is cleared; inside a project it
-  needs the owner. TODO(LUCY-SEC-005): every delete lucy makes goes through it, deleting the
-  resolved path without following links (m1).
+`internal/policy` decides every privileged action, with default deny, and records each decision
+before returning it. The request model, facts, rule order, decision record and path guard are in
+[docs/tech/policy.md](docs/tech/policy.md).
 
 ## 6. Orgs, runners and sessions
 
@@ -258,10 +214,11 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 | `internal/corpus/` | The conformance corpus: scenario format, runner, corpus v1 (section 11) |
 | `internal/selfupdate/` | `lucy self-update`, which updates lucy through mise |
 | `internal/workflowcheck/` | Test enforcing the GitHub Actions rules: SHA pins, permissions, release trigger |
+| `internal/seccheck/` | Test keeping the gosec suppressions and the reviewed SAST baseline in step, and the scanners pinned |
 | `scripts/` | `verify-dist.sh`: checks a goreleaser `dist/` (assets, SBOMs, checksums) |
 | `.goreleaser.yaml` | The release build ([release runbook](docs/runbooks/release.md)) |
 | `docs/` | PRD, milestones, decisions, runbooks, security, changes, requirements index |
-| `.github/` | CI, the tag-triggered release workflow, Dependabot |
+| `.github/` | CI, security scans, Scorecard, the tag-triggered release workflow, Dependabot |
 
 ## 9. Build and CI
 
@@ -272,7 +229,15 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
   `permissions: contents: read`, no secrets and no persisted checkout credentials.
 - The version is stamped with `-ldflags "-X main.version=<v>"`; goreleaser sets it.
 - CI also runs `goreleaser check` and a snapshot release build on every pull request; only the
-  release workflow publishes, and only its job has write scopes and an OIDC token.
+  release workflow publishes, and only its job has an OIDC token.
+- `security.yml` runs lucy's own scans on every pull request, push to `main` and weekly:
+  govulncheck (Linux and macOS), gosec with a reviewed baseline, gitleaks over the new commits and
+  dependency review with a licence allowlist; each fails on a finding. `scorecard.yml` reports
+  OpenSSF Scorecard to code scanning; its job and the release job are the only ones with write
+  scopes. `mise run security` runs the same scanners locally (LUCY-SEC-002,
+  [security scans](docs/runbooks/security-scans.md)).
+- `install.yml` installs each published release through mise in a clean HOME on Linux and macOS,
+  attestation checks forced on; the release workflow calls it, and it runs on demand.
 
 ## 10. Spec model and audit log
 

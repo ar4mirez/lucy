@@ -56,7 +56,7 @@ func (s *Store) Update(ctx context.Context, fn func(tx *Tx) error) error {
 	tx := &Tx{s: s, tx: sqlTx}
 	defer func() {
 		tx.done = true
-		sqlTx.Rollback() //nolint:errcheck // a no-op after Commit
+		_ = sqlTx.Rollback() // a no-op after Commit
 	}()
 	if err := fn(tx); err != nil {
 		return err

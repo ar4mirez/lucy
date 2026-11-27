@@ -1,0 +1,149 @@
+name: security
+
+# lucy's own security scans (docs/runbooks/security-scans.md, LUCY-SEC-002). Every job fails the run
+# on a finding; none is advisory. They also run weekly, so a new advisory against an unchanged tree
+# still turns a check red.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 1"
+
+# Least privilege: the token can only read the repository. No job uses secrets.
+permissions:
+  contents: read
+
+# Only pull-request runs share a group, and a newer one cancels them. Each push and weekly run gets
+# its own group, so none is cancelled or dropped as pending and every push's commits are scanned.
+concurrency:
+  group: security-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Pinned scanner versions, installed with `go install`, so the Go checksum database verifies
+  # each one. Keep in step with mise.toml's security task (internal/seccheck checks both).
+  # Dependabot does not see these: bump them deliberately.
+  GOVULNCHECK_VERSION: v1.10.0
+  GOSEC_VERSION: v2.30.0
+  GITLEAKS_VERSION: v8.30.1
+
+jobs:
+  # Known vulnerabilities in the modules lucy builds with and in the Go standard library, for both
+  # release operating systems. Source mode fails only when lucy's code can reach a vulnerable
+  # function.
+  govulncheck:
+    name: govulncheck (${{ matrix.goos }})
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install govulncheck
+        run: go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+
+      - name: govulncheck
+        env:
+          GOOS: ${{ matrix.goos }}
+        run: govulncheck ./...
+
+  # Static analysis for security bugs: every gosec rule at every severity and confidence. The only
+  # exceptions are inline `#nosec <rule> -- <reason>` annotations, each listed in the reviewed
+  # baseline (docs/security/reviews/sast-baseline.md, checked by internal/seccheck).
+  gosec:
+    name: gosec
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install gosec
+        run: go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
+
+      - name: gosec (linux)
+        run: gosec -quiet ./...
+
+      - name: gosec (darwin)
+        env:
+          GOOS: darwin
+        run: gosec -quiet ./...
+
+  # Secrets in the commits a change adds: the pull request's commits, the commits a push to main
+  # adds, and the whole history on the weekly run. Findings are redacted in the log.
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the base of the range must be present
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install gitleaks
+        run: go install "github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}"
+
+      - name: gitleaks
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -eu
+          case "$EVENT" in
+            pull_request) range="$PR_BASE..$PR_HEAD" ;;
+            push)
+              if [ -z "$PUSH_BEFORE" ] || [ "$PUSH_BEFORE" = "0000000000000000000000000000000000000000" ]; then
+                range="$GITHUB_SHA"
+              else
+                range="$PUSH_BEFORE..$GITHUB_SHA"
+              fi
+              ;;
+            *) range="HEAD" ;;
+          esac
+          echo "scanning $range"
+          gitleaks git --redact --no-banner --exit-code 1 --log-opts="$range" .
+
+  # New or changed dependencies (Go modules and GitHub Actions) in a pull request: any known
+  # vulnerability, at any severity, or a licence outside the allowlist fails the check. The job
+  # reads the dependency graph through the read-only token; its summary is in the job log.
+  dependency-review:
+    name: dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Dependency review
+        uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
+        with:
+          fail-on-severity: low
+          # Permissive licences compatible with lucy's Apache-2.0. Widening this list is a
+          # reviewed change to this file.
+          allow-licenses: Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC

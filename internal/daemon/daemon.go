@@ -240,7 +240,7 @@ func listen(path string) (net.Listener, error) {
 	}
 	ln.(*net.UnixListener).SetUnlinkOnClose(false) // Run removes the socket itself, after shutdown
 	if err := os.Chmod(path, 0o600); err != nil {
-		ln.Close() //nolint:errcheck // the chmod error is what matters
+		_ = ln.Close() // the chmod error is what matters
 		return nil, fmt.Errorf("daemon: chmod %s: %w", path, err)
 	}
 	return ln, nil

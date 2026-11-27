@@ -227,7 +227,7 @@ func parseCalVer(s string) ([3]int, bool) {
 
 // mise runs mise with args, its verification settings forced on.
 func (u Updater) mise(mise string, stdout, stderr io.Writer, args ...string) error {
-	cmd := exec.Command(mise, args...)
+	cmd := exec.Command(mise, args...) // #nosec G204 -- mise from PATH; fixed args plus a version checked by versionRe; no shell
 	cmd.Env = append(append([]string{}, u.Env...), verifyEnv...)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr

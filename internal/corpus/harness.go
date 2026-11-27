@@ -134,7 +134,7 @@ func (s Scenario) Seed() uint64 {
 		return s.Setup.Seed
 	}
 	h := fnv.New64a()
-	h.Write([]byte(s.ID))
+	_, _ = h.Write([]byte(s.ID)) // a hash.Hash never returns an error
 	return h.Sum64()
 }
 

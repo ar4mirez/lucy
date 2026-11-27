@@ -104,3 +104,13 @@ jobs:
         run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # After publishing, install the release through mise on Linux and macOS as a user would (m0 exit
+  # test 1).
+  install:
+    needs: release
+    permissions:
+      contents: read
+    uses: ./.github/workflows/install.yml
+    with:
+      version: ${{ github.ref_name }}
