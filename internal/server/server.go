@@ -24,6 +24,7 @@ import (
 
 	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/eventstore"
+	"github.com/ar4mirez/lucy/internal/gateway"
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/runner"
 )
@@ -85,6 +86,10 @@ type Options struct {
 	// and a confirmation is unavailable. TODO(LUCY-SBX-001): set it once the daemon opens the
 	// org's Sandbox binding (m1 slice 3).
 	Containers Containers
+	// Gateways records the org gateways' requests and holds their routes, which the gateway
+	// methods serve. Nil means this daemon records none: the routes are empty and recording is
+	// unavailable, so a gateway forwards nothing. Its store must be Store.
+	Gateways *gateway.StoreRecorder
 }
 
 // Server is the API's HTTP handler.

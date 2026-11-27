@@ -19,6 +19,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/audit"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/policy"
+	"github.com/ar4mirez/lucy/internal/gateway"
 	"github.com/ar4mirez/lucy/internal/runner"
 	"github.com/ar4mirez/lucy/internal/sandbox"
 	"github.com/ar4mirez/lucy/internal/spec"
@@ -61,7 +62,7 @@ type fixture struct {
 func start(t *testing.T, allowUID, maxConns int, tweak func(*Options), onRefuse ...func(PeerCred, error)) *fixture {
 	t.Helper()
 	dir := shortTempDir(t)
-	reg, err := eventstore.NewRegistry(append(append(spec.Payloads(), CommandEvent{}, policy.DecisionRecord{}, note{}), append(runner.Payloads(), sandbox.Payloads()...)...)...)
+	reg, err := eventstore.NewRegistry(append(append(spec.Payloads(), CommandEvent{}, policy.DecisionRecord{}, note{}), append(append(runner.Payloads(), sandbox.Payloads()...), gateway.Payloads()...)...)...)
 	if err != nil {
 		t.Fatal(err)
 	}

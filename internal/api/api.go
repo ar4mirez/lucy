@@ -38,7 +38,9 @@ const Version = 1
 // Revision 8 added the container action kind: starting, restarting or stopping an org's container,
 // the sandbox_busy error runner.lease answers while it is, and runner.queued's placement.
 // Revision 9 added sandbox.held and sandbox.confirm.
-const SchemaRevision = 9
+// Revision 10 added the gateway scope and gateway.routes, gateway.use, gateway.deny and
+// gateway.complete.
+const SchemaRevision = 10
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"
@@ -65,11 +67,12 @@ const (
 	ScopeAttachView  Scope = "attach-view"
 	ScopeAttachInput Scope = "attach-input"
 	ScopeAdmin       Scope = "admin"
-	ScopeRun         Scope = "run" // a runner: lease runs, heartbeat, stream their events, finish them
+	ScopeRun         Scope = "run"     // a runner: lease runs, heartbeat, stream their events, finish them
+	ScopeGateway     Scope = "gateway" // an org's credential gateway: read its routes, record its requests
 )
 
 // AllScopes lists every scope, in a stable order.
-var AllScopes = []Scope{ScopeRead, ScopeDecide, ScopeSteer, ScopeAttachView, ScopeAttachInput, ScopeAdmin, ScopeRun}
+var AllScopes = []Scope{ScopeRead, ScopeDecide, ScopeSteer, ScopeAttachView, ScopeAttachInput, ScopeAdmin, ScopeRun, ScopeGateway}
 
 // Caller is who sent a request, as established by the transport: the kernel's peer credentials on
 // the unix socket, and (m1) a paired device's credential over HTTPS. It rides on the request

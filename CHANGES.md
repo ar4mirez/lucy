@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 9
+version: 10
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -26,9 +26,16 @@ Changes since the last release. When a version is cut, its section moves to
   credential the upstream echoes back is scrubbed from the answer, which is asked for whole and
   unencoded (an encoded answer is refused); and every request, forwarded or
   refused, is in the audit chain without its credential. Any failure refuses. A test proves a
-  Pilot's environment holds none of the runner's credentials. The gateway does not run as its own
-  process yet, and credentials come from the vault in a later change.
-
+  Pilot's environment holds none of the runner's credentials. Credentials come from the vault in a
+  later change.
+- `lucy gateway --org <org>` runs an org's credential gateway as its own process. Its routes are an
+  ai-sdlc `AdapterBinding` with `interface: SecretStore` and `type: lucy-gateway` in the org's
+  namespace, which the daemon reads strictly: a binding that does not read gives the org no routes.
+  The gateway listens on a 0600 Unix socket and records every request through the daemon, which
+  decides each credential use from its own routes; a gateway cannot add a route or point one
+  elsewhere. The API gains the `gateway` scope and `gateway.routes`, `gateway.use`, `gateway.deny`
+  and `gateway.complete` (OpenRPC revision 10). Until the vault lands the gateway has no
+  credentials, so it refuses every request that needs one.
 - The org sandbox seam, the start of m1 slice 3: a Sandbox provider runs an org's container, named
   by an ai-sdlc `AdapterBinding` with `interface: Sandbox`, and berth is the first one, reached only
   through its documented API on its socket. Starting, restarting or stopping an org's container
@@ -56,3 +63,8 @@ Changes since the last release. When a version is cut, its section moves to
   or `down` of it is an `up`) is stopped; one someone else started is left alone, and a failed
   stop is tried again on the next check. Noticing a restart made outside lucy needs berth to
   report the container's start time (a berth follow-up). The daemon does not run it yet.
+
+### Changed
+
+- The secret scan's reviewed exceptions for made-up test credentials are now keyed by their exact
+  values in `.gitleaks.toml`, not by line, so they no longer drift when a line moves.

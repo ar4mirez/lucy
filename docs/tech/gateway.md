@@ -2,9 +2,9 @@
 id: tech-gateway
 title: The credential gateway
 status: active
-version: 1
+version: 2
 owner: ar4mirez
-requirements: [LUCY-CRED-001, LUCY-CRED-004, LUCY-CRED-005]
+requirements: [LUCY-CRED-001, LUCY-CRED-004, LUCY-CRED-005, LUCY-SPEC-016]
 ---
 
 # The credential gateway
@@ -62,14 +62,37 @@ the harness adapter adds only its fixed switches, whatever the runner's own envi
 test sets a range of credential variables in the runner's environment and checks that none of
 their names or values reaches the Pilot (LUCY-CRED-005).
 
+## The gateway process and its config
+
+- **Config.** An org's routes are an ai-sdlc `AdapterBinding` with `interface: SecretStore` and
+  `type: lucy-gateway` in the org's namespace (LUCY-SPEC-016), version 1.x, with `config.routes`:
+  each a `name`, `upstream`, `credential` (its name, never its value), optional `scope`, `header`
+  and `prefix`, and `allow` rules of `methods` (GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS) and a
+  `path`. The daemon reads it when it loads config (`gateway.Bindings`). An unknown or misspelt
+  key, a value of the wrong type, a route that does not check, or a second gateway binding for the
+  same org is logged and that org's gateway gets no routes at all, so it forwards nothing.
+- **Recording through the daemon.** A gateway records through a `gateway.Recorder`: the daemon's
+  `StoreRecorder` over its event store, which a gateway process reaches over the API as
+  `gateway.Remote`. The methods are `gateway.routes` (the org's routes, read), `gateway.use` (decide
+  and record a credential use before forwarding), `gateway.deny` and `gateway.complete`, all under
+  the `gateway` scope. The daemon decides from its own routes: a use names only the route and the
+  host the gateway will call, and a route the daemon does not have for the org, or another host, is
+  refused, so a gateway cannot widen what its credentials are used for. Each call is also an
+  `api.command` holding only its parameters' digest.
+- **`lucy gateway --org <org>`** fetches the org's routes from the daemon, listens on a Unix socket
+  (`gateway/<org>.sock` in lucy's runtime directory by default: a 0700 directory that must not be
+  a symlink, the socket 0600; a socket still answering is refused, a stale one replaced) and serves
+  until a signal. Until the vault lands it has no credentials, so it refuses every request that
+  needs one and records the refusal.
+
 ## Not built yet
 
 - TODO(LUCY-CRED-002): the org's credentials come from the per-org encrypted vault (slice 4b);
   `gateway.Credentials` is the seam, and tests use made-up credentials only.
 - TODO(LUCY-CRED-003): a worker's request carries its capability token, scoped to (org, task,
   action, expiry), and the gateway checks it before a route is used (slice 4b).
-- TODO(LUCY-CRED-001): a `lucy gateway` process per org, listening where only that org's container
-  reaches it, and the routes as config; the worker's tools (git, the forge CLI, the harness) pointed
-  at it.
+- TODO(LUCY-CRED-001): the gateway's socket reachable from the org's container and nowhere else,
+  which needs berth to mount it there (berth#216), and the worker's tools (git, the forge CLI, the
+  harness) pointed at it.
 - TODO(LUCY-CRED-005): `lucy preflight --check` scans containers' environments and mounts for
   tokens (slice 15).

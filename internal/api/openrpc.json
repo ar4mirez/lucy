@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.9.0"
+    "version": "1.10.0"
   },
   "servers": [
     {
@@ -1758,6 +1758,345 @@
         }
       },
       "x-lucy-scope": "decide",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
+    },
+    {
+      "name": "gateway.routes",
+      "summary": "An org's credential gateway routes, as the daemon loaded them from the org's SecretStore binding. No credential is in them.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "org",
+          "description": "The org.",
+          "required": true,
+          "schema": {
+            "maxLength": 63,
+            "minLength": 1,
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "org": {
+              "description": "The org.",
+              "type": "string"
+            },
+            "routes": {
+              "description": "Its routes, by name; empty when the org has no gateway binding.",
+              "items": {
+                "properties": {
+                  "allow": {
+                    "description": "What a worker may ask for.",
+                    "items": {
+                      "properties": {
+                        "methods": {
+                          "description": "HTTP methods.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "path": {
+                          "description": "A clean absolute path prefix that ends at a segment.",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "methods",
+                        "path"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "credential": {
+                    "description": "The credential's name in the org's vault; never its value.",
+                    "type": "string"
+                  },
+                  "header": {
+                    "description": "The header the credential goes in; Authorization when empty.",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "What a worker calls it by: the first path element.",
+                    "type": "string"
+                  },
+                  "prefix": {
+                    "description": "Put before the credential in the header.",
+                    "type": "string"
+                  },
+                  "scope": {
+                    "description": "What the credential grants, as policy records it.",
+                    "type": "string"
+                  },
+                  "upstream": {
+                    "description": "The https:// service it reaches.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "upstream",
+                  "credential",
+                  "allow"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "org",
+            "routes"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "gateway",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
+    },
+    {
+      "name": "gateway.use",
+      "summary": "Decide an org gateway's use of a route's credential through the policy engine, and record the decision and the request, before the gateway forwards it.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "org",
+          "description": "The org.",
+          "required": true,
+          "schema": {
+            "maxLength": 63,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "route",
+          "description": "The route, which must be in the daemon's config for the org.",
+          "required": true,
+          "schema": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "method",
+          "description": "The worker's HTTP method.",
+          "required": true,
+          "schema": {
+            "maxLength": 16,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "path",
+          "description": "The path the worker sent; recorded redacted.",
+          "required": true,
+          "schema": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "upstream",
+          "description": "The host the gateway will call, which must be the route's.",
+          "required": true,
+          "schema": {
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "cleared": {
+              "description": "Whether the gateway may forward the request with the credential.",
+              "type": "boolean"
+            },
+            "decision": {
+              "description": "The recorded policy decision.",
+              "type": "integer"
+            },
+            "reason": {
+              "description": "Why, in one line.",
+              "type": "string"
+            },
+            "rule": {
+              "description": "The rule that decided.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "decision",
+            "cleared",
+            "rule",
+            "reason"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "gateway",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
+    },
+    {
+      "name": "gateway.deny",
+      "summary": "Record a request an org's gateway refused before any credential was involved.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "org",
+          "description": "The org.",
+          "required": true,
+          "schema": {
+            "maxLength": 63,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "route",
+          "description": "The route, when the request named a known one.",
+          "required": false,
+          "schema": {
+            "maxLength": 32,
+            "type": "string"
+          }
+        },
+        {
+          "name": "method",
+          "description": "The worker's HTTP method.",
+          "required": true,
+          "schema": {
+            "maxLength": 16,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "path",
+          "description": "The path the worker sent; recorded redacted.",
+          "required": true,
+          "schema": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "reason",
+          "description": "Why it was refused.",
+          "required": true,
+          "schema": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "recorded": {
+              "description": "Always true: an unrecorded request is an error.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "recorded"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "gateway",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
+    },
+    {
+      "name": "gateway.complete",
+      "summary": "Record how a forwarded gateway request ended.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "org",
+          "description": "The org.",
+          "required": true,
+          "schema": {
+            "maxLength": 63,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "decision",
+          "description": "The decision it was forwarded on.",
+          "required": true,
+          "schema": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "name": "status",
+          "description": "The upstream's HTTP status.",
+          "required": false,
+          "schema": {
+            "maximum": 999,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        {
+          "name": "scrubbed",
+          "description": "How many echoed copies of the credential were scrubbed from the answer.",
+          "required": false,
+          "schema": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        {
+          "name": "error",
+          "description": "Why it failed, when it did.",
+          "required": false,
+          "schema": {
+            "maxLength": 256,
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "recorded": {
+              "description": "Always true: an unrecorded request is an error.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "recorded"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "gateway",
       "x-lucy-mutating": true,
       "x-lucy-group": "command"
     }
