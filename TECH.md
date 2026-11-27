@@ -2,7 +2,7 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 25
+version: 26
 owner: ar4mirez
 requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-001, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-009, LUCY-SIM-001, LUCY-SIM-002, LUCY-RUN-001, LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-013, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007, LUCY-SEC-002]
 ---
@@ -155,7 +155,7 @@ before returning it. The request model, facts, rule order, decision record and p
   per run, so a batch resent after a lost reply is recorded once. `runner.Runtime` is the Tower's
   Runtime seam over the protocol: starting a Pilot queues run `<flight>#<generation>`.
   `lucy runner -- <command>` is this machine's runner: a process executor runs the command once per
-  run in a fresh scratch directory (its TMPDIR), with only PATH, HOME, TMPDIR and `LUCY_RUN_*` in its
+  run in a fresh scratch directory (its TMPDIR), with only PATH, an org HOME, TMPDIR and `LUCY_RUN_*` in its
   environment, in its own process group, which is killed whenever the run ends or is stopped so no
   descendant outlives it, and deletes the directory through the path guard. The same binary runs in
   an org container (`--placement container`) once berth mounts the socket and per-runner

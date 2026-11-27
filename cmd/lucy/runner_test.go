@@ -65,6 +65,28 @@ func TestRunnerRefusesSelfDeclaredContainerPlacement(t *testing.T) {
 	}
 }
 
+// A runner for one org refuses a root another org's runner has used, before it dials the daemon.
+func TestRunnerRefusesAnotherOrgsRoot(t *testing.T) {
+	// The temp dir itself is the root: a run's gateway socket path must stay short, and on macOS
+	// the resolved temp dir (/private/var/folders/...) leaves no room for a subdirectory.
+	root, err := os.MkdirTemp("", "l")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
+	sock := filepath.Join(root, "none.sock")
+	if err := runner.ClaimRoot(root, "acme"); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errOut := lucy("runner", "--org", "beta", "--root", root, "--socket", sock, "--", "true")
+	if code != 2 || !strings.Contains(errOut, `bound to org "acme"`) || !strings.Contains(errOut, "help:") {
+		t.Fatalf("beta: code %d stderr %q", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(root, "home")); !os.IsNotExist(err) {
+		t.Fatalf("beta's runner made a home in acme's root: %v", err)
+	}
+}
+
 // lucy runner drain signals only the live runners that match, then waits until each has exited.
 func TestRunnerDrain(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())

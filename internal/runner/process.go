@@ -22,10 +22,12 @@ import (
 
 // ProcessExecutor runs one program per leased run, directly on this machine. With a Harness it
 // drives an agent harness over the harness's structured protocol (LUCY-RUN-002); without one it
-// runs a plain program and streams its output. Each run gets a fresh scratch directory under Root as its working directory and TMPDIR, and an
-// environment of only PATH, HOME, TMPDIR and the run's LUCY_RUN_* variables, so nothing else in
-// the runner's environment, such as a token, reaches the work. Every line the program writes to
-// stdout or stderr is streamed as an output event; a line "lucy:pr=<n>" reports the pull request
+// runs a plain program and streams its output. Root is bound to the lease's org on first use and
+// refused to any other (ClaimRoot). Each run gets a fresh scratch directory under Root as its
+// working directory and TMPDIR, as HOME the org's synthetic home, home/ in Root, 0700, kept across
+// the org's runs and never the user's (LUCY-RUN-006), and an environment of only PATH, HOME,
+// TMPDIR and the run's LUCY_RUN_* variables, so nothing else in the runner's environment, such as
+// a token, reaches the work. Every line the program writes to stdout or stderr is streamed as an output event; a line "lucy:pr=<n>" reports the pull request
 // instead. Exit status 0 is done; any other is failed.
 //
 // When the program has exited, its scratch directory is deleted, but only after the path guard
@@ -34,7 +36,7 @@ import (
 type ProcessExecutor struct {
 	Root    string   // absolute; one scratch directory per run is made inside it; created 0700
 	Command []string // the program and its arguments; required
-	Home    string   // the user's home directory, which no delete may touch; os.UserHomeDir when empty
+	Home    string   // the user's home directory, which no delete may touch and no run gets; os.UserHomeDir when empty
 	Path    string   // the work's PATH; the runner's own when empty
 	Log     *slog.Logger
 	// StopGrace is how long a stopped program's output may stay open after it is killed;
@@ -98,7 +100,15 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 	// Make the scratch directory under the guard's symlink-resolved root (on macOS /var is a
 	// symlink to /private/var), so the path the program sees as its cwd and TMPDIR and the path
 	// the guard checks before the delete are the same spelling.
-	dir, err := os.MkdirTemp(guard.Roots()[0].Path, "run-")
+	root := guard.Roots()[0].Path
+	if err := ClaimRoot(root, l.Org); err != nil {
+		return nil, err
+	}
+	orgHome, err := prepareOrgHome(root)
+	if err != nil {
+		return nil, err
+	}
+	dir, err := os.MkdirTemp(root, "run-")
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +129,7 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 	}
 	env := []string{
 		"PATH=" + path,
-		"HOME=" + home, // TODO(LUCY-RUN-006): a synthetic HOME per org (m1 step 6)
+		"HOME=" + orgHome,
 		"TMPDIR=" + dir,
 		"LUCY_RUN=" + l.Run,
 		"LUCY_RUN_ORG=" + l.Org,
@@ -130,10 +140,6 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 		"LUCY_RUN_BASE=" + l.Base,
 	}
 	if p.GatewayDir != "" && l.Capability != "" {
-		if l.Org == "" || l.Org != filepath.Base(l.Org) || strings.HasPrefix(l.Org, ".") {
-			pe.cleanup()
-			return nil, fmt.Errorf("runner: org %q cannot name a gateway socket", l.Org)
-		}
 		upstream := filepath.Join(p.GatewayDir, l.Org+".sock")
 		if pe.gw, err = startRunGateway(dir, upstream, l.Capability, log); err != nil {
 			pe.cleanup()
@@ -430,14 +436,36 @@ func (pe *processExecution) cleanup() {
 	}
 }
 
-// removeScratch deletes dir, which must resolve to a path strictly inside one of guard's roots.
-// It deletes the resolved path and does not follow symlinks inside it.
+// removeScratch deletes dir, which must resolve to a run's scratch directory: a "run-*"
+// directory directly inside one of guard's roots, so never the org's home beside it. It deletes
+// the resolved path and does not follow symlinks inside it.
 func removeScratch(guard *pathguard.Guard, dir string) error {
-	resolved, _, err := guard.Resolve(dir)
+	resolved, root, err := guard.Resolve(dir)
 	if err != nil {
 		return err
 	}
+	if filepath.Dir(resolved) != root.Path || !strings.HasPrefix(filepath.Base(resolved), "run-") {
+		return fmt.Errorf("runner: %s is not a run's scratch directory in %s", resolved, root.Path)
+	}
 	return os.RemoveAll(resolved)
+}
+
+// prepareOrgHome makes the org's synthetic home, home/ in root, 0700, and returns it. It refuses
+// a home that is a symlink or is open to others. The guard's root never is or holds the user's
+// home, so neither does a real directory inside it.
+func prepareOrgHome(root string) (string, error) {
+	dir := filepath.Join(root, "home")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return "", err
+	}
+	if !fi.IsDir() || fi.Mode().Perm()&0o077 != 0 {
+		return "", fmt.Errorf("runner: the org home %s must be a directory only its owner can open, not a symlink (it is %v)", dir, fi.Mode())
+	}
+	return dir, nil
 }
 
 // Poll implements Execution.
