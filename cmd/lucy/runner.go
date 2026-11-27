@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -30,6 +31,7 @@ const runnerUsage = `Usage:
               -- <command> [<args>...]
   lucy runner [flags as above] --harness claude-code [-- <harness program> [<args>...]]
   lucy runner host-org [--socket <path>] <org>
+  lucy runner drain [--org <org>] [--id <name>] [--no-wait]
 
 Runs a runner in the foreground: it leases runs from the daemon over the runner protocol,
 runs <command> once per leased run, streams each line of its output into the daemon's event
@@ -46,9 +48,16 @@ working directory and TMPDIR, and an
 environment of only PATH, HOME, TMPDIR and LUCY_RUN, LUCY_RUN_ORG, LUCY_RUN_PROJECT,
 LUCY_RUN_FLIGHT, LUCY_RUN_GENERATION, LUCY_RUN_GOAL and LUCY_RUN_BASE; the directory is
 deleted when the command exits. A lease not renewed within --ttl (60 s by default) expires:
-the run is lost and the daemon refuses anything sent under its fence afterwards. Ctrl-C,
-SIGTERM or a closed terminal (SIGHUP) stops the runner; it stops its runs and reports them lost.
-A runner started under nohup keeps ignoring SIGHUP and outlives its terminal.
+the run is lost and the daemon refuses anything sent under its fence afterwards.
+
+SIGTERM drains the runner: it leases nothing more, lets each run it holds carry on to its end
+and then exits 0, so a planned restart or upgrade loses no work. lucy runner drain sends that
+SIGTERM to every live runner on this machine (only those of --org, or only --id) and waits until
+each has exited (--no-wait returns at once); runners register in runners/ in lucy's runtime
+directory while they run. Ctrl-C, a second SIGTERM or a closed terminal (SIGHUP) stops the
+runner now: it stops its runs and reports them lost, and the Tower replaces each once; a runner
+that crashes loses its runs the same way when their leases expire. A runner started under nohup
+keeps ignoring SIGHUP and outlives its terminal.
 
 Each leased run carries a capability token for its org's credential gateway. The runner keeps it
 in memory and opens the run its own gateway socket, .lucy-gateway.sock in the run's directory and
@@ -76,15 +85,57 @@ the Pilot, and recorded; no rule allows a command or a fetch yet, so those are r
 other permission prompt is refused.
 `
 
-// runnerSignalContext is swapped in tests.
-var runnerSignalContext = defaultRunnerSignalContext
+// runnerSignals delivers the signals a runner acts on to c until the returned stop: SIGINT,
+// SIGTERM and, unless the runner was started under nohup, SIGHUP. Swapped in tests.
+var runnerSignals = defaultRunnerSignals
 
-func defaultRunnerSignalContext() (context.Context, context.CancelFunc) {
+func defaultRunnerSignals(c chan<- os.Signal) (stop func()) {
 	sigs := []os.Signal{os.Interrupt, syscall.SIGTERM}
 	if !signal.Ignored(syscall.SIGHUP) {
 		sigs = append(sigs, syscall.SIGHUP)
 	}
-	return signal.NotifyContext(context.Background(), sigs...)
+	signal.Notify(c, sigs...)
+	return func() { signal.Stop(c) }
+}
+
+// watchRunnerSignals drains r on the first SIGTERM, and cancels the runner's context (which stops
+// it and its runs) on any other signal or a second SIGTERM, until ctx ends.
+func watchRunnerSignals(ctx context.Context, r *runner.Runner, cancel context.CancelFunc, log *slog.Logger) (stop func()) {
+	c := make(chan os.Signal, 4)
+	unnotify := runnerSignals(c)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case sig := <-c:
+				if sig == syscall.SIGTERM && !r.Draining() {
+					r.Drain()
+					log.Info("lucy runner draining: it leases nothing more and exits once its runs end; SIGTERM again or Ctrl-C stops them now")
+					continue
+				}
+				log.Info("lucy runner stopping its runs", "signal", sig.String())
+				cancel()
+				return
+			}
+		}
+	}()
+	return func() {
+		unnotify()
+		cancel()
+		<-done
+	}
+}
+
+// runnerRegistry is the directory live runners register in: runners/ in lucy's runtime directory.
+func runnerRegistry() (string, error) {
+	rt, err := daemon.RuntimeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(rt, "runners"), nil
 }
 
 // defaultRunnerID is a runner id unique to this process: the org, the host name and the pid, each
@@ -116,6 +167,9 @@ func defaultRunnerID(org string) string {
 func runRunner(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "host-org" {
 		return runRunnerHostOrg(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "drain" {
+		return runRunnerDrain(args[1:], stdout, stderr)
 	}
 	fs := flag.NewFlagSet("runner", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -233,8 +287,23 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 2
 	}
-	ctx, cancel := runnerSignalContext()
-	defer cancel()
+	reg, err := runnerRegistry()
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+	release, err := runner.Register(reg, *id, *org)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\nhelp: run `lucy runner --help`; --id names one runner\n", err)
+		return 1
+	}
+	defer func() {
+		if err := release(); err != nil {
+			log.Warn("could not remove the runner's registration", "err", err)
+		}
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer watchRunnerSignals(ctx, r, cancel, log)()
 	if adapter != nil {
 		log.Info("lucy runner drives a harness", "harness", adapter.Name(), "pinned", adapter.Pinned(), "program", command[0])
 	}
@@ -272,3 +341,84 @@ func runRunnerHostOrg(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "host org: %s\n", untrusted(res.Org))
 	return 0
 }
+
+// runRunnerDrain is lucy runner drain: it sends SIGTERM to every live runner on this machine (of
+// --org, or --id), which drains it, and waits until each has exited unless --no-wait.
+func runRunnerDrain(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("runner drain", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	org := fs.String("org", "", "")
+	id := fs.String("id", "", "")
+	noWait := fs.Bool("no-wait", false, "")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprint(stdout, runnerUsage)
+			return 0
+		}
+		fmt.Fprintf(stderr, "error: %v\nhelp: run `lucy runner --help`\n", err)
+		return 2
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprint(stderr, "error: lucy runner drain takes no arguments\nhelp: run `lucy runner --help`\n")
+		return 2
+	}
+	reg, err := runnerRegistry()
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+	live, err := runner.Registered(reg)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+	var drained []runner.Registration
+	matched := false
+	for _, r := range live {
+		if (*org != "" && r.Org != *org) || (*id != "" && r.ID != *id) {
+			continue
+		}
+		matched = true
+		if err := drainSignal(r.PID); errors.Is(err, syscall.ESRCH) {
+			fmt.Fprintf(stdout, "runner %s already exited\n", r.ID)
+			continue
+		} else if err != nil {
+			fmt.Fprintf(stderr, "error: drain runner %s (pid %d): %v\n", r.ID, r.PID, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "draining runner %s of org %s (pid %d)\n", r.ID, r.Org, r.PID)
+		drained = append(drained, r)
+	}
+	if !matched {
+		fmt.Fprint(stderr, "error: no live runner matches\nhelp: lucy runner drain finds the runners running on this machine as this user\n")
+		return 1
+	}
+	if *noWait {
+		return 0
+	}
+	for len(drained) > 0 {
+		time.Sleep(drainPoll)
+		live, err := runner.Registered(reg)
+		if err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 1
+		}
+		var still []runner.Registration
+		for _, d := range drained {
+			if slices.ContainsFunc(live, func(r runner.Registration) bool { return r.ID == d.ID && r.PID == d.PID }) {
+				still = append(still, d)
+				continue
+			}
+			fmt.Fprintf(stdout, "runner %s drained and exited\n", d.ID)
+		}
+		drained = still
+	}
+	return 0
+}
+
+// drainSignal sends a runner SIGTERM; swapped in tests. drainPoll is how often the drain checks
+// whether the runners have exited.
+var (
+	drainSignal = func(pid int) error { return syscall.Kill(pid, syscall.SIGTERM) }
+	drainPoll   = 500 * time.Millisecond
+)

@@ -220,6 +220,33 @@ func TestRunnerShutdownReportsLost(t *testing.T) {
 	}
 }
 
+// A draining runner leases nothing more, finishes what it holds and then Run returns nil, with
+// nothing reported lost: the runs it never took stay queued for the next runner.
+func TestRunnerDrains(t *testing.T) {
+	f := open(t)
+	ex := &fakeExecutor{execs: map[string]*scripted{}}
+	r := newRunner(t, f, "r1", ex, nil)
+	f.submit("a#1", "b#1")
+	step(t, r)
+	r.Drain()
+	step(t, r) // a#1 still working: held, and b#1 is not leased
+	if held := r.Held(); len(held) != 1 || held[0].Run != "a#1" || r.Drained() || !r.Draining() {
+		t.Fatalf("draining runner holds %+v, drained %v", held, r.Drained())
+	}
+	ex.execs["a#1"].queue = append(ex.execs["a#1"].queue, Update{Result: &Result{Outcome: OutcomeDone, PR: 4}})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := r.Run(ctx, 10*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("Run returned only when its context ended, not once drained")
+	}
+	if a, b := f.run("a#1"), f.run("b#1"); a.State != StateDone || a.PR != 4 || b.State != StateQueued {
+		t.Fatalf("after the drain: a %+v, b %+v", a, b)
+	}
+}
+
 func TestNewRefuses(t *testing.T) {
 	f := open(t)
 	for name, cfg := range map[string]Config{

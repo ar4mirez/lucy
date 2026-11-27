@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sync/atomic"
 	"time"
 )
 
@@ -69,8 +70,9 @@ type Config struct {
 // result. Step does one round and never sleeps, so a test drives it on virtual time; Run calls
 // Step on a timer. A Runner is not safe for concurrent use.
 type Runner struct {
-	cfg  Config
-	runs map[string]*held
+	cfg      Config
+	runs     map[string]*held
+	draining atomic.Bool
 }
 
 type held struct {
@@ -135,7 +137,19 @@ func (r *Runner) order() []string {
 	return ids
 }
 
-// Step tends every held run, in run id order, then leases a queued run if the runner has room.
+// Drain makes the runner lease nothing more: its held runs carry on to their end, and Run returns
+// once it holds none, so a planned restart or upgrade of the runner loses no work. It is safe to
+// call from any goroutine, such as a signal handler; nothing undoes it.
+func (r *Runner) Drain() { r.draining.Store(true) }
+
+// Draining reports whether Drain was called.
+func (r *Runner) Draining() bool { return r.draining.Load() }
+
+// Drained reports whether the runner is draining and holds no run.
+func (r *Runner) Drained() bool { return r.draining.Load() && len(r.runs) == 0 }
+
+// Step tends every held run, in run id order, then leases a queued run if the runner has room and
+// is not draining.
 func (r *Runner) Step(ctx context.Context) error {
 	var errs []error
 	for _, id := range r.order() {
@@ -143,7 +157,7 @@ func (r *Runner) Step(ctx context.Context) error {
 			errs = append(errs, fmt.Errorf("runner: run %s: %w", id, err))
 		}
 	}
-	if len(r.runs) < r.cfg.MaxRuns {
+	if len(r.runs) < r.cfg.MaxRuns && !r.draining.Load() {
 		if err := r.take(ctx); err != nil {
 			errs = append(errs, err)
 		}
@@ -284,9 +298,9 @@ func (r *Runner) take(ctx context.Context) error {
 }
 
 // Shutdown stops every held run's work, waits up to grace for each to end, records what it
-// streamed and finishes it as lost, so the Tower replaces it rather than waiting for the lease to
-// expire. TODO(LUCY-RUN-004): keep the work alive across a runner restart and reattach to it
-// (m1 step 5).
+// streamed and finishes it as lost, so the Tower replaces it, once, rather than waiting for the
+// lease to expire. A planned restart drains instead (Drain), and loses nothing; a runner that
+// crashes loses its runs the same way, when their leases expire.
 func (r *Runner) Shutdown(ctx context.Context, grace time.Duration) error {
 	for _, id := range r.order() {
 		r.runs[id].exec.Stop()
@@ -317,10 +331,10 @@ func (r *Runner) Shutdown(ctx context.Context, grace time.Duration) error {
 	return errors.Join(errs...)
 }
 
-// Run calls Step every interval until ctx ends, then shuts down with a 5 s grace. A Step's error
-// is logged, not fatal: the daemon may be restarting, and a lease outlives a short outage. The one
-// exceptions are ErrHostOrg and ErrPlacementProof, which no retry clears: Run shuts down and
-// returns them.
+// Run calls Step every interval until ctx ends, then shuts down with a 5 s grace, or until the
+// runner, draining, holds no run, and then returns nil. A Step's error is logged, not fatal: the
+// daemon may be restarting, and a lease outlives a short outage. The one exceptions are ErrHostOrg
+// and ErrPlacementProof, which no retry clears: Run shuts down and returns them.
 func (r *Runner) Run(ctx context.Context, interval time.Duration) error {
 	if interval <= 0 {
 		interval = time.Second
@@ -335,6 +349,10 @@ func (r *Runner) Run(ctx context.Context, interval time.Duration) error {
 				return errors.Join(err, r.Shutdown(sctx, 5*time.Second))
 			}
 			r.cfg.Log.Warn("runner step failed", "err", err)
+		}
+		if r.Drained() {
+			r.cfg.Log.Info("runner drained: every held run ended")
+			return nil
 		}
 		select {
 		case <-ctx.Done():
