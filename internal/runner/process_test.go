@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -48,6 +49,11 @@ func helper(goal string) int {
 		fmt.Fprintln(os.Stderr, "a warning")
 		fmt.Println("lucy:pr=12")
 		fmt.Print("no newline")
+		return 0
+	case "env":
+		for _, kv := range os.Environ() {
+			fmt.Println("env", kv)
+		}
 		return 0
 	case "fail":
 		fmt.Println("giving up")
@@ -629,5 +635,53 @@ func TestHarnessExecutorKeepsTheQuestionAfterAHook(t *testing.T) {
 	}
 	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7}) {
 		t.Fatalf("result %+v", res)
+	}
+}
+
+// TestNoCredentialReachesThePilot checks LUCY-CRED-005 at the runner: whatever credentials the
+// runner's own environment holds, a Pilot's environment is exactly PATH, HOME, TMPDIR and the
+// run's LUCY_RUN_* variables, so none of them reaches the work. The values are made up by the test.
+func TestNoCredentialReachesThePilot(t *testing.T) {
+	secrets := map[string]string{}
+	for _, name := range []string{"GH_TOKEN", "GITHUB_TOKEN", "GITLAB_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN",
+		"OPENAI_API_KEY", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "GOOGLE_APPLICATION_CREDENTIALS",
+		"NPM_TOKEN", "SSH_AUTH_SOCK", "GIT_ASKPASS", "GIT_CONFIG_GLOBAL", "DOCKER_AUTH_CONFIG", "LUCY_TOKEN", "HTTPS_PROXY"} {
+		v := "made-up-" + strings.ToLower(name) + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+		secrets[name] = v
+		t.Setenv(name, v)
+	}
+	pf := newProc(t)
+	x, err := pf.ex.Start(context.Background(), procLease("env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines, res := drain(t, x)
+	if res.Outcome != OutcomeDone {
+		t.Fatalf("result %+v", res)
+	}
+	allowed := map[string]bool{"PATH": true, "HOME": true, "TMPDIR": true}
+	var names []string
+	for _, l := range lines {
+		kv, ok := strings.CutPrefix(l, "env ")
+		if !ok {
+			continue
+		}
+		name, _, _ := strings.Cut(kv, "=")
+		names = append(names, name)
+		if !allowed[name] && !strings.HasPrefix(name, "LUCY_RUN") {
+			t.Errorf("the Pilot's environment holds %s", name)
+		}
+		if strings.HasPrefix(name, "LUCY_RUN") && name != "LUCY_RUN" && !strings.HasPrefix(name, "LUCY_RUN_") {
+			t.Errorf("unexpected variable %s", name)
+		}
+	}
+	if len(names) == 0 {
+		t.Fatal("the helper printed no environment")
+	}
+	out := strings.Join(lines, "\n")
+	for name, v := range secrets {
+		if strings.Contains(out, v) {
+			t.Errorf("%s's value reached the Pilot", name)
+		}
 	}
 }

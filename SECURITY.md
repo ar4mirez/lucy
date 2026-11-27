@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 6
+version: 7
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-SEC-002, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -40,7 +40,11 @@ The controls that answer most of those threats:
 - **LLM proposes, policy disposes.** Deterministic policy authorizes every privileged action; agent
   text never does (LUCY-POL-001).
 - **Credential-free agents.** Tokens live in a per-org gateway outside the agents' container; no
-  token is ever inside a container (LUCY-CRED-005).
+  token is ever inside a container (LUCY-CRED-005). The gateway adds a token only to an allowlisted
+  method and path on an `https://` upstream, refuses private, link-local and metadata addresses,
+  never follows a redirect, scrubs an echoed token from the answer (asking only for unencoded,
+  whole answers and refusing an encoded one) and fails closed
+  ([gateway](docs/tech/gateway.md)).
 - **A container per org**, default-deny egress, delete guards, a synthetic HOME per org.
 - **Tamper-evident audit:** a hash chain (RFC 8785 + SHA-256) of every privileged action, naming the
   rule, actor and decision.
@@ -63,7 +67,9 @@ values, URL credentials, credential-named query parameters and `NAME=value` assi
 token prefixes (GitHub, OpenAI, Slack, AWS, GitLab) and long high-entropy strings replaced by
 `<redacted>`, capped at 512 bytes, then `sha256:` and the digest of the original, so one command
 can be matched across records without being stored. `runner.permit`'s `api.command` record holds
-only a digest of its parameters.
+only a digest of its parameters. The gateway's records (`gateway.forwarded`, `gateway.denied`,
+`gateway.completed`) hold the route, method, redacted path, upstream host, status and the policy
+decision, never a credential, a query string or a body.
 
 The owner's security checklist (38 items in five areas) is mapped to milestones and requirements in the
 [checklist map](docs/security/checklist.md). The threat model is re-checked at every milestone exit and each
