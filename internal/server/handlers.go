@@ -32,6 +32,8 @@ func (s *Server) bindAll() map[string]handler {
 		api.MethodHeartbeat: bind(s.runnerHeartbeat),
 		api.MethodFinish:    bind(s.runnerFinish),
 		api.MethodPermit:    bind(s.runnerPermit),
+		api.MethodQuestions: bind(s.questions),
+		api.MethodAnswer:    bind(s.answer),
 		api.MethodRuns:      bind(s.runs),
 	}
 }

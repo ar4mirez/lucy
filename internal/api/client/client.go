@@ -207,6 +207,20 @@ func (c *Client) RunnerHeartbeat(ctx context.Context, p api.HeartbeatParams) (ap
 	return r, err
 }
 
+// Questions calls questions.list.
+func (c *Client) Questions(ctx context.Context) (api.QuestionsList, error) {
+	var r api.QuestionsList
+	err := c.Call(ctx, api.MethodQuestions, api.NoParams{}, &r)
+	return r, err
+}
+
+// Answer calls questions.answer.
+func (c *Client) Answer(ctx context.Context, p api.AnswerParams) (api.AnswerResult, error) {
+	var r api.AnswerResult
+	err := c.Call(ctx, api.MethodAnswer, p, &r)
+	return r, err
+}
+
 // RunnerPermit calls runner.permit.
 func (c *Client) RunnerPermit(ctx context.Context, p api.PermitParams) (api.PermitResult, error) {
 	var r api.PermitResult

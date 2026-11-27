@@ -2,7 +2,7 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 17
+version: 18
 owner: ar4mirez
 requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-001, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-009, LUCY-SIM-001, LUCY-SIM-002, LUCY-RUN-001, LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-013, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007, LUCY-SEC-002]
 ---
@@ -112,7 +112,8 @@ Operations: [daemon runbook](docs/runbooks/daemon.md).
   `status.get`, `events.list` (pages the event log), `rpc.discover`, `daemon.shutdown`,
   `policy.evaluate` and `policy.decisions` (section 5), `resources.list` and `audit.verify`
   (section 10), and the runner protocol's `runner.queued`, `runner.lease`, `runner.heartbeat`,
-  `runner.finish`, `runner.permit` and `runs.list` (section 6).
+  `runner.finish`, `runner.permit` and `runs.list` (section 6), and `questions.list` and
+  `questions.answer`, over the Tower once the daemon hosts it (m1 slice 7a).
 - **Transport and identity.** `lucy daemon` listens on `$XDG_RUNTIME_DIR/lucy/lucy.sock` (0600 in a
   0700 dir, one daemon per dir by `flock`). Each connection's peer credentials (SO_PEERCRED on
   Linux, LOCAL_PEERCRED on macOS) must name the daemon's own uid, or it is closed unread; the
@@ -213,7 +214,7 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 
 | Path | Contents |
 |---|---|
-| `cmd/lucy/` | The binary's entrypoint: version, help, self-update, `daemon`, `status`, `events`, `config`, `audit`, `runner` |
+| `cmd/lucy/` | The binary's entrypoint: version, help, self-update, `daemon`, `status`, `events`, `config`, `audit`, `runner`, `questions`, `answer` |
 | `internal/api/` | The API's method table, wire format, errors and generated OpenRPC schema (section 4) |
 | `internal/api/client/` | The Go client of the API |
 | `internal/server/` | The API's HTTP handler, peer-credential listener and authorizer seam |

@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/api/client"
@@ -105,4 +106,25 @@ func csv(s string) string {
 		return s
 	}
 	return `"` + strings.NewReplacer(`"`, `""`, "\n", `\n`, "\r", `\r`).Replace(s) + `"`
+}
+
+// untrusted makes text the daemon marks untrusted safe to print as one row field: a backslash
+// becomes \\ and every rune unicode.IsPrint rejects (controls such as ESC, tabs, newlines,
+// bidi overrides and other format characters) becomes a \uXXXX or \UXXXXXXXX escape, so the
+// terminal shows the text as recorded and cannot be steered by it; csv then quotes it.
+func untrusted(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r == '\\':
+			b.WriteString(`\\`)
+		case unicode.IsPrint(r):
+			b.WriteRune(r)
+		case r > 0xFFFF:
+			fmt.Fprintf(&b, `\U%08X`, r)
+		default:
+			fmt.Fprintf(&b, `\u%04X`, r)
+		}
+	}
+	return csv(b.String())
 }

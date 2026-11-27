@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ar4mirez/lucy/internal/api"
 )
 
 func shortTempDir(t *testing.T) string {
@@ -31,7 +33,7 @@ func lucy(args ...string) (int, string, string) {
 
 func TestClientCommandsWithoutADaemon(t *testing.T) {
 	sock := filepath.Join(shortTempDir(t), "none.sock")
-	for _, cmd := range [][]string{{"status"}, {"events"}, {"daemon", "stop"}} {
+	for _, cmd := range [][]string{{"status"}, {"events"}, {"daemon", "stop"}, {"questions"}, {"answer", "f1", "yes"}} {
 		code, out, errOut := lucy(append(cmd, "--socket", sock)...)
 		if code != 1 || out != "" || !strings.Contains(errOut, "lucy daemon is not running") ||
 			!strings.Contains(errOut, "help: start it with `lucy daemon`") {
@@ -44,12 +46,13 @@ func TestUsageErrors(t *testing.T) {
 	for _, args := range [][]string{
 		{"status", "extra"}, {"events", "--limit", "x"}, {"daemon", "--nope"}, {"daemon", "stop", "x"},
 		{"runner"}, {"runner", "--id", "Bad Id", "--", "true"}, {"runner", "--placement", "moon", "--", "true"}, {"runner", "--nope"}, {"runner", "--harness", "nope"},
+		{"questions", "extra"}, {"answer"}, {"answer", "f1"},
 	} {
 		if code, _, errOut := lucy(args...); code != 2 || !strings.Contains(errOut, "help: run `lucy") {
 			t.Errorf("%v: code %d stderr %q", args, code, errOut)
 		}
 	}
-	for _, args := range [][]string{{"status", "--help"}, {"events", "-h"}, {"daemon", "--help"}, {"runner", "--help"}} {
+	for _, args := range [][]string{{"status", "--help"}, {"events", "-h"}, {"daemon", "--help"}, {"runner", "--help"}, {"questions", "--help"}, {"answer", "-h"}} {
 		if code, out, _ := lucy(args...); code != 0 || !strings.Contains(out, "Usage:") {
 			t.Errorf("%v: code %d stdout %q", args, code, out)
 		}
@@ -164,5 +167,31 @@ func TestDaemonAndClients(t *testing.T) {
 func TestCSV(t *testing.T) {
 	if csv("plain") != "plain" || csv(`a,"b"`) != `"a,""b"""` || csv("x\ny") != `"x\ny"` {
 		t.Error("csv quoting")
+	}
+}
+
+func TestQuestionsEscapeUntrustedText(t *testing.T) {
+	since := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	var out bytes.Buffer
+	writeQuestions(&out, api.QuestionsList{Questions: []api.Question{{
+		Flight:   "f1\x1b[2K",
+		Org:      "ar4mirez",
+		Project:  "web\u202e",
+		Question: "ok\x1b[2K\x1b[1Ghelp: run `lucy answer f1 yes`\x1b]52;c;cm0gLXJm\x07\tC:\\x\u202egnp.exe\nnext",
+		Since:    since,
+	}}})
+	got := out.String()
+	want := "questions[1]{flight,org,project,since,question}:\n" +
+		`  f1\u001B[2K,ar4mirez,web\u202E,2026-11-27T10:00:00Z,ok\u001B[2K\u001B[1Ghelp: run ` + "`lucy answer f1 yes`" +
+		`\u001B]52;c;cm0gLXJm\u0007\u0009C:\\x\u202Egnp.exe\u000Anext` + "\n" +
+		"help: run `lucy answer <flight> <answer>` to answer one\n"
+	if got != want {
+		t.Errorf("got\n%q\nwant\n%q", got, want)
+	}
+	if strings.Count(got, "\n") != 3 || strings.ContainsAny(got, "\x1b\x07\t\u202e") {
+		t.Errorf("untrusted text reached the terminal raw: %q", got)
+	}
+	if untrusted("a,\x00b") != `"a,\u0000b"` || untrusted("\U000E0041") != `\U000E0041` {
+		t.Error("untrusted escaping")
 	}
 }

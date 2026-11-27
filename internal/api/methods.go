@@ -37,6 +37,8 @@ const (
 	MethodHeartbeat = "runner.heartbeat"
 	MethodFinish    = "runner.finish"
 	MethodPermit    = "runner.permit"
+	MethodQuestions = "questions.list"
+	MethodAnswer    = "questions.answer"
 	MethodRuns      = "runs.list"
 )
 
@@ -56,6 +58,8 @@ var methods = []Method{
 	{MethodHeartbeat, "Renew a lease and record the run's newly streamed events, in one transaction.", "command", ScopeRun, true, typeOf[HeartbeatParams](), typeOf[HeartbeatResult]()},
 	{MethodFinish, "Finish a leased run with its outcome.", "command", ScopeRun, true, typeOf[FinishParams](), typeOf[FinishResult]()},
 	{MethodPermit, "Ask the policy engine whether a leased run's Pilot may use a prompted file tool; the decision is recorded before it is returned.", "command", ScopeRun, true, typeOf[PermitParams](), typeOf[PermitResult]()},
+	{MethodQuestions, "The Pilots' open questions, as the Tower records them: each flight that is asking, oldest first.", "query", ScopeRead, false, typeOf[NoParams](), typeOf[QuestionsList]()},
+	{MethodAnswer, "Answer a flight's open question; the Tower relays the answer to its Pilot and records only its digest.", "command", ScopeDecide, true, typeOf[AnswerParams](), typeOf[AnswerResult]()},
 	{MethodRuns, "Runs and their leases, in the order they were queued.", "query", ScopeRead, false, typeOf[RunsParams](), typeOf[RunsPage]()},
 }
 
@@ -386,4 +390,30 @@ type RunInfo struct {
 	PR         int       `json:"pr,omitempty" doc:"When done: the pull request."`
 	Reason     string    `json:"reason,omitempty" doc:"When failed, stopped or lost: why. Untrusted."`
 	Position   int64     `json:"position" doc:"The run's place in the queue; pass as after to page."`
+}
+
+// QuestionsList answers questions.list.
+type QuestionsList struct {
+	Questions []Question `json:"questions" doc:"Every flight that is asking, oldest question first; empty when none is."`
+}
+
+// Question is one flight's open question.
+type Question struct {
+	Flight   string    `json:"flight" doc:"The flight that is asking."`
+	Org      string    `json:"org" doc:"The flight's airspace."`
+	Project  string    `json:"project" doc:"The flight's runway."`
+	Question string    `json:"question" doc:"The Pilot's question, as the Tower recorded it. Untrusted."`
+	Since    time.Time `json:"since" doc:"When the flight started asking, UTC."`
+}
+
+// AnswerParams answers one flight's question.
+type AnswerParams struct {
+	Flight string `json:"flight" lucy:"required,maxlen=200" doc:"The flight that is asking."`
+	Answer string `json:"answer" lucy:"required,maxlen=4096" doc:"The owner's answer. It reaches the Pilot through the Tower; the log keeps only its digest."`
+}
+
+// AnswerResult answers questions.answer.
+type AnswerResult struct {
+	Flight string `json:"flight" doc:"The flight answered."`
+	State  string `json:"state" doc:"The flight's state after the answer, normally flying."`
 }

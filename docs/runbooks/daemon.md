@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 7
+version: 8
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -109,6 +109,18 @@ like Ctrl-C; start it under `nohup` to keep it running past the terminal. A runn
 60 s by default) loses the run: the daemon records `run.expired` within 5 s and refuses anything
 the runner sends under that fence afterwards (`fenced`). A runner that gets `fenced` drops the run
 and stops its work; that is expected after a long pause, not an error to retry.
+
+## Questions
+
+A Pilot's question reaches you only as the Tower's record of it:
+
+```sh
+lucy questions                       # every flight that is asking, oldest first
+lucy answer f1 use the staging account   # relayed to the Pilot by the Tower; the log keeps a digest
+```
+
+The daemon does not host the Tower yet (m1 slice 7a): until it does, `lucy questions` lists
+nothing and `lucy answer` is refused as `unavailable`.
 
 ## When something is wrong
 

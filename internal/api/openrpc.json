@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.6.0"
+    "version": "1.7.0"
   },
   "servers": [
     {
@@ -1367,6 +1367,115 @@
         }
       },
       "x-lucy-scope": "run",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
+    },
+    {
+      "name": "questions.list",
+      "summary": "The Pilots' open questions, as the Tower records them: each flight that is asking, oldest first.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "questions": {
+              "description": "Every flight that is asking, oldest question first; empty when none is.",
+              "items": {
+                "properties": {
+                  "flight": {
+                    "description": "The flight that is asking.",
+                    "type": "string"
+                  },
+                  "org": {
+                    "description": "The flight's airspace.",
+                    "type": "string"
+                  },
+                  "project": {
+                    "description": "The flight's runway.",
+                    "type": "string"
+                  },
+                  "question": {
+                    "description": "The Pilot's question, as the Tower recorded it. Untrusted.",
+                    "type": "string"
+                  },
+                  "since": {
+                    "description": "When the flight started asking, UTC.",
+                    "format": "date-time",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "flight",
+                  "org",
+                  "project",
+                  "question",
+                  "since"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "questions"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "read",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
+    },
+    {
+      "name": "questions.answer",
+      "summary": "Answer a flight's open question; the Tower relays the answer to its Pilot and records only its digest.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "flight",
+          "description": "The flight that is asking.",
+          "required": true,
+          "schema": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "answer",
+          "description": "The owner's answer. It reaches the Pilot through the Tower; the log keeps only its digest.",
+          "required": true,
+          "schema": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "flight": {
+              "description": "The flight answered.",
+              "type": "string"
+            },
+            "state": {
+              "description": "The flight's state after the answer, normally flying.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "flight",
+            "state"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "decide",
       "x-lucy-mutating": true,
       "x-lucy-group": "command"
     },
