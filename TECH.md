@@ -236,6 +236,8 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
   OpenSSF Scorecard to code scanning; its job and the release job are the only ones with write
   scopes. `mise run security` runs the same scanners locally (LUCY-SEC-002,
   [security scans](docs/runbooks/security-scans.md)).
+- `install.yml` installs each published release through mise in a clean HOME on Linux and macOS,
+  attestation checks forced on; the release workflow calls it, and it runs on demand.
 
 ## 10. Spec model and audit log
 

@@ -16,6 +16,9 @@ const workflowsDir = "../../.github/workflows"
 
 var pinnedUses = regexp.MustCompile(`^[\w.-]+/[\w.-]+(/[\w./-]+)?@[0-9a-f]{40}$`)
 
+// localWorkflow is a reusable workflow in this repository, pinned by the commit that calls it.
+var localWorkflow = regexp.MustCompile(`^\./\.github/workflows/[\w.-]+\.ya?ml$`)
+
 // writeAllowed lists the only jobs that may hold write scopes, keyed by workflow and job, with the
 // scopes each may hold: the release job publishes, signs and attests; the Scorecard job uploads
 // its results to code scanning.
@@ -91,10 +94,10 @@ func check(name string, src []byte) []string {
 	sort.Strings(ids)
 	for _, id := range ids {
 		j := wf.Jobs[id]
-		uses := []string{}
-		if j.Uses != "" {
-			uses = append(uses, j.Uses)
+		if j.Uses != "" && !pinnedUses.MatchString(j.Uses) && !localWorkflow.MatchString(j.Uses) {
+			add("job %s: %s is not owner/repo[/path]@<full commit SHA> or ./.github/workflows/<name>.yml", id, j.Uses)
 		}
+		uses := []string{}
 		for _, s := range j.Steps {
 			if s.Uses != "" {
 				uses = append(uses, s.Uses)
@@ -106,10 +109,13 @@ func check(name string, src []byte) []string {
 			}
 		}
 
-		scopes, _, err := permissions(j.Permissions)
+		scopes, set, err := permissions(j.Permissions)
 		if err != nil {
 			add("job %s: %v", id, err)
 			continue
+		}
+		if j.Uses != "" && !set {
+			add("job %s: a reusable-workflow job must declare its own permissions, or it inherits the caller's", id)
 		}
 		for scope, level := range scopes {
 			if level != "write" {
@@ -256,6 +262,46 @@ jobs:
 			file: "release.yml",
 			src:  "on: {push: {tags: [\"v*\"]}}\npermissions: {contents: read}\njobs:\n  release:\n    permissions: write-all\n",
 			want: "job release: *: write is only allowed",
+		},
+		{
+			name: "local reusable workflow with read permissions passes",
+			file: "release.yml",
+			src:  "on: {push: {tags: [\"v*\"]}}\npermissions: {contents: read}\njobs:\n  install:\n    permissions: {contents: read}\n    uses: ./.github/workflows/install.yml\n",
+		},
+		{
+			name: "pinned remote reusable workflow passes",
+			file: "ci.yml",
+			src:  "on: pull_request\npermissions: {contents: read}\njobs:\n  call:\n    permissions: {contents: read}\n    uses: owner/repo/.github/workflows/x.yml@" + sha + "\n",
+		},
+		{
+			name: "local workflow outside .github/workflows fails",
+			file: "ci.yml",
+			src:  "on: pull_request\npermissions: {contents: read}\njobs:\n  call:\n    permissions: {contents: read}\n    uses: ./other/x.yml\n",
+			want: "job call: ./other/x.yml is not owner/repo",
+		},
+		{
+			name: "remote reusable workflow on a branch fails",
+			file: "ci.yml",
+			src:  "on: pull_request\npermissions: {contents: read}\njobs:\n  call:\n    permissions: {contents: read}\n    uses: owner/repo/.github/workflows/x.yml@main\n",
+			want: "job call: owner/repo/.github/workflows/x.yml@main is not owner/repo",
+		},
+		{
+			name: "local step action fails",
+			file: "ci.yml",
+			src:  "on: pull_request\npermissions: {contents: read}\njobs:\n  check:\n    steps:\n      - uses: ./.github/workflows/install.yml\n",
+			want: "./.github/workflows/install.yml is not owner/repo",
+		},
+		{
+			name: "reusable-workflow job without permissions fails",
+			file: "release.yml",
+			src:  "on: {push: {tags: [\"v*\"]}}\npermissions: {contents: read}\njobs:\n  install:\n    uses: ./.github/workflows/install.yml\n",
+			want: "job install: a reusable-workflow job must declare its own permissions",
+		},
+		{
+			name: "reusable-workflow job with write permissions fails",
+			file: "release.yml",
+			src:  "on: {push: {tags: [\"v*\"]}}\npermissions: {contents: read}\njobs:\n  install:\n    permissions: {contents: write}\n    uses: ./.github/workflows/install.yml\n",
+			want: "job install: contents: write is only allowed",
 		},
 		{
 			name: "read-all at top level fails",

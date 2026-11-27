@@ -1,6 +1,7 @@
 package seccheck
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"maps"
@@ -153,50 +154,103 @@ type securityWorkflow struct {
 	} `yaml:"jobs"`
 }
 
-func TestScannersPinnedAndUnfiltered(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join(repoRoot, workflowPath))
-	if err != nil {
-		t.Fatal(err)
+// securityRun decodes the run list of mise.toml's [tasks.security] table. The file has no TOML
+// library to lean on, so the array is read as JSON (a TOML trailing comma dropped): its entries are
+// plain double-quoted strings.
+func securityRun(mise []byte) ([]string, error) {
+	var table []string
+	in := false
+	for _, line := range strings.Split(string(mise), "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "[") && !strings.HasPrefix(t, "[\"") {
+			if in {
+				break
+			}
+			in = t == "[tasks.security]"
+			continue
+		}
+		if in {
+			table = append(table, line)
+		}
 	}
+	if !in {
+		return nil, fmt.Errorf("no [tasks.security] table")
+	}
+	body := strings.Join(table, "\n")
+	m := regexp.MustCompile(`(?ms)^\s*run\s*=\s*(\[.*?\])\s*$`).FindStringSubmatch(body)
+	if m == nil {
+		return nil, fmt.Errorf("[tasks.security] has no run = [ ... ] array")
+	}
+	array := regexp.MustCompile(`,\s*\]$`).ReplaceAllString(m[1], "]")
+	var run []string
+	if err := json.Unmarshal([]byte(array), &run); err != nil {
+		return nil, fmt.Errorf("[tasks.security] run is not an array of plain strings: %v", err)
+	}
+	return run, nil
+}
+
+// envAssign is a leading NAME=value word on a shell command line.
+var envAssign = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=\S*$`)
+
+// checkScanners returns every way the security workflow and mise.toml's security task fail to run
+// the pinned scanners in step and unfiltered.
+func checkScanners(workflow, mise []byte) []string {
+	var problems []string
+	add := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
+
 	var wf securityWorkflow
-	if err := yaml.Unmarshal(src, &wf); err != nil {
-		t.Fatal(err)
+	if err := yaml.Unmarshal(workflow, &wf); err != nil {
+		return []string{fmt.Sprintf("%s: %v", workflowPath, err)}
 	}
-	mise, err := os.ReadFile(filepath.Join(repoRoot, misePath))
+	run, err := securityRun(mise)
 	if err != nil {
-		t.Fatal(err)
+		return []string{fmt.Sprintf("%s: %v", misePath, err)}
 	}
 	semver := regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 	for _, s := range scanners {
 		v := wf.Env[s.env]
 		if !semver.MatchString(v) {
-			t.Errorf("%s: %s = %q, want an exact vX.Y.Z", workflowPath, s.env, v)
+			add("%s: %s = %q, want an exact vX.Y.Z", workflowPath, s.env, v)
 			continue
 		}
-		pinned := regexp.MustCompile(regexp.QuoteMeta(s.pkg)+`@(\S+?)["\s]`).FindAllStringSubmatch(string(mise), -1)
-		if len(pinned) == 0 {
-			t.Errorf("%s: no %s@<version> in the security task", misePath, s.pkg)
-		}
-		for _, m := range pinned {
-			if m[1] != v {
-				t.Errorf("%s: %s@%s, but %s pins %s", misePath, s.pkg, m[1], workflowPath, v)
+		found := false
+		for _, cmd := range run {
+			for _, word := range strings.Fields(cmd) {
+				pin, ok := strings.CutPrefix(word, s.pkg+"@")
+				if !ok {
+					continue
+				}
+				found = true
+				if pin != v {
+					add("%s: %s@%s, but %s pins %s", misePath, s.pkg, pin, workflowPath, v)
+				}
 			}
+		}
+		if !found {
+			add("%s: no %s@<version> in the security task", misePath, s.pkg)
 		}
 	}
 
 	// The scanners run on the whole module with no flags that drop rules, severities or paths.
 	want := map[string]string{"govulncheck": "govulncheck ./...", "gosec": "gosec -quiet ./..."}
 	seen := map[string]bool{}
-	for id, j := range wf.Jobs {
-		for _, st := range j.Steps {
+	for _, id := range slices.Sorted(maps.Keys(wf.Jobs)) {
+		for _, st := range wf.Jobs[id].Steps {
 			for _, line := range strings.Split(st.Run, "\n") {
-				line = strings.TrimSpace(line)
+				words := strings.Fields(line)
+				for len(words) > 0 && envAssign.MatchString(words[0]) {
+					words = words[1:]
+				}
+				if len(words) > 1 && words[0] == "go" && words[1] == "install" {
+					continue
+				}
 				for tool, cmd := range want {
-					if strings.HasPrefix(line, tool+" ") {
-						seen[tool] = true
-						if line != cmd {
-							t.Errorf("%s: job %s runs %q, want exactly %q", workflowPath, id, line, cmd)
-						}
+					if !slices.Contains(words, tool) {
+						continue
+					}
+					seen[tool] = true
+					if got := strings.Join(words, " "); got != cmd {
+						add("%s: job %s runs %q, want exactly %q", workflowPath, id, strings.TrimSpace(line), cmd)
 					}
 				}
 			}
@@ -204,8 +258,113 @@ func TestScannersPinnedAndUnfiltered(t *testing.T) {
 	}
 	for _, tool := range slices.Sorted(maps.Keys(want)) {
 		if !seen[tool] {
-			t.Errorf("%s: no step runs %s", workflowPath, tool)
+			add("%s: no step runs %s", workflowPath, tool)
 		}
+	}
+	return problems
+}
+
+func TestScannersPinnedAndUnfiltered(t *testing.T) {
+	workflow, err := os.ReadFile(filepath.Join(repoRoot, workflowPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mise, err := os.ReadFile(filepath.Join(repoRoot, misePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range checkScanners(workflow, mise) {
+		t.Error(p)
+	}
+}
+
+func TestCheckScannersCatchesDrift(t *testing.T) {
+	const goodWorkflow = `env:
+  GOVULNCHECK_VERSION: v1.10.0
+  GOSEC_VERSION: v2.30.0
+  GITLEAKS_VERSION: v8.30.1
+jobs:
+  govulncheck:
+    steps:
+      - run: go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+      - run: govulncheck ./...
+  gosec:
+    steps:
+      - run: gosec -quiet ./...
+`
+	const goodMise = `[tasks.check]
+run = ["go vet ./..."]
+
+[tasks.security]
+description = "scans"
+run = [
+  "go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...",
+  "go run github.com/securego/gosec/v2/cmd/gosec@v2.30.0 -quiet ./...",
+  "go run github.com/zricethezav/gitleaks/v8@v8.30.1 git .",
+]
+`
+	cases := []struct {
+		name, workflow, mise string
+		want                 string // empty: no problems
+	}{
+		{name: "in step passes", workflow: goodWorkflow, mise: goodMise},
+		{
+			name:     "env-prefixed scanner with an exclusion fails",
+			workflow: goodWorkflow + "      - run: GOOS=darwin gosec -exclude=G304 ./...\n",
+			mise:     goodMise,
+			want:     `runs "GOOS=darwin gosec -exclude=G304 ./...", want exactly "gosec -quiet ./..."`,
+		},
+		{
+			name:     "env-prefixed scanner without flags passes",
+			workflow: goodWorkflow + "      - run: GOOS=darwin gosec -quiet ./...\n",
+			mise:     goodMise,
+		},
+		{
+			name:     "scanner later in a line fails",
+			workflow: goodWorkflow + "      - run: time govulncheck -scan=module ./...\n",
+			mise:     goodMise,
+			want:     `want exactly "govulncheck ./..."`,
+		},
+		{
+			name:     "mismatched mise pin fails",
+			workflow: goodWorkflow,
+			mise:     strings.Replace(goodMise, "gosec@v2.30.0", "gosec@v2.29.0", 1),
+			want:     "github.com/securego/gosec/v2/cmd/gosec@v2.29.0, but",
+		},
+		{
+			name:     "pin outside the security task does not count",
+			workflow: goodWorkflow,
+			mise:     strings.Replace(goodMise, "go vet ./...", "go run github.com/securego/gosec/v2/cmd/gosec@v0.0.1 ./...", 1),
+		},
+		{
+			name:     "missing mise pin fails",
+			workflow: goodWorkflow,
+			mise:     strings.Replace(goodMise, "  \"go run github.com/zricethezav/gitleaks/v8@v8.30.1 git .\",\n", "", 1),
+			want:     "no github.com/zricethezav/gitleaks/v8@<version> in the security task",
+		},
+		{
+			name:     "undecodable run array fails",
+			workflow: goodWorkflow,
+			mise:     strings.Replace(goodMise, `"go run golang.org`, `'go run golang.org`, 1),
+			want:     "[tasks.security] run is not an array of plain strings",
+		},
+		{
+			name:     "missing security task fails",
+			workflow: goodWorkflow,
+			mise:     "[tasks.check]\nrun = []\n",
+			want:     "no [tasks.security] table",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := strings.Join(checkScanners([]byte(tc.workflow), []byte(tc.mise)), "\n")
+			if tc.want == "" && got != "" {
+				t.Errorf("want no problems, got:\n%s", got)
+			}
+			if tc.want != "" && !strings.Contains(got, tc.want) {
+				t.Errorf("want a problem containing %q, got:\n%s", tc.want, got)
+			}
+		})
 	}
 }
 

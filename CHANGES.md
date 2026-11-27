@@ -27,6 +27,8 @@ Changes since the last release. When a version is cut, its section moves to
 - The STRIDE threat model is now decision D12, with an eighth trust boundary for lucy's own build
   and release pipeline and a check of every row m0 lands. The policy engine's technical notes moved
   to `docs/tech/policy.md`.
+- Every release is installed through mise on Linux and macOS in CI after publishing, with
+  attestation checks forced on.
 
 - A conformance corpus: every safety rule an agent supervisor must keep, and every class of past
   incident, is a scenario that runs against lucy on the simulation harness. Corpus v1 has 88
