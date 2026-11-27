@@ -31,7 +31,8 @@ const Version = 1
 // outcomes to cleared, denied and holding, and the human role and input source to owner. Revision 2
 // added the runner protocol: the run scope, the fenced error and the runner and runs methods.
 // Revision 3 added the owner's relayed answer and the asking state to runner.heartbeat's result.
-const SchemaRevision = 3
+// Revision 4 added runner.permit: the policy engine's decision on a Pilot's prompted file tool.
+const SchemaRevision = 4
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"

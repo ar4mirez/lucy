@@ -207,6 +207,13 @@ func (c *Client) RunnerHeartbeat(ctx context.Context, p api.HeartbeatParams) (ap
 	return r, err
 }
 
+// RunnerPermit calls runner.permit.
+func (c *Client) RunnerPermit(ctx context.Context, p api.PermitParams) (api.PermitResult, error) {
+	var r api.PermitResult
+	err := c.Call(ctx, api.MethodPermit, p, &r)
+	return r, err
+}
+
 // RunnerFinish calls runner.finish.
 func (c *Client) RunnerFinish(ctx context.Context, p api.FinishParams) (api.FinishResult, error) {
 	var r api.FinishResult

@@ -46,8 +46,23 @@ type Exit struct {
 
 // Session is what one harness session is started with.
 type Session struct {
-	Goal string // the flight's goal: data for the Pilot to act on
+	Goal   string // the flight's goal: data for the Pilot to act on
+	Permit Permit // decides the session's prompted file tools; nil refuses them all
 }
+
+// Access is what a prompted tool asks to do with files.
+type Access string
+
+// Accesses.
+const (
+	Read  Access = "read"
+	Write Access = "write"
+)
+
+// Permit asks the policy engine whether the Pilot may run a prompted tool that reads or writes
+// path (empty when the tool names none). It returns whether the tool may run and, when not, why.
+// An adapter refuses, without asking, every prompted tool it cannot map to an Access.
+type Permit func(tool string, access Access, path string) (allowed bool, why string)
 
 // PRDirective starts the line a Pilot writes to report its pull request: "lucy:pr=<number>".
 const PRDirective = "lucy:pr="

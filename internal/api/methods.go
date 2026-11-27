@@ -36,6 +36,7 @@ const (
 	MethodLease     = "runner.lease"
 	MethodHeartbeat = "runner.heartbeat"
 	MethodFinish    = "runner.finish"
+	MethodPermit    = "runner.permit"
 	MethodRuns      = "runs.list"
 )
 
@@ -54,6 +55,7 @@ var methods = []Method{
 	{MethodLease, "Lease the oldest queued run under a new fencing token.", "command", ScopeRun, true, typeOf[LeaseParams](), typeOf[LeaseResult]()},
 	{MethodHeartbeat, "Renew a lease and record the run's newly streamed events, in one transaction.", "command", ScopeRun, true, typeOf[HeartbeatParams](), typeOf[HeartbeatResult]()},
 	{MethodFinish, "Finish a leased run with its outcome.", "command", ScopeRun, true, typeOf[FinishParams](), typeOf[FinishResult]()},
+	{MethodPermit, "Ask the policy engine whether a leased run's Pilot may use a prompted file tool; the decision is recorded before it is returned.", "command", ScopeRun, true, typeOf[PermitParams](), typeOf[PermitResult]()},
 	{MethodRuns, "Runs and their leases, in the order they were queued.", "query", ScopeRead, false, typeOf[RunsParams](), typeOf[RunsPage]()},
 }
 
@@ -331,6 +333,24 @@ type FinishParams struct {
 // FinishResult answers runner.finish.
 type FinishResult struct {
 	State string `json:"state" doc:"The run's final state: done, failed, stopped or lost."`
+}
+
+// PermitParams asks about a Pilot's prompted file tool. The actor, org and project come from the
+// lease, never from these params.
+type PermitParams struct {
+	Runner string `json:"runner" lucy:"required,maxlen=63" doc:"The runner holding the lease."`
+	Run    string `json:"run" lucy:"required,maxlen=256" doc:"The leased run."`
+	Fence  int64  `json:"fence" lucy:"min=1" doc:"The lease's fencing token."`
+	Tool   string `json:"tool" lucy:"required,maxlen=64" doc:"The prompted tool's name, as the harness gave it. Untrusted."`
+	Kind   string `json:"kind" lucy:"required,maxlen=16" doc:"read or write."`
+	Path   string `json:"path,omitempty" lucy:"maxlen=4096" doc:"The absolute path the tool reads or writes, inside the run's directory; empty when it names none."`
+}
+
+// PermitResult answers runner.permit.
+type PermitResult struct {
+	Outcome string `json:"outcome" doc:"cleared, denied or holding. Only cleared lets the tool run."`
+	Rule    string `json:"rule" doc:"The rule that decided."`
+	Reason  string `json:"reason" doc:"Why, in words."`
 }
 
 // RunsParams pages through runs.

@@ -7,6 +7,7 @@ import (
 
 	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/api/client"
+	"github.com/ar4mirez/lucy/internal/policy"
 )
 
 // Remote is the Protocol over the daemon's API: what `lucy runner` speaks, on this machine's
@@ -68,3 +69,18 @@ func (r Remote) Finish(ctx context.Context, runner, run string, fence int64, res
 		Outcome: string(res.Outcome), PR: res.PR, Reason: capText(res.Reason)})
 	return remoteError(err)
 }
+
+// Permit implements Permitter.
+func (r Remote) Permit(ctx context.Context, runner, run string, fence int64, p PermitRequest) (Permission, error) {
+	res, err := r.Client.RunnerPermit(ctx, api.PermitParams{Runner: runner, Run: run, Fence: fence, Tool: p.Tool,
+		Kind: string(p.Kind), Path: p.Path})
+	if err != nil {
+		return Permission{}, remoteError(err)
+	}
+	return Permission{Outcome: policy.Outcome(res.Outcome), Rule: res.Rule, Reason: res.Reason}, nil
+}
+
+var (
+	_ Permitter = Remote{}
+	_ Permitter = (*Broker)(nil)
+)

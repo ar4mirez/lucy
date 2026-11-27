@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/api"
+	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/runner"
 )
 
@@ -131,4 +132,16 @@ func leasedExpiry(r runner.RunInfo) time.Time {
 		return time.Time{}
 	}
 	return r.Expires
+}
+
+func (s *Server) runnerPermit(ctx context.Context, p *api.PermitParams) (api.PermitResult, error) {
+	b, err := s.broker()
+	if err != nil {
+		return api.PermitResult{}, err
+	}
+	perm, err := b.Permit(ctx, p.Runner, p.Run, p.Fence, runner.PermitRequest{Tool: p.Tool, Kind: policy.Kind(p.Kind), Path: p.Path})
+	if err != nil {
+		return api.PermitResult{}, runnerError(err)
+	}
+	return api.PermitResult{Outcome: string(perm.Outcome), Rule: perm.Rule, Reason: perm.Reason}, nil
 }

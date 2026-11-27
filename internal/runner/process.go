@@ -17,6 +17,7 @@ import (
 
 	"github.com/ar4mirez/lucy/internal/harness"
 	"github.com/ar4mirez/lucy/internal/pathguard"
+	"github.com/ar4mirez/lucy/internal/policy"
 )
 
 // ProcessExecutor runs one program per leased run, directly on this machine. With a Harness it
@@ -47,6 +48,10 @@ type ProcessExecutor struct {
 	// the protocol reports, not the exit status, and the work takes the owner's answers, relayed
 	// by the Tower, on its input (LUCY-RUN-013).
 	Harness harness.Adapter
+	// Permitter, with a Harness, decides the session's prompted file tools through the policy
+	// engine; without one every prompted tool is refused. A path outside the run's directory is
+	// refused before the engine is asked.
+	Permitter Permitter
 }
 
 // Bounds on what one process run buffers between polls.
@@ -112,6 +117,9 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 	}
 	args := slices.Clip(p.Command[1:])
 	session := harness.Session{Goal: l.Goal}
+	if p.Permitter != nil {
+		session.Permit = permitFor(dir, l, p.Permitter, log)
+	}
 	if p.Harness != nil {
 		env = append(env, p.Harness.Env()...)
 		if err := checkHarness(p.Harness, p.Command, dir, env); err != nil {
@@ -420,4 +428,56 @@ func (pe *processExecution) Stop() {
 	if pe.cmd != nil && pe.cmd.Process != nil {
 		_ = killProcessGroup(pe.cmd) // an already exited program is fine
 	}
+}
+
+// permitFor returns the session's Permit: a path the tool names must resolve inside dir, the run's
+// directory, and the policy engine must clear the tool under the run's lease. Anything that goes
+// wrong refuses the tool.
+func permitFor(dir string, l Lease, pm Permitter, log *slog.Logger) harness.Permit {
+	return func(tool string, access harness.Access, path string) (bool, string) {
+		if path != "" {
+			resolved, ok := insideDir(dir, path)
+			if !ok {
+				return false, "the path is outside the run's directory"
+			}
+			path = resolved
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
+		defer cancel()
+		perm, err := pm.Permit(ctx, l.Runner, l.Run, l.Fence, PermitRequest{Tool: tool, Kind: policy.Kind(access), Path: path})
+		if err != nil {
+			log.Warn("runner could not ask the policy engine about a tool", "run", l.Run, "tool", tool, "err", err)
+			return false, "lucy could not ask its policy engine"
+		}
+		if perm.Outcome != policy.Cleared {
+			return false, perm.Reason
+		}
+		return true, ""
+	}
+}
+
+// insideDir resolves path, relative to dir when it is not absolute, through any symlinks in its
+// existing part, and reports whether it is dir or inside it.
+func insideDir(dir, path string) (string, bool) {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(dir, path)
+	}
+	path = filepath.Clean(path)
+	existing, rest := path, ""
+	for {
+		if r, err := filepath.EvalSymlinks(existing); err == nil {
+			path = filepath.Join(r, rest)
+			break
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return "", false
+		}
+		rest = filepath.Join(filepath.Base(existing), rest)
+		existing = parent
+	}
+	if path != dir && !strings.HasPrefix(path, dir+string(filepath.Separator)) {
+		return "", false
+	}
+	return path, true
 }

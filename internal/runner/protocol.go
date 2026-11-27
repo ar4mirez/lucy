@@ -22,12 +22,15 @@
 package runner
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ar4mirez/lucy/internal/policy"
 )
 
 // Placement says where a runner runs.
@@ -218,4 +221,26 @@ func clampTTL(ttl time.Duration) time.Duration {
 		return MaxTTL
 	}
 	return ttl
+}
+
+// PermitRequest is a Pilot's prompted tool, as its runner asks the policy engine about it: a read
+// or a write of Path (absolute, inside the run's directory; empty when the tool names none).
+type PermitRequest struct {
+	Tool string
+	Kind policy.Kind // policy.KindRead or policy.KindWrite
+	Path string
+}
+
+// Permission is the policy engine's recorded decision on a PermitRequest. Only Cleared lets the
+// tool run.
+type Permission struct {
+	Outcome policy.Outcome
+	Rule    string
+	Reason  string
+}
+
+// Permitter asks the policy engine about a leased run's prompted tool: the Broker in the daemon,
+// Remote over the API.
+type Permitter interface {
+	Permit(ctx context.Context, runner, run string, fence int64, req PermitRequest) (Permission, error)
 }

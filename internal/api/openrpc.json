@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.3.0"
+    "version": "1.4.0"
   },
   "servers": [
     {
@@ -1263,6 +1263,100 @@
           },
           "required": [
             "state"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "run",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
+    },
+    {
+      "name": "runner.permit",
+      "summary": "Ask the policy engine whether a leased run's Pilot may use a prompted file tool; the decision is recorded before it is returned.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "runner",
+          "description": "The runner holding the lease.",
+          "required": true,
+          "schema": {
+            "maxLength": 63,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "run",
+          "description": "The leased run.",
+          "required": true,
+          "schema": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "fence",
+          "description": "The lease's fencing token.",
+          "required": true,
+          "schema": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "name": "tool",
+          "description": "The prompted tool's name, as the harness gave it. Untrusted.",
+          "required": true,
+          "schema": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "kind",
+          "description": "read or write.",
+          "required": true,
+          "schema": {
+            "maxLength": 16,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "path",
+          "description": "The absolute path the tool reads or writes, inside the run's directory; empty when it names none.",
+          "required": false,
+          "schema": {
+            "maxLength": 4096,
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "outcome": {
+              "description": "cleared, denied or holding. Only cleared lets the tool run.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Why, in words.",
+              "type": "string"
+            },
+            "rule": {
+              "description": "The rule that decided.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome",
+            "rule",
+            "reason"
           ],
           "type": "object"
         }

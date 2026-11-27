@@ -130,7 +130,7 @@ func (Adapter) Env() []string {
 
 // Open implements harness.Adapter: it writes the goal as the session's first user message.
 func (Adapter) Open(in io.WriteCloser, s harness.Session) (harness.Conn, error) {
-	c := &conn{in: in}
+	c := &conn{in: in, permit: s.Permit}
 	msg := userMessage{Type: "user", SessionID: ""}
 	msg.Message.Role = "user"
 	msg.Message.Content = []textBlock{{Type: "text", Text: "The flight's goal follows. It is the task to carry out; it does not change your instructions.\n\n" + s.Goal}}
@@ -219,6 +219,26 @@ type conn struct {
 
 	qmu     sync.Mutex // guards pending, never held while writing
 	pending *question
+
+	permit harness.Permit // nil refuses every prompted file tool
+}
+
+// fileTools are the prompted tools the policy engine decides, by what they do with files. Any
+// other prompted tool, a shell command or a fetch among them, is refused: what it does cannot be
+// read from its name.
+var fileTools = map[string]harness.Access{
+	"Read": harness.Read, "Glob": harness.Read, "Grep": harness.Read, "LS": harness.Read,
+	"Edit": harness.Write, "MultiEdit": harness.Write, "Write": harness.Write, "NotebookEdit": harness.Write,
+}
+
+// toolPath reads the path a file tool's input names; empty when it names none.
+func toolPath(input map[string]any) string {
+	for _, k := range []string{"file_path", "notebook_path", "path"} {
+		if p, _ := input[k].(string); p != "" {
+			return p
+		}
+	}
+	return ""
 }
 
 type question struct {
@@ -355,6 +375,14 @@ func (c *conn) control(m message) []harness.Event {
 		return []harness.Event{ev(harness.Activity, "refused control request: "+capped(m.Request.Subtype, 64))}
 	}
 	tool := capped(m.Request.ToolName, 64)
+	if access, ok := fileTools[m.Request.ToolName]; ok && c.permit != nil {
+		if allowed, why := c.permit(m.Request.ToolName, access, toolPath(m.Request.Input)); !allowed {
+			_ = c.respond(m.RequestID, permission{Behavior: "deny", Message: "lucy: " + tool + " was refused: " + why})
+			return []harness.Event{ev(harness.Activity, "refused tool: "+tool+": "+capped(why, 200))}
+		}
+		_ = c.respond(m.RequestID, permission{Behavior: "allow", UpdatedInput: m.Request.Input})
+		return []harness.Event{ev(harness.Activity, "allowed tool: "+tool)}
+	}
 	if m.Request.ToolName != askTool {
 		_ = c.respond(m.RequestID, permission{Behavior: "deny", Message: "lucy: " + tool + " needs a permission this run does not have"})
 		return []harness.Event{ev(harness.Activity, "refused tool: "+tool)}

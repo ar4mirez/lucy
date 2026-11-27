@@ -10,6 +10,7 @@ import (
 
 	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/eventstore"
+	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/runner"
 )
 
@@ -133,4 +134,28 @@ func TestRunnerMethodRefusals(t *testing.T) {
 	if _, err := h.client.Runs(ctx, api.RunsParams{}); err != nil {
 		t.Fatal("runs.list is a read:", err)
 	}
+}
+
+// A runner asks the policy engine about its Pilot's prompted tool through runner.permit: the
+// Pilot is decided as a worker of the run's org, and a stale fence gets nothing.
+func TestRunnerPermitOverTheSocket(t *testing.T) {
+	f := start(t, os.Geteuid(), 0, withBroker)
+	if err := f.srv.opts.Runs.Submit(ctx, runner.Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	l, err := f.client.RunnerLease(ctx, api.LeaseParams{Runner: "local"})
+	if err != nil || !l.Leased {
+		t.Fatalf("lease %+v, %v", l, err)
+	}
+	perm, err := (runner.Remote{Client: f.client}).Permit(ctx, "local", "f1#1", l.Run.Fence,
+		runner.PermitRequest{Tool: "Edit", Kind: policy.KindWrite, Path: "/scratch/run-1/a.go"})
+	if err != nil || perm.Outcome != policy.Cleared || perm.Rule != "write.worker-only" {
+		t.Fatalf("permit %+v, %v", perm, err)
+	}
+	_, err = (runner.Remote{Client: f.client}).Permit(ctx, "local", "f1#1", l.Run.Fence+1, runner.PermitRequest{Tool: "Edit", Kind: policy.KindWrite})
+	if !errors.Is(err, runner.ErrFenced) {
+		t.Fatalf("stale permit: %v", err)
+	}
+	_, err = f.client.RunnerPermit(ctx, api.PermitParams{Runner: "local", Run: "f1#1", Fence: l.Run.Fence, Tool: "Bash", Kind: "delete"})
+	wantCode(t, err, api.CodeInvalidParams)
 }

@@ -37,8 +37,17 @@ func (c *capture) lines() [][]byte {
 	return bytes.Split(bytes.TrimSuffix(c.buf.Bytes(), []byte("\n")), []byte("\n"))
 }
 
+// fakePermit stands in for the policy engine: it allows file tools inside the run's directory, as
+// the transcripts record it, and refuses the rest.
+func fakePermit(tool string, access harness.Access, path string) (bool, string) {
+	if path == "" || strings.HasPrefix(path, "/work/run-1/") {
+		return true, ""
+	}
+	return false, "the path is outside the run's directory"
+}
+
 // required are the transcripts every pinned version must have: the contract.
-var required = []string{"ask", "done", "drift", "error", "refused"}
+var required = []string{"ask", "done", "drift", "error", "permitted", "refused"}
 
 // TestContract replays every recorded transcript of the pinned version through the adapter: what
 // the adapter writes must match each recorded input, and what it reports must match the golden
@@ -97,7 +106,7 @@ func TestContract(t *testing.T) {
 func replay(t *testing.T, tr harnesstest.Transcript) string {
 	t.Helper()
 	in := &capture{}
-	conn, err := Adapter{}.Open(in, harness.Session{Goal: "make the failing test pass"})
+	conn, err := Adapter{}.Open(in, harness.Session{Goal: "make the failing test pass", Permit: fakePermit})
 	if err != nil {
 		t.Fatal(err)
 	}
