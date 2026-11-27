@@ -9,7 +9,9 @@
 //	<org>/<repo>/slot-<n>   slot n: a worktree of base.git
 //
 // The pool runs git with an environment of its own (no user or system configuration, no prompts,
-// only the https, ssh and file transports) and deletes nothing.
+// only the https, ssh and file transports). It removes no file or directory of its own; the only
+// thing it lets git remove is base.git's stale worktree registrations (git worktree prune), never
+// a slot's directory or any work.
 package worktree
 
 import (
