@@ -102,7 +102,8 @@ With `--harness claude-code` a run fails without starting unless `claude --versi
 pinned version (`lucy runner --help` names it); install that version rather than the newest. The
 nightly `harness-check` workflow says whether a newer release is ready for the pin to move.
 
-A runner on the host needs `--org` (`runner_org` without one) and is leased only that org's runs.
+Every runner needs `--org` (it refuses to start without one; the daemon refuses such a lease with
+`runner_org`) and is leased only that org's runs.
 Every process on the host runs as one uid and can reach the others' sockets, so the daemon serves
 one host org: the first run leased on the host sets it, and a runner on the host for another org
 is refused (`host_org`) and exits. The owner switches the host org with

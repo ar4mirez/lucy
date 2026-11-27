@@ -33,7 +33,7 @@ Changes since the last release. When a version is cut, its section moves to
 ### Changed
 
 - Host placement serves one org. `lucy runner` requires `--org` for every placement, and `runner.lease`
-  and `runner.queued` take an `org` (OpenRPC revision 13); a host lease without one is refused
+  and `runner.queued` take an `org` (OpenRPC revision 13); a lease without one is refused
   with the new `runner_org` error (-32008). The first run leased on the host sets the host org,
   recorded as `runner.host_org_set`; a host lease for another org is refused with the new
   `host_org` error (-32009) and that runner exits, since same-uid processes can reach each other's
