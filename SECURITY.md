@@ -76,7 +76,9 @@ nothing of another's and a sealed file moved or changed does not open (LUCY-CRED
   security (`lucy preflight --check`, m1 slice 15). Keeping the keys in an OS keystore instead is a
   later choice for the owner.
 - **Rotation and erasure.** Replacing a credential is `lucy vault set`; deleting an org's key
-  erases all its credentials at once, which offboarding will use (m2).
+  erases all its credentials at once, which offboarding will use (m2). A crash while a key is being
+  published can leave `keys/<org>.key.tmp-<hex>`, a second copy of the live key, so erasing an org
+  deletes `keys/<org>.key` and every `keys/<org>.key.tmp-*` beside it.
 - **Tests** use keys and credentials they generate; nothing reads a real credential.
 
 ## Audit and log data

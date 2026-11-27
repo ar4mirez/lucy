@@ -27,7 +27,9 @@ the threat model: [SECURITY.md](../../SECURITY.md).
   and never rewritten; a key file that is not exactly 32 bytes, not a plain file
   or readable by anyone else is refused. Keys sit apart from the sealed credentials, so a copy of
   `orgs/` alone reveals nothing; lucy's backups (m2) leave `keys/` out. Deleting an org's key makes
-  all of its credentials unrecoverable at once, which offboarding will use (LUCY-CRED-006, m2).
+  all of its credentials unrecoverable at once, which offboarding will use (LUCY-CRED-006, m2). A
+  crash while a key is being published can leave `keys/<org>.key.tmp-<hex>`, a second copy of the
+  live key, so erasing an org deletes `keys/<org>.key` and every `keys/<org>.key.tmp-*` beside it.
 - **Confinement.** Every file operation goes through an `os.Root` on the vault directory, so no
   name, path or symlink reaches outside it; a symlink in a key's place, or a symlinked org
   directory, is refused. Writes go to a new 0600 file that is synced and renamed into place, so a
@@ -44,6 +46,7 @@ the threat model: [SECURITY.md](../../SECURITY.md).
 ## Not built yet
 
 - TODO(LUCY-CRED-002): vault changes (set, remove) recorded in the audit chain, by name only.
-- TODO(LUCY-CRED-006): rotation, and offboarding that deletes an org's key (m2).
+- TODO(LUCY-CRED-006): rotation, and offboarding that deletes an org's key and every leftover
+  `keys/<org>.key.tmp-*` copy of it (m2).
 - TODO(LUCY-CRED-002): keeping the keys in an OS keystore instead of a file, if the owner wants it;
   that needs a dependency and a decision.
