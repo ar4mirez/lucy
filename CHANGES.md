@@ -34,9 +34,10 @@ Changes since the last release. When a version is cut, its section moves to
   The gateway listens on a 0600 Unix socket and records every request through the daemon, which
   decides each credential use from its own routes; a gateway cannot add a route or point one
   elsewhere. A path of any length is recorded, with the SHA-256 of the whole path, and a method
-  other than GET, HEAD, POST, PUT, PATCH, DELETE or OPTIONS is refused and recorded. The API gains the `gateway` scope and `gateway.routes`, `gateway.use`, `gateway.deny`
-  and `gateway.complete` (OpenRPC revision 10). Until the vault lands the gateway has no
-  credentials, so it refuses every request that needs one.
+  other than GET, HEAD, POST, PUT, PATCH, DELETE or OPTIONS is refused and recorded. The API gains
+  the `gateway` scope and `gateway.routes`, `gateway.use`, `gateway.deny` and `gateway.complete`
+  (OpenRPC revision 10). Until the vault lands the gateway has no credentials, so it refuses every
+  request that needs one.
 - The org sandbox seam, the start of m1 slice 3: a Sandbox provider runs an org's container, named
   by an ai-sdlc `AdapterBinding` with `interface: Sandbox`, and berth is the first one, reached only
   through its documented API on its socket. Starting, restarting or stopping an org's container
