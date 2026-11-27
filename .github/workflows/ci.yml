@@ -48,6 +48,11 @@ jobs:
       - name: Doc rules
         run: go test ./internal/doccheck
 
+      # The conformance corpus (docs/security/conformance.md): every executable scenario must be
+      # green; the log lists each pending one with the milestone it waits for.
+      - name: Conformance corpus
+        run: go test -count=1 -run 'TestConformance|TestCorpusWellFormed|TestCoverageDoc|TestHarnessCatchesViolations' -v ./internal/corpus
+
       - name: Tests (race)
         run: go test -race ./...
 

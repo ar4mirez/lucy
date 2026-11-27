@@ -2,9 +2,9 @@
 id: prd-runtime
 title: "PRD: runners, sessions, sandbox and credentials"
 status: active
-version: 2
+version: 3
 owner: ar4mirez
-requirements: [LUCY-RUN-001, LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-004, LUCY-RUN-005, LUCY-RUN-006, LUCY-RUN-007, LUCY-RUN-008, LUCY-RUN-009, LUCY-RUN-010, LUCY-RUN-011, LUCY-RUN-012, LUCY-SBX-001, LUCY-SBX-002, LUCY-SBX-003, LUCY-CRED-001, LUCY-CRED-002, LUCY-CRED-003, LUCY-CRED-004, LUCY-CRED-005, LUCY-CRED-006]
+requirements: [LUCY-RUN-001, LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-004, LUCY-RUN-005, LUCY-RUN-006, LUCY-RUN-007, LUCY-RUN-008, LUCY-RUN-009, LUCY-RUN-010, LUCY-RUN-011, LUCY-RUN-012, LUCY-RUN-013, LUCY-SBX-001, LUCY-SBX-002, LUCY-SBX-003, LUCY-CRED-001, LUCY-CRED-002, LUCY-CRED-003, LUCY-CRED-004, LUCY-CRED-005, LUCY-CRED-006]
 ---
 
 # PRD: runners, sessions, sandbox and credentials
@@ -29,6 +29,7 @@ Areas `RUN`, `SBX` and `CRED`. Background: [D3a](../decisions/D3a-berth-sandbox.
 | LUCY-RUN-010 | Supervision routes events through rules, then a small model, then a large one; supervisor tokens per org-day are tracked | m1 | P1-7 |
 | LUCY-RUN-011 | Token cost is recorded per task and per step | m1 | P1-6 |
 | LUCY-RUN-012 | Shadow mode, then takeover by task class; `lucy handback` returns a class to the existing supervisor in one command | m1 | P1-10 |
+| LUCY-RUN-013 | A Pilot has no channel to the owner: its questions and output reach the owner only as the Tower's records, rendered by lucy's surfaces | m1 | Corpus v1 (channel-04) |
 
 ## SBX: org sandbox
 

@@ -14,6 +14,16 @@ Changes since the last release. When a version is cut, its section moves to
 
 ## Unreleased
 
+- A conformance corpus: every safety rule an agent supervisor must keep, and every class of past
+  incident, is a scenario that runs against lucy on the simulation harness. Corpus v1 has 88
+  scenarios in 17 rule classes (merge authority, checks, approvals, attribution, bounded retries,
+  Pilot liveness, the owner channel, untrusted input, roles, airspace isolation, the delete guard,
+  unlanded work, closing references, durability, sessions, public text, validation): 58 run today
+  and pass, each also with the daemon restarted before every step, and 30 are pending on the
+  milestone that enables them. `mise run conformance` runs it, CI runs it on every change, and
+  `docs/security/conformance.md` lists every scenario with its status.
+- New m1 requirements found by the corpus: a Pilot reaches the owner only through the Tower
+  (LUCY-RUN-013), and pull request text is linted before push (LUCY-VAL-011).
 - The Tower's flight state machine: a flight goes from dispatch through a Pilot session and its
   pull request to a Clearance from the policy engine and the Takeoff (the merge), or is grounded
   (the Pilot gave up, hung, was lost twice, or the pull request stalled). Every transition is a

@@ -13,7 +13,7 @@ generated: true
 Generated from the requirement tables in [docs/prd](prd/README.md). Do not edit by hand:
 run `mise run docs-index` after changing a PRD table. CI fails when this file is stale.
 
-136 requirements (m0: 53, m1: 56, m2: 13, m3: 8, m4: 6). Milestone plans: [docs/milestones](milestones/README.md).
+138 requirements (m0: 53, m1: 58, m2: 13, m3: 8, m4: 6). Milestone plans: [docs/milestones](milestones/README.md).
 
 ## [foundation](prd/foundation.md)
 
@@ -84,7 +84,7 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 | ID | Milestone | Requirement |
 |---|---|---|
 | LUCY-CORP-001 | m0 | A corpus harness runs executable scenarios against lucy in the simulation |
-| LUCY-CORP-002 | m0 | Corpus v1 encodes every safety rule and recorded incident of the existing supervisor; red is expected in m0 |
+| LUCY-CORP-002 | m0 | Corpus v1 encodes every safety rule and recorded incident of the existing supervisor; a scenario lucy cannot run yet is pending on the milestone that enables it |
 | LUCY-CORP-003 | m1 | The corpus covers ar4mirez's flows and is green before ar4mirez moves |
 | LUCY-CORP-004 | m2 | The corpus covers each client org's rules and is green before that org moves |
 | LUCY-SIM-001 | m0 | A fake harness, fake forge and fake clock drive the supervisor state machine deterministically |
@@ -100,6 +100,7 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 | LUCY-VAL-008 | m1 | Before replacing anything, the pipeline replays past PRs and matches no-mistakes' blocking catches |
 | LUCY-VAL-009 | m1 | One merge function: never red, never with a required check unreported, closing references checked |
 | LUCY-VAL-010 | m1 | Orgs may import the no-mistakes skill as an optional, pinned, hash-verified skill |
+| LUCY-VAL-011 | m1 | Pull request text and commit messages are linted before push: no internal notes, local paths or other orgs' names, no bare `@` handles outside code, no secrets |
 
 ## [runtime](prd/runtime.md)
 
@@ -123,6 +124,7 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 | LUCY-RUN-010 | m1 | Supervision routes events through rules, then a small model, then a large one; supervisor tokens per org-day are tracked |
 | LUCY-RUN-011 | m1 | Token cost is recorded per task and per step |
 | LUCY-RUN-012 | m1 | Shadow mode, then takeover by task class; `lucy handback` returns a class to the existing supervisor in one command |
+| LUCY-RUN-013 | m1 | A Pilot has no channel to the owner: its questions and output reach the owner only as the Tower's records, rendered by lucy's surfaces |
 | LUCY-SBX-001 | m1 | Every worker and validation agent runs in its org's berth container through berth's API; idle orgs are stopped |
 | LUCY-SBX-002 | m1 | The runtime is a provider seam, so a cloud runner can be added without changing the core |
 | LUCY-SBX-003 | m1 | lucy never restarts or recreates an org container with live sessions without the owner's confirmation |

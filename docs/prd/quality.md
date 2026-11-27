@@ -2,9 +2,9 @@
 id: prd-quality
 title: "PRD: simulation, conformance corpus and validation"
 status: active
-version: 2
+version: 3
 owner: ar4mirez
-requirements: [LUCY-SIM-001, LUCY-SIM-002, LUCY-SIM-003, LUCY-CORP-001, LUCY-CORP-002, LUCY-CORP-003, LUCY-CORP-004, LUCY-VAL-001, LUCY-VAL-002, LUCY-VAL-003, LUCY-VAL-004, LUCY-VAL-005, LUCY-VAL-006, LUCY-VAL-007, LUCY-VAL-008, LUCY-VAL-009, LUCY-VAL-010]
+requirements: [LUCY-SIM-001, LUCY-SIM-002, LUCY-SIM-003, LUCY-CORP-001, LUCY-CORP-002, LUCY-CORP-003, LUCY-CORP-004, LUCY-VAL-001, LUCY-VAL-002, LUCY-VAL-003, LUCY-VAL-004, LUCY-VAL-005, LUCY-VAL-006, LUCY-VAL-007, LUCY-VAL-008, LUCY-VAL-009, LUCY-VAL-010, LUCY-VAL-011]
 ---
 
 # PRD: simulation, conformance corpus and validation
@@ -25,7 +25,7 @@ Areas `SIM`, `CORP` and `VAL`. Background: [R1 adversarial review](../decisions/
 | ID | Requirement | Milestone | Source |
 |---|---|---|---|
 | LUCY-CORP-001 | A corpus harness runs executable scenarios against lucy in the simulation | m0 | P0-1 |
-| LUCY-CORP-002 | Corpus v1 encodes every safety rule and recorded incident of the existing supervisor; red is expected in m0 | m0 | P0-1 |
+| LUCY-CORP-002 | Corpus v1 encodes every safety rule and recorded incident of the existing supervisor; a scenario lucy cannot run yet is pending on the milestone that enables it | m0 | P0-1 |
 | LUCY-CORP-003 | The corpus covers ar4mirez's flows and is green before ar4mirez moves | m1 | P0-1, P1-10 |
 | LUCY-CORP-004 | The corpus covers each client org's rules and is green before that org moves | m2 | P0-1 |
 
@@ -43,3 +43,4 @@ Areas `SIM`, `CORP` and `VAL`. Background: [R1 adversarial review](../decisions/
 | LUCY-VAL-008 | Before replacing anything, the pipeline replays past PRs and matches no-mistakes' blocking catches | m1 | P1-11 |
 | LUCY-VAL-009 | One merge function: never red, never with a required check unreported, closing references checked | m1 | P0-2, D4 |
 | LUCY-VAL-010 | Orgs may import the no-mistakes skill as an optional, pinned, hash-verified skill | m1 | D4 |
+| LUCY-VAL-011 | Pull request text and commit messages are linted before push: no internal notes, local paths or other orgs' names, no bare `@` handles outside code, no secrets | m1 | Corpus v1 (public-01 to public-03) |
