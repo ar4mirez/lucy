@@ -212,9 +212,11 @@ func TestNoRunGatewayWithoutACapability(t *testing.T) {
 	}
 }
 
+// shortDir is a temp dir under /tmp, not os.TempDir: on macOS that is /var/folders/.../T/, which
+// resolves to a path too long for a run's gateway socket under it.
 func shortDir(t *testing.T) string {
 	t.Helper()
-	d, err := os.MkdirTemp("", "rg")
+	d, err := os.MkdirTemp("/tmp", "rg")
 	if err != nil {
 		t.Fatal(err)
 	}
