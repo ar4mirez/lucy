@@ -237,7 +237,7 @@ func streamID(stream string) string {
 func (t *Tower) add(id string, d Dispatched) *flight {
 	f := &flight{
 		spec: Spec{ID: id, Org: d.Org, Project: d.Project, Goal: d.Goal, Base: d.Base, Posture: d.Posture,
-			Exceptions: d.Exceptions},
+			Exceptions: d.Exceptions, Delivery: d.Delivery, Acceptance: d.Acceptance},
 		stream: streamPrefix + d.Org + "/" + id,
 	}
 	t.flights[id] = f

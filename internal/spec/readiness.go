@@ -10,10 +10,13 @@ import (
 // it lacks, but it is never dispatched.
 const ConditionReady = "Ready"
 
-// Reasons a Ready condition gives.
+// Reasons a Ready condition gives. Unsupported is a Flight that has everything dispatch needs
+// but that lucy does not fly yet: a research Flight, until the Tower flies reports. It is not
+// Ready, so the condition never claims a Flight will be dispatched when it will not.
 const (
-	ReasonReady    = "Ready"
-	ReasonNotReady = "NotReady"
+	ReasonReady       = "Ready"
+	ReasonNotReady    = "NotReady"
+	ReasonUnsupported = "Unsupported"
 )
 
 // FlightReadiness returns what a Flight lacks before it may be dispatched, empty when it is
@@ -69,6 +72,9 @@ func markReadiness(results []Result) {
 		c := Condition{Type: ConditionReady, Status: True, Reason: ReasonReady, Message: "it has a goal, a delivery path, an autonomy posture and an acceptance test"}
 		if missing := FlightReadiness(*r, runways); len(missing) > 0 {
 			c = Condition{Type: ConditionReady, Status: False, Reason: ReasonNotReady, Message: clip("not dispatched until it has " + strings.Join(missing, ", "))}
+		} else if shape, _ := r.Spec["shape"].(string); shape == "research" {
+			// TODO(LUCY-SPEC-012): fly research Flights; the Tower's readiness and this one move together.
+			c = Condition{Type: ConditionReady, Status: False, Reason: ReasonUnsupported, Message: "it has everything dispatch needs, but lucy does not fly research Flights yet"}
 		}
 		results[i].Conditions = append(results[i].Conditions, c)
 	}

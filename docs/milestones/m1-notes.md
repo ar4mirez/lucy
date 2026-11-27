@@ -162,7 +162,8 @@ slice table, requirement status and exit tests stay in the plan.
   `delivery` (pull-request for a ship Flight, report for a research one), `autonomy` (owner, green
   or client; never assumed) and `acceptance`; each load gives every admitted Flight a `Ready`
   condition (`spec.FlightReadiness`), True only when it has all of them and its runway is an admitted
-  Runway of its namespace, else False naming what it lacks. The Tower refuses to dispatch a flight
+  Runway of its namespace, else False naming what it lacks; a complete research Flight is False with
+  reason Unsupported, since lucy does not fly research Flights yet. The Tower refuses to dispatch a flight
   that is not ready (`tower.Readiness`, `ErrNotReady`) and records nothing; it no longer assumes the
   owner posture. Left in 7a: the daemon hosting the Tower and dispatching ready Flights, decisions
   as Decision resources (LUCY-SPEC-013), pipelines (LUCY-SPEC-014), roles (LUCY-SPEC-015) and Core

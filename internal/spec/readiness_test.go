@@ -22,6 +22,8 @@ func TestFlightReadiness(t *testing.T) {
 		"bare.yaml": "apiVersion: lucy/v1alpha1\nkind: Flight\nmetadata: { name: bare, namespace: acme }\nspec: {}\n",
 		"research.yaml": "apiVersion: lucy/v1alpha1\nkind: Flight\nmetadata: { name: study, namespace: acme }\n" +
 			"spec: { shape: research, goal: compare caches, runway: web, delivery: pull-request, autonomy: owner, acceptance: a written comparison }\n",
+		"report.yaml": "apiVersion: lucy/v1alpha1\nkind: Flight\nmetadata: { name: report, namespace: acme }\n" +
+			"spec: { shape: research, goal: compare caches, runway: web, delivery: report, autonomy: owner, acceptance: a written comparison }\n",
 		"elsewhere.yaml": "apiVersion: lucy/v1alpha1\nkind: Flight\nmetadata: { name: elsewhere, namespace: acme }\n" +
 			"spec: { goal: g, runway: api, delivery: pull-request, autonomy: owner, acceptance: a }\n",
 	}
@@ -45,11 +47,15 @@ func TestFlightReadiness(t *testing.T) {
 			}
 		}
 	}
-	if len(ready) != 4 {
+	if len(ready) != 5 {
 		t.Fatalf("Ready conditions on %v; want every Flight and nothing else", ready)
 	}
 	if c := ready["ready"]; c.Status != True || c.Reason != ReasonReady {
 		t.Errorf("a ready Flight: %+v", c)
+	}
+	// A research Flight with everything it needs is not claimed Ready: lucy does not fly it yet.
+	if c := ready["report"]; c.Status != False || c.Reason != ReasonUnsupported {
+		t.Errorf("a complete research Flight: %+v", c)
 	}
 	for name, want := range map[string][]string{
 		"bare":      {"a goal", "a delivery path: a runway", "a delivery (pull-request)", "an autonomy posture", "an acceptance test"},
