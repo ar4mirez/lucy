@@ -23,7 +23,7 @@ const (
 	CodeTimeout            Code = -32005 // the call ran past its deadline
 	CodeFenced             Code = -32006 // a runner's lease no longer holds the run: expired, finished or replaced
 	CodeSandboxBusy        Code = -32007 // every queued run's org container is being restarted or stopped; lease again later
-	CodeRunnerOrg          Code = -32008 // a host runner named no org
+	CodeRunnerOrg          Code = -32008 // a runner named no org: every runner leases for one org
 	CodeHostOrg            Code = -32009 // host placement serves another org, or a host run is live
 	CodePlacementProof     Code = -32010 // a container lease without a placement proof the daemon accepts
 )
@@ -43,7 +43,7 @@ var codeInfo = map[Code]struct{ kind, message string }{
 	CodeTimeout:            {"timeout", "deadline exceeded"},
 	CodeFenced:             {"fenced", "lease no longer held"},
 	CodeSandboxBusy:        {"sandbox_busy", "org container busy"},
-	CodeRunnerOrg:          {"runner_org", "a host runner leases for one org"},
+	CodeRunnerOrg:          {"runner_org", "a runner leases for one org"},
 	CodeHostOrg:            {"host_org", "host placement serves another org"},
 	CodePlacementProof:     {"placement_proof", "container placement not proven"},
 }

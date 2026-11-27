@@ -2560,7 +2560,7 @@
       },
       "runner_org": {
         "code": -32008,
-        "message": "a host runner leases for one org"
+        "message": "a runner leases for one org"
       },
       "sandbox_busy": {
         "code": -32007,
