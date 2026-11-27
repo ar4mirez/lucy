@@ -25,6 +25,9 @@ func (s *Server) vaultRecord(ctx context.Context, p *api.VaultRecordParams) (api
 			return api.VaultRecorded{}, api.FieldError(api.CodeInvalidParams, "error", "only a failed change has an error")
 		}
 	case vault.PhaseFailed:
+		if !vault.IsFailureReason(p.Error) {
+			return api.VaultRecorded{}, api.FieldError(api.CodeInvalidParams, "error", "a failed change has one of the vault's fixed failure reasons")
+		}
 	default:
 		return api.VaultRecorded{}, api.FieldError(api.CodeInvalidParams, "phase", "the phase is requested, applied or failed")
 	}

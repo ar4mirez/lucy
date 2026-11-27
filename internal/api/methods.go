@@ -583,7 +583,7 @@ type VaultRecordParams struct {
 	Name  string `json:"name" lucy:"required,maxlen=63" doc:"The credential's name; never its value."`
 	Op    string `json:"op" lucy:"required,maxlen=8" doc:"set or remove."`
 	Phase string `json:"phase" lucy:"required,maxlen=10" doc:"requested (before the change), applied or failed (after it)."`
-	Error string `json:"error,omitempty" lucy:"maxlen=256" doc:"Why it failed, when it did; never a value."`
+	Error string `json:"error,omitempty" lucy:"maxlen=256" doc:"Why it failed, when it did: one of the vault's fixed failure reasons, never a value, a path or the error's text."`
 }
 
 // VaultRecorded answers vault.record.

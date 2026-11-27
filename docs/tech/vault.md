@@ -45,8 +45,9 @@ the threat model: [SECURITY.md](../../SECURITY.md).
 
 - **Audit.** `lucy vault set` and `rm` record each change through the daemon (`vault.record`,
   scope `admin`) as `vault.changed` on the org's `vault/<org>` stream: once before the vault is
-  touched (`requested`) and once after (`applied`, or `failed` with why), by name and operation
-  only, never a value. With no daemon to record the request, the change is refused and the vault
+  touched (`requested`) and once after (`applied`, or `failed` with a fixed reason for the kind of
+  error: no such credential, does not open, insecure, invalid, or the vault operation failed), by
+  name and operation only, never a value, a path or the error's text, which goes to stderr. With no daemon to record the request, the change is refused and the vault
   is left as it was. `ls` is a read and records nothing.
 
 ## Not built yet

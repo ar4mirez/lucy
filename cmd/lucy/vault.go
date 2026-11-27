@@ -162,7 +162,7 @@ func runVault(args []string, stdout, stderr io.Writer) int {
 }
 
 // recordedChange makes one change to the vault, recorded in the daemon's audit chain before
-// (requested) and after (applied or failed), by name only. When the daemon cannot record the
+// (requested) and after (applied, or failed with the kind of error only), by name only. When the daemon cannot record the
 // request, nothing is changed.
 func recordedChange(sock, org, name, op string, change func() error, done string, stdout, stderr io.Writer) int {
 	c, code := dial(sock, stderr)
@@ -181,11 +181,7 @@ func recordedChange(sock, org, name, op string, change func() error, done string
 		return callFailed(err, c, stderr)
 	}
 	if err := change(); err != nil {
-		why := err.Error()
-		if len(why) > 256 {
-			why = why[:256]
-		}
-		if rerr := record(vault.PhaseFailed, why); rerr != nil {
+		if rerr := record(vault.PhaseFailed, vault.FailureReason(err)); rerr != nil {
 			fmt.Fprintf(stderr, "error: %v\nerror: the failure could not be recorded either: %v\n", err, rerr)
 			return 1
 		}

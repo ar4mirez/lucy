@@ -4,12 +4,16 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ar4mirez/lucy/internal/api"
+	"github.com/ar4mirez/lucy/internal/api/client"
 	"github.com/ar4mirez/lucy/internal/vault"
 )
 
@@ -98,6 +102,48 @@ func TestVaultCommands(t *testing.T) {
 	}
 	if n := strings.Count(out, ",vault/acme,"); n != 6 {
 		t.Fatalf("%d vault events, want 6 (set, rm and the failed rm, each requested and done):\n%s", n, out)
+	}
+}
+
+// A failed change records the kind of error, never its text: no path, no org/name beyond the
+// record's own fields. The full error still goes to stderr.
+func TestVaultFailureRecordsItsKindOnly(t *testing.T) {
+	sock := startDaemon(t)
+	dir := filepath.Join(t.TempDir(), "vault")
+	if code, _, errOut := lucy("vault", "rm", "--dir", dir, "--socket", sock, "--org", "acme", "missing"); code != 1 || !strings.Contains(errOut, "no such credential") {
+		t.Fatalf("rm of a missing credential: %d %q", code, errOut)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "orgs", "acme", "github.sealed"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := lucy("vault", "rm", "--dir", dir, "--socket", sock, "--org", "acme", "github"); code != 1 || !strings.Contains(errOut, "acme/github is not a plain file") {
+		t.Fatalf("rm of a directory: %d %q", code, errOut)
+	}
+	c := client.New(sock, "lucy-test", "test")
+	defer c.Close()
+	page, err := c.Events(context.Background(), api.EventsParams{Limit: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var failed []vault.Changed
+	for _, e := range page.Events {
+		if e.Stream != vault.Stream("acme") {
+			continue
+		}
+		var ch vault.Changed
+		if err := json.Unmarshal(e.Payload, &ch); err != nil {
+			t.Fatal(err)
+		}
+		if ch.Phase == vault.PhaseFailed {
+			failed = append(failed, ch)
+		}
+		if raw := string(e.Payload); strings.Contains(raw, dir) || strings.Contains(raw, "/") || strings.Contains(raw, "plain file") {
+			t.Errorf("the record holds a path or the error's text: %s", raw)
+		}
+	}
+	if len(failed) != 2 || failed[0].Name != "missing" || failed[0].Error != vault.ReasonNotFound ||
+		failed[1].Name != "github" || failed[1].Error != vault.ReasonInsecure {
+		t.Fatalf("failed records %+v, want not found then insecure", failed)
 	}
 }
 

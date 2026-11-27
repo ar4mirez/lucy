@@ -2428,7 +2428,7 @@
         },
         {
           "name": "error",
-          "description": "Why it failed, when it did; never a value.",
+          "description": "Why it failed, when it did: one of the vault's fixed failure reasons, never a value, a path or the error's text.",
           "required": false,
           "schema": {
             "maxLength": 256,

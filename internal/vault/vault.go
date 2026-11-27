@@ -53,6 +53,8 @@ var (
 	// ErrInsecure is a vault directory, key or file that others can read or that is not a plain
 	// file or directory.
 	ErrInsecure = errors.New("vault: insecure file or directory")
+	// ErrInvalid is an org, credential name or value the vault does not take.
+	ErrInvalid = errors.New("vault: invalid")
 )
 
 // Vault is an open vault. It is safe for concurrent use.
@@ -124,7 +126,7 @@ func CheckLabel(s string) string {
 
 func checkOrg(org string) error {
 	if e := CheckLabel(org); e != "" {
-		return fmt.Errorf("vault: org %q %s", org, e)
+		return fmt.Errorf("%w: org %q %s", ErrInvalid, org, e)
 	}
 	return nil
 }
@@ -134,7 +136,7 @@ func checkNames(org, name string) error {
 		return err
 	}
 	if e := CheckLabel(name); e != "" {
-		return fmt.Errorf("vault: credential name %q %s", name, e)
+		return fmt.Errorf("%w: credential name %q %s", ErrInvalid, name, e)
 	}
 	return nil
 }
@@ -259,7 +261,7 @@ func (v *Vault) Set(org, name string, value []byte) error {
 		return err
 	}
 	if len(value) == 0 || len(value) > MaxValueBytes {
-		return fmt.Errorf("vault: a credential is 1 to %d bytes", MaxValueBytes)
+		return fmt.Errorf("%w: a credential is 1 to %d bytes", ErrInvalid, MaxValueBytes)
 	}
 	k, err := v.key(org, true)
 	if err != nil {

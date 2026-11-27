@@ -15,7 +15,7 @@ func TestVaultRecord(t *testing.T) {
 	for _, p := range []api.VaultRecordParams{
 		{Org: "acme", Name: "github", Op: "set", Phase: "requested"},
 		{Org: "acme", Name: "github", Op: "set", Phase: "applied"},
-		{Org: "acme", Name: "npm", Op: "remove", Phase: "failed", Error: "vault: no such credential"},
+		{Org: "acme", Name: "npm", Op: "remove", Phase: "failed", Error: vault.ReasonNotFound},
 	} {
 		if r, err := f.client.VaultRecord(ctx, p); err != nil || r.Seq == 0 {
 			t.Fatalf("%+v: %+v, %v", p, r, err)
@@ -26,7 +26,7 @@ func TestVaultRecord(t *testing.T) {
 		t.Fatalf("events %v, %v", evs, err)
 	}
 	c, err := eventstore.DecodeAs[vault.Changed](f.store.Registry(), evs[2])
-	if err != nil || c.Name != "npm" || c.Op != "remove" || c.Phase != "failed" || c.Error == "" {
+	if err != nil || c.Name != "npm" || c.Op != "remove" || c.Phase != "failed" || c.Error != vault.ReasonNotFound {
 		t.Fatalf("%+v, %v", c, err)
 	}
 	for _, c := range []struct {
@@ -38,6 +38,8 @@ func TestVaultRecord(t *testing.T) {
 		{api.VaultRecordParams{Org: "acme", Name: "github", Op: "read", Phase: "requested"}, "op"},
 		{api.VaultRecordParams{Org: "acme", Name: "github", Op: "set", Phase: "done"}, "phase"},
 		{api.VaultRecordParams{Org: "acme", Name: "github", Op: "set", Phase: "applied", Error: "x"}, "error"},
+		{api.VaultRecordParams{Org: "acme", Name: "github", Op: "set", Phase: "failed", Error: "open /home/x/vault/orgs/acme: denied"}, "error"},
+		{api.VaultRecordParams{Org: "acme", Name: "github", Op: "set", Phase: "failed"}, "error"},
 	} {
 		_, err := f.client.VaultRecord(ctx, c.p)
 		if ae := wantCode(t, err, api.CodeInvalidParams); ae.Data == nil || ae.Data.Field != c.field {
