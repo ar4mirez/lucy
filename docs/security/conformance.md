@@ -15,7 +15,7 @@ an agent supervisor must keep, and every class of past incident, is a scenario t
 lucy on the simulation harness (LUCY-CORP-001, LUCY-CORP-002). An airspace moves onto lucy only
 when its corpus is green. `mise run conformance` runs it, and CI runs it on every change.
 
-Corpus v1: 88 scenarios, **61 executable** (green: CI fails on any red one) and **27 pending** on
+Corpus v1: 88 scenarios, **62 executable** (green: CI fails on any red one) and **26 pending** on
 the milestone named in their row. Each executable scenario runs twice, as written and with the
 daemon restarted before every step, and both runs must leave the same event log.
 
@@ -33,7 +33,7 @@ daemon restarted before every step, and both runs must leave the same event log.
 | untrusted-input | 4 | 0 |
 | roles | 4 | 0 |
 | org-isolation | 1 | 1 |
-| delete-guard | 8 | 3 |
+| delete-guard | 9 | 2 |
 | unlanded-work | 4 | 2 |
 | closing-refs | 1 | 3 |
 | durability | 4 | 2 |
@@ -106,7 +106,7 @@ requirements that make it executable.
 | delete-06 | delete-guard | rule | critical | A root itself is never deleted, only what is inside it | executable |
 | delete-07 | delete-guard | rule | critical | A path with invisible or lookalike characters, or one that does not resolve, is refused | executable |
 | delete-08 | delete-guard | rule | high | A delete inside the flight's scratch dir is allowed; inside the project it holds for the owner | executable |
-| delete-09 | delete-guard | incident | critical | The delete executor removes only the resolved path it was cleared for, without following symlinks | pending: m1 (LUCY-SEC-005) |
+| delete-09 | delete-guard | incident | critical | The delete executor removes only the path it was cleared for, and a symlink itself, never what the symlink points to | executable |
 | delete-10 | delete-guard | incident | high | Each flight has its own scratch dir, so one flight's cleanup never touches another live flight's files | pending: m1 (LUCY-RUN-006) |
 | delete-11 | delete-guard | incident | critical | Code a Pilot or a validation agent runs that deletes the filesystem root leaves the owner's home intact | pending: m1 (LUCY-SIM-003, LUCY-SBX-001) |
 | unlanded-01 | unlanded-work | rule | critical | The default branch is never force-pushed, deleted or rewritten, even with the owner's approval | executable |

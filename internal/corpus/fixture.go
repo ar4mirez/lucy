@@ -12,8 +12,9 @@ import (
 // Fixture is the filesystem a delete scenario is checked against, built fresh in a temporary
 // directory for every run: a home directory with a config dir worth protecting, a project
 // worktree inside it, a flight's scratch dir outside it, a directory outside every root, and
-// symlinks that point out of the roots. Nothing in the corpus deletes anything: the scenarios
-// check the Clearance a delete would need (the delete executor is m1, LUCY-SEC-005).
+// symlinks that point out of the roots. Most scenarios check the Clearance a delete would need;
+// the ones that run the delete executor (Remove) delete only inside the fixture's own temporary
+// directory, through the path guard (LUCY-SEC-005).
 type Fixture struct {
 	Home      string // resolved
 	Project   string // a project root, inside Home

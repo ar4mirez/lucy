@@ -108,7 +108,8 @@ type Env struct {
 	hooks    []*hook
 	built    map[string]built
 	requests map[string]decided
-	live     []error // flights seen with two live runs, by liveRuns
+	removed  map[string]error // Remove's name -> what the delete executor returned
+	live     []error          // flights seen with two live runs, by liveRuns
 }
 
 type built struct {
@@ -168,7 +169,7 @@ func Play(ctx context.Context, dir string, s Scenario, v Variant) (Result, error
 		return Result{}, err
 	}
 	defer w.Close() //nolint:errcheck // the scenario's errors are what matter
-	e := &Env{World: w, Fixture: fx, variant: v, streams: map[string]string{}, built: map[string]built{}, requests: map[string]decided{}}
+	e := &Env{World: w, Fixture: fx, variant: v, streams: map[string]string{}, built: map[string]built{}, requests: map[string]decided{}, removed: map[string]error{}}
 	w.Forge.HideMerger = s.Setup.HideMerger
 	if len(s.Setup.Required) > 0 {
 		w.Forge.AddRepo(Repo, s.Setup.Required...)
