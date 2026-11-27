@@ -14,6 +14,8 @@ coverage.*
 # Agent harness local state (never committed)
 .claude/
 .no-mistakes/
+# except the fixture repositories the harness adapter's contract tests run in
+!internal/harness/claudecode/testdata/*/repo/.claude/
 
 # Secrets: never commit these
 .env
