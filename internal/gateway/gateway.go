@@ -28,7 +28,15 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/ar4mirez/lucy/internal/policy"
 )
+
+// Methods are the HTTP methods the gateway forwards; any other is refused before anything else.
+var Methods = []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+
+// MaxMethod is the longest method a refusal records; a longer one is recorded clipped.
+const MaxMethod = 16
 
 // Route is one service the gateway reaches for an org's workers.
 type Route struct {
@@ -228,11 +236,15 @@ var workerShapeHeaders = []string{"Accept-Encoding", "Range", "If-Range"}
 // ServeHTTP implements http.Handler.
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	raw := r.URL.EscapedPath()
+	recorded := policy.RecordedResource(policy.KindFetch, r.URL.EscapedPath())
 	deny := func(status int, routeName, reason string) {
 		// Recorded first; refused whether or not the record could be written.
-		_ = g.cfg.Recorder.Deny(ctx, g.cfg.Org, Denied{Route: routeName, Method: r.Method, Path: raw, Reason: reason})
+		_ = g.cfg.Recorder.Deny(ctx, g.cfg.Org, Denied{Route: routeName, Method: clip(r.Method, MaxMethod), Path: recorded, Reason: reason})
 		http.Error(w, "lucy gateway: "+reason, status)
+	}
+	if !slices.Contains(Methods, r.Method) {
+		deny(http.StatusMethodNotAllowed, "", "the method is not an HTTP method lucy forwards")
+		return
 	}
 	name, rest, err := workerPath(r)
 	if err != nil {
@@ -266,7 +278,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer clear(secret)
 
 	// The credential's use is decided and recorded before anything is sent (LUCY-POL-002).
-	d, err := g.cfg.Recorder.Decide(ctx, g.cfg.Org, Use{Route: name, Method: r.Method, Path: raw, Upstream: rt.upstream.Host})
+	d, err := g.cfg.Recorder.Decide(ctx, g.cfg.Org, Use{Route: name, Method: r.Method, Path: recorded, Upstream: rt.upstream.Host})
 	if err != nil {
 		http.Error(w, "lucy gateway: the request could not be decided and recorded", http.StatusServiceUnavailable)
 		return
@@ -353,6 +365,18 @@ func (g *Gateway) complete(ctx context.Context, c Completed) {
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	_ = g.cfg.Recorder.Complete(rctx, g.cfg.Org, c) // the decision before it was recorded; this is only the outcome
+}
+
+// clip shortens s to at most max bytes, at a rune boundary.
+func clip(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	cut := max
+	for cut > 0 && s[cut]&0xC0 == 0x80 {
+		cut--
+	}
+	return s[:cut]
 }
 
 func nameLabel(s string) string { return label(s, 32) }

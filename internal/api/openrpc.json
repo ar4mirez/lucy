@@ -1898,10 +1898,10 @@
         },
         {
           "name": "path",
-          "description": "The path the worker sent; recorded redacted.",
+          "description": "The path the worker sent, in the form the gateway records it: redacted, capped, with the SHA-256 of the whole path.",
           "required": true,
           "schema": {
-            "maxLength": 4096,
+            "maxLength": 600,
             "minLength": 1,
             "type": "string"
           }
@@ -1988,10 +1988,10 @@
         },
         {
           "name": "path",
-          "description": "The path the worker sent; recorded redacted.",
+          "description": "The path the worker sent, in the form the gateway records it: redacted, capped, with the SHA-256 of the whole path.",
           "required": true,
           "schema": {
-            "maxLength": 4096,
+            "maxLength": 600,
             "minLength": 1,
             "type": "string"
           }

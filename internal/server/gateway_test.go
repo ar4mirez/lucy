@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -17,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/ar4mirez/lucy/internal/api"
+	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/gateway"
 	"github.com/ar4mirez/lucy/internal/policy"
 )
@@ -130,6 +133,97 @@ func TestGatewayRecordsThroughTheAPI(t *testing.T) {
 	// The daemon decides from its own routes: a route it does not have, or another upstream, is refused.
 	if _, err := rec.Decide(ctx, "acme", gateway.Use{Route: "github", Method: "GET", Path: "/x", Upstream: "evil.example:443"}); !errors.Is(err, gateway.ErrUnknownRoute) {
 		t.Fatalf("another upstream: %v", err)
+	}
+}
+
+// Every request is recorded whatever its path or method: a path longer than any API field on an
+// allowed route is decided and recorded with the hash of the whole path, and a method lucy does
+// not forward is refused and recorded with the method clipped.
+func TestGatewayRecordsEveryRequestThroughTheAPI(t *testing.T) {
+	routes := []gateway.Route{{Name: "github", Upstream: "https://example.com", Credential: "github", Scope: "repo:acme/web",
+		Allow: []gateway.Rule{{Methods: []string{"GET"}, Path: "/repos/acme/web"}}}}
+	f := start(t, os.Geteuid(), 0, func(o *Options) {
+		o.Gateways = &gateway.StoreRecorder{Store: o.Store}
+		if err := o.Gateways.SetRoutes(map[string][]gateway.Route{"acme": routes}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	loop := netip.MustParseAddr("127.0.0.1")
+	g, err := gateway.New(gateway.Config{Org: "acme", Recorder: gateway.Remote{Client: f.client}, Routes: routes,
+		Credentials: gwCreds{"acme/github": []byte("test_made_up_credential")}, Resolver: gwResolver{"example.com": {loop}},
+		Addresses: func(a netip.Addr) error {
+			if a == loop {
+				return nil
+			}
+			return gateway.PublicOnly(a)
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(g.Close)
+	front := httptest.NewServer(g)
+	t.Cleanup(front.Close)
+
+	gatewayEvents := func() []eventstore.Event {
+		t.Helper()
+		evs, err := f.store.ReadStream(ctx, gateway.Stream("acme"), 0, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return evs
+	}
+
+	long := "/repos/acme/web/" + strings.Repeat("a/", 2100) + "z"
+	resp, err := http.Get(front.URL + "/github" + long)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	evs := gatewayEvents()
+	if len(evs) == 0 || evs[0].Type != (gateway.Forwarded{}).EventType() {
+		t.Fatalf("a %d-byte path on an allowed route (status %d) left %d gateway events", len(long), resp.StatusCode, len(evs))
+	}
+	var fw gateway.Forwarded
+	if err := json.Unmarshal(evs[0].Payload, &fw); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("/github" + long))
+	if !strings.HasSuffix(fw.Path, " sha256:"+hex.EncodeToString(sum[:])) {
+		t.Fatalf("the recorded path %q does not hash the whole path", fw.Path)
+	}
+	all, err := f.store.ReadAfter(ctx, 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decided bool
+	for _, e := range all {
+		decided = decided || e.Type == (policy.DecisionRecord{}).EventType()
+	}
+	if !decided {
+		t.Fatal("the long path's credential use has no decision")
+	}
+
+	method := strings.Repeat("A", 20)
+	req, err := http.NewRequest(method, front.URL+"/github/repos/acme/web", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("a 20-byte method: status %d", resp.StatusCode)
+	}
+	evs = gatewayEvents()
+	last := evs[len(evs)-1]
+	var dn gateway.Denied
+	if err := json.Unmarshal(last.Payload, &dn); err != nil || last.Type != (gateway.Denied{}).EventType() {
+		t.Fatalf("a 20-byte method was not recorded as denied: %s %s %v", last.Type, last.Payload, err)
+	}
+	if dn.Method != method[:gateway.MaxMethod] || !strings.Contains(dn.Reason, "not an HTTP method lucy forwards") {
+		t.Fatalf("denial %+v", dn)
 	}
 }
 

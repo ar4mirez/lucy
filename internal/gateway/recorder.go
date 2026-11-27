@@ -18,7 +18,7 @@ import (
 type Use struct {
 	Route    string
 	Method   string
-	Path     string // as the worker sent it; recorded redacted
+	Path     string // the gateway's recorded form, policy.RecordedResource of the worker's path; recorded as given
 	Upstream string // the host the gateway will call, which must be the route's
 }
 
@@ -37,8 +37,8 @@ type Recorder interface {
 	// Decide decides the credential's use through the policy engine and records the decision and a
 	// gateway.forwarded (or, when not cleared, gateway.denied) event, in one transaction.
 	Decide(ctx context.Context, org string, u Use) (Decision, error)
-	// Deny records a request refused before a credential was involved. Its Path is recorded
-	// redacted.
+	// Deny records a request refused before a credential was involved. Its Path is the gateway's
+	// recorded form, recorded as given.
 	Deny(ctx context.Context, org string, d Denied) error
 	// Complete records how a forwarded request ended.
 	Complete(ctx context.Context, org string, c Completed) error
@@ -128,7 +128,6 @@ func (s *StoreRecorder) Decide(ctx context.Context, org string, u Use) (Decision
 		Inputs: []policy.Input{{Source: policy.SourceConfig, Ref: "route/" + rt.Name}, {Source: policy.SourceAgent, Ref: "gateway/" + rt.Name}}}
 	facts := policy.Facts{CredentialScope: rt.Scope}
 	d := policy.Evaluate(req, facts)
-	recorded := policy.RecordedResource(policy.KindFetch, u.Path)
 	out := Decision{Cleared: d.Outcome == policy.Cleared, Rule: d.Rule, Reason: d.Reason}
 	err := s.Store.Update(ctx, func(tx *eventstore.Tx) error {
 		evs, err := tx.Append(ctx, policy.Stream, eventstore.AnyVersion, a.ID, policy.NewRecord(req, facts, d))
@@ -136,9 +135,9 @@ func (s *StoreRecorder) Decide(ctx context.Context, org string, u Use) (Decision
 			return err
 		}
 		out.Seq = evs[0].Seq
-		var p eventstore.Payload = Forwarded{Route: rt.Name, Method: u.Method, Path: recorded, Upstream: rt.upstream.Host, DecisionSeq: out.Seq}
+		var p eventstore.Payload = Forwarded{Route: rt.Name, Method: u.Method, Path: u.Path, Upstream: rt.upstream.Host, DecisionSeq: out.Seq}
 		if !out.Cleared {
-			p = Denied{Route: rt.Name, Method: u.Method, Path: recorded, Reason: "the policy engine did not clear the credential: " + d.Rule}
+			p = Denied{Route: rt.Name, Method: u.Method, Path: u.Path, Reason: "the policy engine did not clear the credential: " + d.Rule}
 		}
 		_, err = tx.Append(ctx, Stream(org), eventstore.AnyVersion, a.ID, p)
 		return err
@@ -154,7 +153,6 @@ func (s *StoreRecorder) Deny(ctx context.Context, org string, d Denied) error {
 	if e := orgLabel(org); e != "" {
 		return fmt.Errorf("gateway: org %q %s", org, e)
 	}
-	d.Path = policy.RecordedResource(policy.KindFetch, d.Path)
 	d.Reason = capText(d.Reason)
 	_, err := s.Store.Append(ctx, Stream(org), eventstore.AnyVersion, actor(org).ID, d)
 	return err
@@ -172,13 +170,5 @@ func (s *StoreRecorder) Complete(ctx context.Context, org string, c Completed) e
 
 // capText caps text a gateway sends for the log.
 func capText(s string) string {
-	const max = 256
-	if len(s) <= max {
-		return s
-	}
-	cut := max
-	for cut > 0 && s[cut]&0xC0 == 0x80 {
-		cut--
-	}
-	return s[:cut]
+	return clip(s, 256)
 }

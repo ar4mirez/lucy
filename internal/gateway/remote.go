@@ -48,24 +48,11 @@ func (r Remote) Decide(ctx context.Context, org string, u Use) (Decision, error)
 
 // Deny implements Recorder (gateway.deny).
 func (r Remote) Deny(ctx context.Context, org string, d Denied) error {
-	return r.Client.GatewayDeny(ctx, api.GatewayDenyParams{Org: org, Route: d.Route, Method: d.Method, Path: clip(d.Path, 4096),
-		Reason: capText(d.Reason)})
+	return r.Client.GatewayDeny(ctx, api.GatewayDenyParams{Org: org, Route: d.Route, Method: d.Method, Path: d.Path, Reason: capText(d.Reason)})
 }
 
 // Complete implements Recorder (gateway.complete).
 func (r Remote) Complete(ctx context.Context, org string, c Completed) error {
 	return r.Client.GatewayComplete(ctx, api.GatewayCompleteParams{Org: org, Decision: c.DecisionSeq, Status: c.Status,
 		Scrubbed: c.Scrubbed, Error: capText(c.Error)})
-}
-
-// clip shortens a path the API would refuse as too long: what is recorded is the clipped path.
-func clip(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	cut := max
-	for cut > 0 && s[cut]&0xC0 == 0x80 {
-		cut--
-	}
-	return s[:cut]
 }

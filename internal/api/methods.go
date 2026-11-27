@@ -497,7 +497,7 @@ type GatewayUseParams struct {
 	Org      string `json:"org" lucy:"required,maxlen=63" doc:"The org."`
 	Route    string `json:"route" lucy:"required,maxlen=32" doc:"The route, which must be in the daemon's config for the org."`
 	Method   string `json:"method" lucy:"required,maxlen=16" doc:"The worker's HTTP method."`
-	Path     string `json:"path" lucy:"required,maxlen=4096" doc:"The path the worker sent; recorded redacted."`
+	Path     string `json:"path" lucy:"required,maxlen=600" doc:"The path the worker sent, in the form the gateway records it: redacted, capped, with the SHA-256 of the whole path."`
 	Upstream string `json:"upstream" lucy:"required,maxlen=300" doc:"The host the gateway will call, which must be the route's."`
 }
 
@@ -514,7 +514,7 @@ type GatewayDenyParams struct {
 	Org    string `json:"org" lucy:"required,maxlen=63" doc:"The org."`
 	Route  string `json:"route,omitempty" lucy:"maxlen=32" doc:"The route, when the request named a known one."`
 	Method string `json:"method" lucy:"required,maxlen=16" doc:"The worker's HTTP method."`
-	Path   string `json:"path" lucy:"required,maxlen=4096" doc:"The path the worker sent; recorded redacted."`
+	Path   string `json:"path" lucy:"required,maxlen=600" doc:"The path the worker sent, in the form the gateway records it: redacted, capped, with the SHA-256 of the whole path."`
 	Reason string `json:"reason" lucy:"required,maxlen=256" doc:"Why it was refused."`
 }
 

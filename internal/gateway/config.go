@@ -128,7 +128,7 @@ func routeFrom(item any) (Route, error) {
 		}
 		for _, v := range verbs {
 			s, _ := v.(string)
-			if !slices.Contains([]string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}, s) {
+			if !slices.Contains(Methods, s) {
 				return Route{}, fmt.Errorf("allow[%d].methods: %q is not an HTTP method lucy forwards", j, v)
 			}
 			rule.Methods = append(rule.Methods, s)

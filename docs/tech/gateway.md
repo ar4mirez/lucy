@@ -41,8 +41,12 @@ How a worker reaches a service without ever holding its credential (TECH.md sect
   on the `policy` stream and a `gateway.forwarded` event on the org's `gateway/<org>` stream, in one
   transaction, before anything is sent. Every gateway event is on that org stream.
   The outcome follows as `gateway.completed` (status, how many echoed copies were scrubbed, or that
-  the call failed). A refused request is a `gateway.denied` event with its reason. Paths are
-  recorded redacted as `policy.RecordedResource` records a fetch; no event holds a credential, a
+  the call failed). A refused request is a `gateway.denied` event with its reason. The gateway
+  itself turns the worker's path into its recorded form before it calls its recorder, as
+  `policy.RecordedResource` records a fetch: redacted, capped, with the SHA-256 of the whole path.
+  The recorder records it as given, so a path of any length is recorded and its hash covers all of
+  it. A method other than GET, HEAD, POST, PUT, PATCH, DELETE or OPTIONS is refused before
+  anything else, recorded with the method clipped to 16 bytes. No event holds a credential, a
   query string or a body. Every event is in the audit chain.
 - **No redirect is followed.** The gateway uses one transport round trip per request; a redirect
   goes back to the worker as it came, so the credential is never sent to a host the route does not

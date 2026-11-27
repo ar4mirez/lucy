@@ -563,8 +563,8 @@ func TestRecorderTrustsOnlyItsOwnRoutes(t *testing.T) {
 	}
 	// A denial's path is recorded redacted, as the policy engine records a fetch.
 	tok := "ghp_" + strings.Repeat("Ab1", 12)
-	if err := f.rec.Deny(ctx, "acme", gateway.Denied{Method: "GET", Path: "/github/x/" + tok, Reason: "no"}); err != nil {
-		t.Fatal(err)
+	if status, _, _ := f.call("GET", "/nope/x/"+tok, nil); status != http.StatusNotFound {
+		t.Fatalf("an unknown route: status %d", status)
 	}
 	ev := f.lastGateway()
 	if bytes.Contains(ev.Payload, []byte(tok)) {
