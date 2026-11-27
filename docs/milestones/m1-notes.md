@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 12
+version: 13
 owner: ar4mirez
 requirements: []
 ---
@@ -42,8 +42,7 @@ slice table, requirement status and exit tests stay in the plan.
   `testdata/<pinned version>`, replayed in CI; `harness-check.yml` checks the newest release each
   night without a secret and reports it ready or held, never failing. The owner sees the Pilots' open questions with
   `lucy questions` and answers with `lucy answer`, over `questions.list` and `questions.answer`,
-  which go through the Tower; until slice 7a hosts the Tower in the daemon they list nothing and
-  answer nothing. Done: what remains of slice 2 is blocked on D3c, a real model login:
+  which go through the Tower the daemon hosts (slice 7a). Done: what remains of slice 2 is blocked on D3c, a real model login:
   transcripts captured from real sessions of the pinned version (today's follow the documented
   protocol), and checking hook callbacks against a real session.
 - **3, berth sandbox.** `internal/sandbox` is the runtime seam ([sandbox](../tech/sandbox.md)): a
@@ -165,7 +164,12 @@ slice table, requirement status and exit tests stay in the plan.
   Runway of its namespace, else False naming what it lacks; a complete research Flight is False with
   reason Unsupported, since lucy does not fly research Flights yet. The Tower refuses to dispatch a flight
   that is not ready (`tower.Readiness`, `ErrNotReady`) and records nothing; it no longer assumes the
-  owner posture. Left in 7a: the daemon hosting the Tower and dispatching ready Flights, decisions
+  owner posture. The daemon hosts the Tower: it steps its flights on its poll interval and serves its
+  Pilots' questions through `lucy questions` and `lucy answer`; only started with `--dispatch` does
+  it dispatch the Ready Flights it loads (by name, once), each recorded with a `Dispatched`
+  condition (InFlight for one it flies from its log; DispatchDisabled, TakeoverGate, NameInUse, Finished, DispatchFailed when not). A Runway
+  whose remote is not a local fixture is refused, at dispatch and at every lease, until #36 and the owner's go/no-go, and the gateway
+  refuses every git push; its forge is a stub that merges nothing until the validation slice. Left in 7a: decisions
   as Decision resources (LUCY-SPEC-013), pipelines (LUCY-SPEC-014), roles (LUCY-SPEC-015) and Core
   conformance (LUCY-SPEC-017).
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;

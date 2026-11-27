@@ -29,6 +29,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/sandbox"
 	"github.com/ar4mirez/lucy/internal/server"
 	"github.com/ar4mirez/lucy/internal/spec"
+	"github.com/ar4mirez/lucy/internal/tower"
 	"github.com/ar4mirez/lucy/internal/vault"
 	"github.com/ar4mirez/lucy/internal/worktree"
 )
@@ -66,6 +67,7 @@ func Registry() (*eventstore.Registry, error) {
 	payloads := append(spec.Payloads(), Started{}, Stopped{}, server.CommandEvent{}, policy.DecisionRecord{})
 	payloads = append(append(append(payloads, runner.Payloads()...), sandbox.Payloads()...), gateway.Payloads()...)
 	payloads = append(append(append(payloads, capability.Payloads()...), vault.Payloads()...), worktree.Payloads()...)
+	payloads = append(payloads, tower.Payloads()...)
 	return eventstore.NewRegistry(payloads...)
 }
 
@@ -101,8 +103,14 @@ type Options struct {
 	WorktreeGit string
 	// CallTimeout bounds one API call; server.DefaultCallTimeout when zero.
 	CallTimeout time.Duration
-	Version     string       // lucy's version
-	Log         *slog.Logger // slog.Default when nil
+	// Dispatch lets the hosted Tower dispatch the Ready Flights it loads; off by default, so the
+	// daemon only flies the flights already in its log. Even on, a Flight whose Runway names a
+	// repository with a real remote is refused (ErrTakeoverGate).
+	Dispatch bool
+	// TowerPollInterval is how often the hosted Tower steps; tower.DefaultPollInterval when zero.
+	TowerPollInterval time.Duration
+	Version           string       // lucy's version
+	Log               *slog.Logger // slog.Default when nil
 	// OnReady is called once the socket accepts connections.
 	OnReady func(socketPath string)
 }
@@ -148,7 +156,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	set, err := loadResources(ctx, store, opts.ResourcesDir, log)
+	set, err := loadResources(opts.ResourcesDir)
 	if err != nil {
 		return err
 	}
@@ -195,7 +203,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	worktrees := &worktree.Source{Pool: &worktree.Pool{Store: store, Root: wtRoot, Git: opts.WorktreeGit}, Remote: opts.WorktreeRemote,
-		Context: ctx, Timeout: opts.WorktreePrepareTimeout, Log: log}
+		Gate: takeoverGate, Context: ctx, Timeout: opts.WorktreePrepareTimeout, Log: log}
 	worktrees.SetRunways(set.Admitted())
 	defer func() { stop(nil); worktrees.Wait() }()
 	// A preparation or release a stop cut short is settled before anything is leased: a slot left
@@ -211,6 +219,27 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("daemon: recover the worktree pool: %w", err)
 	}
 	gateways.Capabilities = caps
+	poll := opts.TowerPollInterval
+	if poll <= 0 {
+		poll = tower.DefaultPollInterval
+	}
+	gate := func(org, project string) error {
+		remote, ok, err := worktrees.RemoteOf(org, project)
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrTakeoverGate, err)
+		}
+		if !ok {
+			return nil
+		}
+		return takeoverGate(remote)
+	}
+	hosted, err := startTower(ctx, store, broker, &set, poll, log, opts.Dispatch, gate)
+	if err != nil {
+		return fmt.Errorf("daemon: start the tower: %w", err)
+	}
+	if err := recordResources(ctx, store, set, log); err != nil {
+		return err
+	}
 	srv, err := server.New(server.Options{
 		Store:        store,
 		Version:      opts.Version,
@@ -222,6 +251,7 @@ func Run(ctx context.Context, opts Options) error {
 		Capabilities: caps,
 		Worktrees:    worktrees,
 		CallTimeout:  opts.CallTimeout,
+		Questions:    server.TowerQuestions{Tower: hosted.tw, Lock: &hosted.mu},
 	})
 	if err != nil {
 		return err
@@ -237,6 +267,11 @@ func Run(ctx context.Context, opts Options) error {
 	go func() {
 		defer close(expiring)
 		expireLeases(ctx, broker, caps, log)
+	}()
+	towering := make(chan struct{})
+	go func() {
+		defer close(towering)
+		hosted.run(ctx, poll)
 	}()
 	log.Info("lucy daemon serving", "socket", sock, "api", api.Path, "version", opts.Version)
 	if opts.OnReady != nil {
@@ -260,6 +295,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	stop(nil)
 	<-expiring
+	<-towering
 	worktrees.Wait()
 	if _, err := store.Append(shutdownCtx, DaemonStream, eventstore.AnyVersion, "daemon",
 		Stopped{PID: os.Getpid(), Reason: reason}); err != nil {
@@ -332,10 +368,9 @@ func openStore(ctx context.Context, opts Options) (*eventstore.Store, error) {
 }
 
 // loadResources loads the config directory through the same path as `lucy config validate`
-// (spec.LoadDir) and records each resource's status in the event store, never in the files
-// (LUCY-SPEC-003). Refused resources do not stop the daemon: they are recorded as Valid=False
-// and are not admitted. A directory that cannot be read at all is an error.
-func loadResources(ctx context.Context, store *eventstore.Store, dir string, log *slog.Logger) (spec.Set, error) {
+// (spec.LoadDir). Refused resources do not stop the daemon: recordResources records them as
+// Valid=False and they are not admitted. A directory that cannot be read at all is an error.
+func loadResources(dir string) (spec.Set, error) {
 	if dir == "" {
 		var err error
 		if dir, err = config.ResourcesDir(); err != nil {
@@ -349,17 +384,24 @@ func loadResources(ctx context.Context, store *eventstore.Store, dir string, log
 	case err != nil:
 		return spec.Set{}, fmt.Errorf("daemon: %w", err)
 	}
+	return set, nil
+}
+
+// recordResources records each loaded resource's status in the event store, never in the files
+// (LUCY-SPEC-003), once the hosted Tower has added each Ready Flight's Dispatched condition. Only
+// a changed status is appended.
+func recordResources(ctx context.Context, store *eventstore.Store, set spec.Set, log *slog.Logger) error {
 	sum, err := spec.Record(ctx, store, "daemon", set)
 	if err != nil {
-		return spec.Set{}, fmt.Errorf("daemon: record config status: %w", err)
+		return fmt.Errorf("daemon: record config status: %w", err)
 	}
 	level := slog.LevelInfo
 	if set.Invalid() > 0 {
 		level = slog.LevelWarn
 	}
-	log.Log(ctx, level, "config loaded", "dir", dir, "resources", len(set.Results), "refused", set.Invalid(),
+	log.Log(ctx, level, "config loaded", "dir", set.Dir, "resources", len(set.Results), "refused", set.Invalid(),
 		"changed", sum.Changed, "removed", sum.Removed)
-	return set, nil
+	return nil
 }
 
 // gatewayRoutes reads each org's credential gateway routes from its SecretStore binding. A binding

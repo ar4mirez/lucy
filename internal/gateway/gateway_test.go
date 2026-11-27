@@ -797,3 +797,31 @@ func TestACapabilityRevokedBeforeTheDecisionIsRefused(t *testing.T) {
 		t.Fatalf("denied %+v, %v", d, err)
 	}
 }
+
+// Pilots get no push capability while the takeover gate is closed: a git push, or its
+// advertisement, is refused and recorded whatever the route allows, and never forwarded; a read
+// is not affected.
+func TestRefusesEveryGitPush(t *testing.T) {
+	f := open(t, func(c *gateway.Config) {
+		c.Routes[0].Allow = append(c.Routes[0].Allow, gateway.Rule{Methods: []string{"GET", "POST"}, Path: "/acme"})
+	})
+	for _, c := range []struct{ method, path string }{
+		{"POST", "/github/acme/web.git/git-receive-pack"},
+		{"GET", "/github/acme/web.git/info/refs?service=git-receive-pack"},
+		{"GET", "/github/acme/web.git/info/refs?service=git%2Dreceive%2Dpack"},
+	} {
+		if status, _, _ := f.call(c.method, c.path, nil); status != http.StatusForbidden {
+			t.Errorf("%s %s: status %d, want 403", c.method, c.path, status)
+		}
+		ev := f.lastGateway()
+		if ev.Type != "gateway.denied" || !bytes.Contains(ev.Payload, []byte("takeover gate")) {
+			t.Errorf("%s %s: recorded %s %s", c.method, c.path, ev.Type, ev.Payload)
+		}
+	}
+	if f.up.count() != 0 {
+		t.Fatalf("a push reached the upstream %d times", f.up.count())
+	}
+	if status, _, body := f.call("GET", "/github/acme/web.git/info/refs?service=git-upload-pack", nil); status != http.StatusOK {
+		t.Fatalf("a fetch advertisement: %d %s", status, body)
+	}
+}

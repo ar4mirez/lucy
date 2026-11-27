@@ -20,7 +20,8 @@ Lists the Pilots' open questions, as the Tower records them: each flight that is
 its airspace and runway, when it started asking and its question, oldest first. A Pilot has no
 other way to reach you. Answer one with ` + "`lucy answer`" + `.
 
-The daemon does not host the Tower yet (m1 slice 7a), so in production the list is always empty.
+The questions come from the flights the daemon's hosted Tower flies; it dispatches Ready Flights
+only when the daemon was started with --dispatch.
 `
 
 const answerUsage = `Usage:
@@ -29,8 +30,7 @@ const answerUsage = `Usage:
 Answers a flight's open question. The Tower relays the answer to its Pilot, through the runner's
 heartbeat, and the log keeps only the answer's digest. The words after the flight are the answer.
 
-The daemon does not host the Tower yet (m1 slice 7a), so in production this answers nothing: the
-daemon reports it unavailable.
+Only a flight that is asking can be answered.
 `
 
 func runQuestions(args []string, stdout, stderr io.Writer) int {

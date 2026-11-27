@@ -2,7 +2,7 @@
 id: tech-gateway
 title: The credential gateway
 status: active
-version: 5
+version: 6
 owner: ar4mirez
 requirements: [LUCY-CRED-001, LUCY-CRED-004, LUCY-CRED-005, LUCY-SPEC-016]
 ---
@@ -63,6 +63,12 @@ How a worker reaches a service without ever holding its credential (TECH.md sect
   an error; none of it reaches the worker.
 - **Fails closed.** An unknown route, a refused path or address, a credential that cannot be read,
   or a decision that cannot be recorded is a refusal; nothing is forwarded without its record.
+- **No git push.** While the takeover gate is closed (#36 and the owner's go/no-go), Pilots get no
+  push capability: a request whose path ends in `/git-receive-pack` or whose query asks for
+  `git-receive-pack` (as `info/refs?service=git-receive-pack` does) is refused with a 403 and
+  recorded as `gateway.denied` with a fixed reason naming the gateway, whatever the route allows,
+  and a route whose allow rule names `git-receive-pack` is refused at load (`gateway.ErrPush`).
+  Fetches (`git-upload-pack`) and API reads are not affected.
 
 ## The Pilot's environment
 

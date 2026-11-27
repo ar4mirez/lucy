@@ -77,7 +77,7 @@ func BindingFrom(r spec.Resource) (org string, routes []Route, ok bool, err erro
 			return fail("config.routes[%d]: %v", i, err)
 		}
 		if _, err := checkRoute(rt); err != nil {
-			return fail("config.routes[%d]: %v", i, err)
+			return fail("config.routes[%d]: %w", i, err)
 		}
 		if slices.ContainsFunc(routes, func(o Route) bool { return o.Name == rt.Name }) {
 			return fail("config.routes[%d]: route %q is defined twice", i, rt.Name)

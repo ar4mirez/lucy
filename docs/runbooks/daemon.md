@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 22
+version: 23
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-RUN-005, LUCY-OPS-005, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -160,8 +160,26 @@ lucy questions                       # every flight that is asking, oldest first
 lucy answer f1 use the staging account   # relayed to the Pilot by the Tower; the log keeps a digest
 ```
 
-The daemon does not host the Tower yet (m1 slice 7a): until it does, `lucy questions` lists
-nothing and `lucy answer` is refused as `unavailable`.
+The daemon hosts the Tower and steps the flights in its log every minute, but it dispatches no
+Flight unless started with `lucy daemon --dispatch`. With it, at start it dispatches every Flight
+in the config directory whose `Ready` condition is True and that it does not fly yet, by the
+Flight's name, starting its Pilot through the runner protocol. A Flight that is not Ready is never
+dispatched. `lucy config status` shows each Ready Flight's `Dispatched` condition:
+
+| Status / reason | Meaning |
+|---|---|
+| True / `Dispatched` | this start dispatched it |
+| True / `InFlight` | the Tower is flying it from its log, dispatched by an earlier start, with or without `--dispatch` now |
+| False / `DispatchDisabled` | nothing flies it and the daemon was started without `--dispatch` |
+| False / `TakeoverGate` | its Runway names a repository whose remote, symlinks resolved, is not a `file://` URL or absolute path under lucy's data directory or the system temp directory; real repositories are refused until runs have an OS boundary of their own (#36) and the owner's go/no-go |
+| False / `NameInUse` | a flight of another org or runway holds its name; rename the Flight |
+| False / `Finished` | the flight with its name is finished (grounded, takeoff or merged outside); a new Flight needs a new name |
+| False / `DispatchFailed` | the Tower refused it; the message says why |
+
+The Tower's forge is a stub that reads no pull request and merges nothing until the validation
+slice. The gate is checked again whenever a run is leased: a run whose Runway names a real remote
+gets the gate as its `worktree_error`, with nothing reserved or cloned, and fails without starting.
+The gateway refuses every git push (see [gateway](../tech/gateway.md)).
 
 ## Container operations
 

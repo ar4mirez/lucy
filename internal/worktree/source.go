@@ -25,6 +25,9 @@ type Source struct {
 	// Remote names the remote of a Runway's repository (owner/name on the forge):
 	// https://github.com/<owner>/<name>.git when nil.
 	Remote func(repository string) string
+	// Gate, when set, is applied to every remote before a slot of it is reserved: a remote it
+	// refuses gives the run no checkout, and nothing is reserved or cloned.
+	Gate func(remote string) error
 	// Context is the daemon's: every background preparation and release runs under it, and stops
 	// only when it ends. context.Background when nil.
 	Context context.Context
@@ -87,6 +90,13 @@ func (s *Source) repoOf(org string, rw runway) (Repo, error) {
 	return Repo{Org: org, Name: strings.ToLower(name), Remote: remote}, nil
 }
 
+// RemoteOf returns the remote a run of org's project fetches, as Acquire resolves it, and
+// whether the project's Runway names a repository at all.
+func (s *Source) RemoteOf(org, project string) (remote string, ok bool, err error) {
+	repo, _, ok, err := s.repo(org, project)
+	return repo.Remote, ok, err
+}
+
 // repoNamed is org's pool repository name, from the org's Runways, and whether one names it.
 func (s *Source) repoNamed(org, name string) (Repo, bool) {
 	for key, rw := range s.runways {
@@ -109,6 +119,11 @@ func (s *Source) Acquire(ctx context.Context, org, project, run, base string) (l
 	repo, rw, ok, err := s.repo(org, project)
 	if !ok || err != nil {
 		return Lease{}, ok, err
+	}
+	if s.Gate != nil {
+		if err := s.Gate(repo.Remote); err != nil {
+			return Lease{}, true, err
+		}
 	}
 	if base == "" {
 		base = rw.base
