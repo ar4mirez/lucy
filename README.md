@@ -2,7 +2,7 @@
 id: readme
 title: lucy
 status: active
-version: 10
+version: 11
 owner: ar4mirez
 requirements: [LUCY-REPO-001, LUCY-REPO-006]
 ---
@@ -28,8 +28,8 @@ protocol, with a Pilot's file, shell and fetch prompts decided by the policy eng
 and `lucy answer` show and answer the Pilots' questions through the Tower. `lucy sandbox` shows and
 confirms org container operations that would stop live sessions, and `lucy gateway`, `lucy vault`
 and `lucy capability` run an org's credential gateway, its encrypted credential vault and the
-runs' capability tokens; placing runners inside org containers waits on berth, and the vault must
-not hold real credentials until its keys are wrapped at rest. See the
+runs' capability tokens, the vault's org keys wrapped under the owner's vault passphrase; placing
+runners inside org containers waits on berth. See the
 [milestones](docs/milestones/README.md) for what lands next and [PRODUCT.md](PRODUCT.md) for the plan.
 
 ## Install

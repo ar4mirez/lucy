@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 18
+version: 20
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,15 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Added
+
+- The vault's org keys are wrapped at rest under a key derived from a vault passphrase
+  (PBKDF2-HMAC-SHA256, 600,000 iterations, a random salt), so a copy of the whole vault opens
+  nothing without it (decision D14). `lucy vault set` and `lucy gateway` take `--passphrase-file`
+  (a file only its owner can read, outside the vault and lucy's data directory), else ask once on
+  the terminal with echo off; never an argument or the environment. The first `set` on a new vault, or one from before keys were wrapped, sets
+  the passphrase and wraps every key; after that a plain key is refused. A wrong passphrase is
+  recorded as a failed vault change with the new reason "the vault is locked or its passphrase is
+  wrong".
 
 - A runner drains on SIGTERM: it leases nothing more, lets each run it holds carry on to its end,
   then exits 0, so a planned restart or upgrade of a runner loses no work. `lucy runner drain`

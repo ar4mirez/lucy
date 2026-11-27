@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 12
+version: 14
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-SEC-002, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -64,22 +64,31 @@ An org's credentials are kept in lucy's vault ([vault](docs/tech/vault.md)), eac
 AES-256-GCM under that org's own 32-byte key and bound to its org and name, so one org's key opens
 nothing of another's and a sealed file moved or changed does not open (LUCY-CRED-002).
 
-- **Where the keys are.** `keys/<org>.key` in the vault directory (0700), each 0600, written once
-  from the system's random source; the sealed credentials are under `orgs/`, apart from them. A
-  copy of `orgs/` alone, a backup without `keys/` (lucy's backups, m2, leave it out), reveals
-  nothing.
+- **Where the keys are.** `keys/<org>.wkey` in the vault directory (0700), each 0600, made once
+  from the system's random source and sealed with AES-256-GCM under a key-encryption key derived
+  from the owner's vault passphrase with PBKDF2-HMAC-SHA256 (600,000 iterations, a random salt;
+  [D14](docs/decisions/D14-vault-passphrase-kek.md)). The passphrase and the derived key are never
+  stored; `keys/kek` holds only the salt, the iteration count and a check value. The sealed
+  credentials are under `orgs/`, apart from the keys. A vault from before keys were wrapped is
+  migrated on its first unlock, its plain keys removed; after that a plain key is refused.
+- **The passphrase.** `lucy gateway` and `lucy vault set` read it from `--passphrase-file` (a
+  plain file only its owner can read, outside the vault and lucy's data directory), else ask once
+  on the terminal with echo off; never from an argument or the environment. It is 12 to 1024 bytes. A lost passphrase cannot be recovered.
 - **Who reads them.** Only the org's gateway process, for its own org; no agent, runner or
   container ever has a key or a credential, and the daemon holds neither.
-- **What this protects against.** A copy of the vault's data without its keys, and one org's
-  gateway reaching another's credentials through the vault. It does not protect against someone
-  who can already read the owner's files, who can read the keys too: that is the host's account
-  security (`lucy preflight --check`, m1 slice 15). Keeping the keys in an OS keystore instead is a
-  later choice for the owner.
+- **What this protects against.** A copy of the vault, keys included, without the passphrase;
+  and one org's gateway reaching another's credentials through the vault. It does not protect
+  against someone who can run code as the owner's user while a gateway is running and read the
+  derived key from its memory, or read a passphrase file: that is the host's account security
+  (`lucy preflight --check`, m1 slice 15). An OS keystore or a hardware-backed key stays a later
+  option.
 - **Rotation and erasure.** Replacing a credential is `lucy vault set`; deleting an org's key
   erases all its credentials at once, which offboarding will use (m2). A crash while a key is being
-  published can leave `keys/<org>.key.tmp-<hex>`, a second copy of the live key, so erasing an org
-  deletes `keys/<org>.key` and every `keys/<org>.key.tmp-*` beside it.
-- **Tests** use keys and credentials they generate; nothing reads a real credential.
+  published can leave `keys/<org>.wkey.tmp-<hex>`, a second copy of the wrapped key, so erasing an
+  org deletes `keys/<org>.wkey` and every `keys/<org>.wkey.tmp-*` beside it; the first unlock
+  removes any plain `keys/<org>.key.tmp-*` from before keys were wrapped. Changing the passphrase
+  is not built yet.
+- **Tests** use keys, passphrases and credentials they generate; nothing reads a real credential.
 
 ## Capability tokens
 

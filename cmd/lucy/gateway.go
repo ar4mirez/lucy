@@ -20,7 +20,7 @@ import (
 )
 
 const gatewayUsage = `Usage:
-  lucy gateway --org <org> [--socket <path>] [--listen <path>] [--vault <dir>]
+  lucy gateway --org <org> [--socket <path>] [--listen <path>] [--vault <dir>] [--passphrase-file <file>]
 
 Runs an org's credential gateway: the one place the org's credentials are used, outside its
 container. A worker calls http://<gateway>/<route>/<path> instead of the service; the gateway
@@ -32,13 +32,18 @@ loaded it. The gateway listens on a Unix socket (by default gateway/<org>.sock i
 directory, 0600) and records every request through the daemon.
 
 The org's credentials come from the vault (` + "`lucy vault`" + `), and only that org's: a route whose
-credential the vault does not hold is refused, and the refusal recorded.
+credential the vault does not hold is refused, and the refusal recorded. The gateway unlocks the
+vault once, at start, with the vault passphrase: from --passphrase-file, else asked once on the
+terminal; never an argument or the environment (see ` + "`lucy vault --help`" + `). Run headless, under a
+service manager, point --passphrase-file at a 0400 file or a service credential.
 
 Flags:
   --org <org>        the org whose gateway this is (required)
   --socket <path>    the daemon's socket
   --listen <path>    the gateway's own socket
   --vault <dir>      the vault (vault/ in lucy's data directory by default)
+  --passphrase-file <file>
+                     the vault passphrase, in a file only its owner can read, outside the vault
 `
 
 func runGateway(args []string, stdout, stderr io.Writer) int {
@@ -48,6 +53,7 @@ func runGateway(args []string, stdout, stderr io.Writer) int {
 	org := fs.String("org", "", "")
 	listen := fs.String("listen", "", "")
 	vaultDir := fs.String("vault", "", "")
+	passFile := fs.String("passphrase-file", "", "")
 	if code, ok := parseFlags(fs, args, gatewayUsage, "lucy gateway --help", stdout, stderr); !ok {
 		return code
 	}
@@ -69,12 +75,16 @@ func runGateway(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	v, err := openVault(*vaultDir)
+	v, vdir, err := openVault(*vaultDir)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
 	defer v.Close()
+	if err := unlockVault(v, *passFile, vdir); err != nil {
+		fmt.Fprintf(stderr, "error: %v\nhelp: run `lucy gateway --help`\n", err)
+		return 1
+	}
 	c, code := dial(*sock, stderr)
 	if c == nil {
 		return code

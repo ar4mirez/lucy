@@ -44,11 +44,12 @@ const (
 	ReasonCorrupt  = "a key or sealed credential does not open"
 	ReasonInsecure = "an insecure file or directory"
 	ReasonInvalid  = "an invalid org, credential name or value"
+	ReasonLocked   = "the vault is locked or its passphrase is wrong"
 	ReasonFailed   = "the vault operation failed"
 )
 
 // FailureReasons is every reason a failed change records.
-var FailureReasons = []string{ReasonNotFound, ReasonCorrupt, ReasonInsecure, ReasonInvalid, ReasonFailed}
+var FailureReasons = []string{ReasonNotFound, ReasonCorrupt, ReasonInsecure, ReasonInvalid, ReasonLocked, ReasonFailed}
 
 // IsFailureReason reports whether s is one of FailureReasons.
 func IsFailureReason(s string) bool { return slices.Contains(FailureReasons, s) }
@@ -64,6 +65,8 @@ func FailureReason(err error) string {
 		return ReasonInsecure
 	case errors.Is(err, ErrInvalid):
 		return ReasonInvalid
+	case errors.Is(err, ErrLocked), errors.Is(err, ErrPassphrase):
+		return ReasonLocked
 	}
 	return ReasonFailed
 }

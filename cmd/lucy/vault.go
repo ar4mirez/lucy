@@ -17,7 +17,8 @@ import (
 )
 
 const vaultUsage = `Usage:
-  lucy vault set [--dir <dir>] [--socket <path>] --org <org> <name>    the value is read from stdin
+  lucy vault set [--dir <dir>] [--socket <path>] [--passphrase-file <file>] --org <org> <name>
+                                                                      the value is read from stdin
   lucy vault ls  [--dir <dir>] --org <org>
   lucy vault rm  [--dir <dir>] [--socket <path>] --org <org> <name>
 
@@ -37,6 +38,17 @@ and again once it is done or has failed; with no daemon running the change is re
 
 The vault is vault/ in lucy's data directory by default: keys/ holds each org's key, orgs/ the
 sealed credentials, all only its owner can open.
+
+Each org's key is itself sealed under a key derived from the vault passphrase (PBKDF2-HMAC-SHA256
+with a random salt), which lucy never stores: without it nothing in the vault opens. set and
+lucy gateway need it; ls and rm do not. lucy reads it from --passphrase-file <file>, a file only
+its owner can read (0400) outside the vault and lucy's data directory (under systemd, for
+example, --passphrase-file ${CREDENTIALS_DIRECTORY}/lucy-vault); or else asks for it once on
+the terminal, with echo off. Never from an argument or the environment. The
+passphrase is 12 to 1024 bytes; one trailing newline in the file is dropped. The first set on a
+new vault, or on one made before keys were wrapped, sets the passphrase (asked twice on a
+terminal) and wraps every key there is; after that a key not wrapped is refused. A lost
+passphrase cannot be recovered: keep it in your password manager.
 `
 
 // stdin and stdinIsTerminal are the command's input; tests replace them.
@@ -57,18 +69,21 @@ func defaultVaultDir() (string, error) {
 	return filepath.Join(data, "vault"), nil
 }
 
-func openVault(dir string) (*vault.Vault, error) {
+// openVault opens the vault in dir (defaultVaultDir when empty) and returns it with its absolute
+// directory.
+func openVault(dir string) (*vault.Vault, string, error) {
 	if dir == "" {
 		var err error
 		if dir, err = defaultVaultDir(); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 	}
 	dir, err := filepath.Abs(dir)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return vault.Open(dir)
+	v, err := vault.Open(dir)
+	return v, dir, err
 }
 
 func runVault(args []string, stdout, stderr io.Writer) int {
@@ -91,6 +106,7 @@ func runVault(args []string, stdout, stderr io.Writer) int {
 	dir := fs.String("dir", "", "")
 	org := fs.String("org", "", "")
 	sock := fs.String("socket", "", "")
+	passFile := fs.String("passphrase-file", "", "")
 	if code, ok := parseFlagsAllowingArgs(fs, args[1:], vaultUsage, "lucy vault --help", stdout, stderr); !ok {
 		return code
 	}
@@ -130,7 +146,7 @@ func runVault(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	v, err := openVault(*dir)
+	v, vdir, err := openVault(*dir)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
@@ -138,7 +154,16 @@ func runVault(args []string, stdout, stderr io.Writer) int {
 	defer v.Close()
 	switch sub {
 	case "set":
-		return recordedChange(*sock, *org, name, vault.OpSet, func() error { return v.Set(*org, name, value) },
+		// Unlocked as part of the recorded change: the first unlock of a vault sets its passphrase
+		// and wraps its keys, which nothing does without a record, and a wrong passphrase is
+		// recorded as a failed change.
+		set := func() error {
+			if err := unlockVault(v, *passFile, vdir); err != nil {
+				return err
+			}
+			return v.Set(*org, name, value)
+		}
+		return recordedChange(*sock, *org, name, vault.OpSet, set,
 			fmt.Sprintf("set: %s/%s\n", *org, name), stdout, stderr)
 	case "ls":
 		entries, err := v.Names(*org)

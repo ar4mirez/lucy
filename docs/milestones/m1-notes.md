@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 3
+version: 5
 owner: ar4mirez
 requirements: []
 ---
@@ -89,19 +89,19 @@ slice table, requirement status and exit tests stay in the plan.
   credentials sealed with AES-256-GCM under the org's own 32-byte key, bound to the org and name,
   keys kept apart from the sealed files, every file operation confined to the vault by `os.Root`.
   `lucy vault set|ls|rm` manages it (a value only from stdin, never a terminal), and `lucy gateway`
-  reads its own org's credentials from it, before it looks any upstream up. The org keys must be
-  wrapped at rest (#32) before any real credential is put in the vault; until then it holds test
-  values only. Capability tokens ([capabilities](../tech/capability.md)): the daemon issues each
+  reads its own org's credentials from it, before it looks any upstream up. Each org key is
+  wrapped under a key derived from the vault passphrase ([D14](../decisions/D14-vault-passphrase-kek.md),
+  PBKDF2-HMAC-SHA256, `Vault.Unlock`), which `lucy vault set` and `lucy gateway` read from
+  `--passphrase-file` or the terminal; a vault from before
+  wrapping is migrated on its first unlock. Capability tokens ([capabilities](../tech/capability.md)): the daemon issues each
   leased run a token for its org's routes, bound to the lease and at most four hours, keeping only
   its digest; the gateway requires it and the daemon checks it before deciding, and the owner
   lists and revokes them with `lucy capability`. Every `lucy vault set` and `rm` is recorded in
   the audit chain through the daemon, before and after the change, by name only; with no daemon
   it refuses.
 - **What remains of slice 4.** Each item and what it waits on:
-  1. The org keys wrapped at rest with a key that does not sit beside them (#32; the options are
-     on the issue): needs the owner's choice of key-encryption key (OS keyring or secret service, a passphrase-derived key,
-     or a hardware-backed one, and the fallback), recorded as a decision; required before any real
-     credential is put in the vault.
+  1. Built, as decided in [D14](../decisions/D14-vault-passphrase-kek.md): the org keys wrapped
+     under a passphrase-derived key (#32). Left: changing the passphrase.
   2. Built, as decided in [D13](../decisions/D13-run-gateway-socket.md): a run reaches its org's
      gateway through its own gateway socket, which the runner fronts and which adds the run's
      token, so the runner never puts the token in the Pilot's process; the host serves one org.
