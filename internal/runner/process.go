@@ -99,6 +99,7 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 	}
 	cmd.Stdout = pe
 	cmd.Stderr = pe
+	ownProcessGroup(cmd)
 	cmd.WaitDelay = p.StopGrace
 	if cmd.WaitDelay <= 0 {
 		cmd.WaitDelay = 2 * time.Second
@@ -217,7 +218,7 @@ func (pe *processExecution) Poll() Update {
 	return u
 }
 
-// Stop implements Execution: it kills the program.
+// Stop implements Execution: it kills the program and every process it started.
 func (pe *processExecution) Stop() {
 	pe.mu.Lock()
 	if pe.result != nil || pe.stopped {
@@ -227,6 +228,6 @@ func (pe *processExecution) Stop() {
 	pe.stopped = true
 	pe.mu.Unlock()
 	if pe.cmd != nil && pe.cmd.Process != nil {
-		_ = pe.cmd.Process.Kill() // an already exited program is fine
+		_ = killProcessGroup(pe.cmd) // an already exited program is fine
 	}
 }

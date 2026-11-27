@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -37,6 +38,19 @@ func helper(goal string) int {
 		fmt.Println("giving up")
 		return 3
 	case "hang":
+		time.Sleep(time.Minute)
+		return 0
+	case "spawn":
+		exe, err := os.Executable()
+		if err != nil {
+			return 8
+		}
+		gc := exec.Command(exe)
+		gc.Env = append(os.Environ(), "LUCY_RUN_GOAL=hang")
+		if err := gc.Start(); err != nil {
+			return 8
+		}
+		fmt.Println("grandchild", gc.Process.Pid)
 		time.Sleep(time.Minute)
 		return 0
 	}
