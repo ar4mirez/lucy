@@ -275,3 +275,81 @@ func TestAFlightNameInUseIsNotDispatched(t *testing.T) {
 		t.Fatalf("the Dispatched condition: %+v", d)
 	}
 }
+
+// The takeover gate holds where every run gets its checkout: a flight dispatched while its Runway
+// named no repository, whose Runway then names a real remote, is leased with the gate as its
+// worktree error, after a restart without --dispatch, and no slot is reserved.
+func TestTheTakeoverGateHoldsAtLease(t *testing.T) {
+	o := opts(shortTempDir(t))
+	o.TowerPollInterval = 20 * time.Millisecond
+	o.Dispatch = true
+	o.WorktreeRoot = filepath.Join(shortTempDir(t), "worktrees")
+	writeFlights(t, o, "spec: {}")
+	r := startDaemon(t, o)
+	c := client.New(r.sock, "test", "0")
+	if n := queued(t, c); n != 1 {
+		t.Fatalf("%d runs queued, want 1", n)
+	}
+	if _, err := c.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	if err := r.wait(t); err != nil {
+		t.Fatal(err)
+	}
+	o.Dispatch = false
+	writeFlights(t, o, "spec: { repository: acme/web }")
+	c = startClient(t, o)
+	ctx := context.Background()
+	l, err := c.RunnerLease(ctx, api.LeaseParams{Runner: "acme-host-1", Org: "acme"})
+	if err != nil || !l.Leased {
+		t.Fatalf("lease: %+v, %v", l, err)
+	}
+	if !strings.Contains(l.Run.WorktreeError, "takeover gate") || l.Run.Worktree != "" {
+		t.Fatalf("the lease's worktree: %q, error %q", l.Run.Worktree, l.Run.WorktreeError)
+	}
+	slots, err := c.Worktrees(ctx, "")
+	if err != nil || len(slots.Slots) != 0 {
+		t.Fatalf("slots: %+v, %v", slots, err)
+	}
+}
+
+// A Ready Flight whose name a finished flight of its org and runway holds is not dispatched, and
+// its status says so rather than that the Tower flies it.
+func TestAFinishedFlightNameIsNotReused(t *testing.T) {
+	o := opts(shortTempDir(t))
+	o.TowerPollInterval = 20 * time.Millisecond
+	o.Dispatch = true
+	writeFlights(t, o, "spec: {}")
+	r := startDaemon(t, o)
+	c := client.New(r.sock, "test", "0")
+	ctx := context.Background()
+	var l api.LeaseResult
+	for deadline := time.Now().Add(10 * time.Second); !l.Leased; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the flight's run was never leased")
+		}
+		var err error
+		if l, err = c.RunnerLease(ctx, api.LeaseParams{Runner: "acme-host-1", Org: "acme"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := c.RunnerFinish(ctx, api.FinishParams{Runner: "acme-host-1", Run: l.Run.Run, Fence: l.Run.Fence, Outcome: "failed", Reason: "gave up"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond) // a few Tower steps: the flight is grounded
+	if _, err := c.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	if err := r.wait(t); err != nil {
+		t.Fatal(err)
+	}
+	c = startClient(t, o)
+	if n := queued(t, c); n != 1 {
+		t.Fatalf("%d runs, want the first flight's only", n)
+	}
+	if d := dispatched(t, c, "acme", "fix-login"); d.Status != "False" || d.Reason != ReasonFinished || !strings.Contains(d.Message, "grounded") {
+		t.Fatalf("the Dispatched condition: %+v", d)
+	}
+}

@@ -23,9 +23,11 @@ Changes since the last release. When a version is cut, its section moves to
   `Dispatched` condition (`lucy config status`): True, or False with reason `DispatchDisabled`,
   `TakeoverGate` (its Runway names a repository whose remote is not a local fixture under lucy's
   data directory or the system temp directory: real repositories are refused until #36 and the
-  owner's go/no-go), `NameInUse` (a flight of another org or runway has its name) or
+  owner's go/no-go), `NameInUse` (a flight of another org or runway has its name), `Finished` (a finished flight has
+  its name) or
   `DispatchFailed`. The Tower's forge is a stub that reads no pull request and merges nothing until
-  the validation slice.
+  the validation slice. The gate also holds at every lease: a run whose Runway names a real remote
+  gets no checkout, only the gate as its worktree error.
 - The credential gateway refuses every git push while the takeover gate is closed: a request whose
   path ends in `/git-receive-pack` or whose query asks for `git-receive-pack` is refused, recorded
   as `gateway.denied` and never forwarded, and a binding whose route allows a path naming

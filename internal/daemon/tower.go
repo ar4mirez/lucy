@@ -68,6 +68,7 @@ const (
 	ReasonDispatchDisabled = "DispatchDisabled"
 	ReasonTakeoverGate     = "TakeoverGate"
 	ReasonNameInUse        = "NameInUse"
+	ReasonFinished         = "Finished"
 	ReasonDispatchFailed   = "DispatchFailed"
 )
 
@@ -119,8 +120,8 @@ func startTower(ctx context.Context, store *eventstore.Store, broker *runner.Bro
 // dispatch decides, for every admitted Flight whose Ready condition is True, whether the Tower
 // flies it, and records why as its Dispatched condition. A Flight that is not Ready is never
 // dispatched (LUCY-SPEC-012). Without dispatch on, none is. A Flight the Tower flies already, by
-// its name, in its namespace and runway, was dispatched by an earlier start; one whose name a
-// flight of another org or runway holds is not dispatched.
+// its name, in its namespace and runway, was dispatched by an earlier start, unless it is
+// finished; one whose name a flight of another org or runway holds is not dispatched.
 func (h *hostedTower) dispatch(ctx context.Context, set *spec.Set, enabled bool, gate func(org, project string) error) {
 	bases := map[string]string{}
 	for _, r := range set.Admitted() {
@@ -150,6 +151,11 @@ func (h *hostedTower) dispatch(ctx context.Context, set *spec.Set, enabled bool,
 			if f.Org != org || f.Project != project {
 				h.log.Warn("flight not dispatched: its name is in use", "flight", r.ID(), "in_use_by", f.Org+"/"+f.ID, "runway", f.Project, "state", f.State)
 				mark(spec.False, ReasonNameInUse, fmt.Sprintf("the name is in use by flight %s of org %s, runway %s (%s); give the Flight a new name", f.ID, f.Org, f.Project, f.State))
+				continue
+			}
+			if f.State.Final() {
+				h.log.Warn("flight not dispatched: a finished flight has its name", "flight", r.ID(), "state", f.State)
+				mark(spec.False, ReasonFinished, fmt.Sprintf("flight %s is %s; a new Flight needs a new name", f.ID, f.State))
 				continue
 			}
 			mark(spec.True, ReasonDispatched, "the Tower flies it")

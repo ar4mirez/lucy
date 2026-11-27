@@ -107,12 +107,14 @@ Pilot's process, environment or files ([D13](docs/decisions/D13-run-gateway-sock
 not a boundary against the Pilot itself: a Pilot on the host runs as the daemon's uid, which the
 daemon grants every scope, so it can reach the daemon API with full authority for its own org,
 `runner.lease` and the token it returns included, until runs get an OS boundary of their own
-([#36](https://github.com/ar4mirez/lucy/issues/36), LUCY-RUN-006, berth#216). No Pilot runs real work on the host before then, and the
-code enforces it: the daemon dispatches no Flight unless started with `--dispatch`, refuses even
-then any Flight whose Runway names a repository that is not a local fixture under lucy's data
-directory or the system temp directory (`daemon.ErrTakeoverGate`), and the gateway refuses every
-git push (`git-receive-pack`), so a Pilot can neither work on nor push to a real repository until
-#36 and the owner's go/no-go. Any process of the run can
+([#36](https://github.com/ar4mirez/lucy/issues/36), LUCY-RUN-006, berth#216). No Pilot runs real work on the host before then. What
+the code enforces until #36 and the owner's go/no-go: the daemon dispatches no Flight unless
+started with `--dispatch`, and even then none whose Runway names a repository that is not a local
+fixture under lucy's data directory or the system temp directory (`daemon.ErrTakeoverGate`); it
+gives no run a checkout of such a repository, whenever the run is leased, so a flight already in
+the log whose Runway later names a real remote gets the gate as its worktree error and nothing is
+reserved or cloned; and the gateway carries no git push (`git-receive-pack`). It does not stop a
+host Pilot from using the daemon user's own git or SSH credentials: that is #36. Any process of the run can
 still act with its token, through that socket, for the run's life and within its org, routes and
 lease. Isolation between orgs holds across containers or uids, not within one: the socket's modes
 keep out other users, but every process of the same uid can reach every other's socket. So the

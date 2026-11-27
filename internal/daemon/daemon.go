@@ -203,7 +203,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	worktrees := &worktree.Source{Pool: &worktree.Pool{Store: store, Root: wtRoot, Git: opts.WorktreeGit}, Remote: opts.WorktreeRemote,
-		Context: ctx, Timeout: opts.WorktreePrepareTimeout, Log: log}
+		Gate: takeoverGate, Context: ctx, Timeout: opts.WorktreePrepareTimeout, Log: log}
 	worktrees.SetRunways(set.Admitted())
 	defer func() { stop(nil); worktrees.Wait() }()
 	// A preparation or release a stop cut short is settled before anything is leased: a slot left

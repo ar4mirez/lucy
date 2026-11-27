@@ -172,10 +172,13 @@ dispatched. `lucy config status` shows each Ready Flight's `Dispatched` conditio
 | False / `DispatchDisabled` | the daemon was started without `--dispatch` |
 | False / `TakeoverGate` | its Runway names a repository whose remote, symlinks resolved, is not a `file://` URL or absolute path under lucy's data directory or the system temp directory; real repositories are refused until runs have an OS boundary of their own (#36) and the owner's go/no-go |
 | False / `NameInUse` | a flight of another org or runway holds its name; rename the Flight |
+| False / `Finished` | the flight with its name is finished (grounded, takeoff or merged outside); a new Flight needs a new name |
 | False / `DispatchFailed` | the Tower refused it; the message says why |
 
 The Tower's forge is a stub that reads no pull request and merges nothing until the validation
-slice, and the gateway refuses every git push (see [gateway](../tech/gateway.md)).
+slice. The gate is checked again whenever a run is leased: a run whose Runway names a real remote
+gets the gate as its `worktree_error`, with nothing reserved or cloned, and fails without starting.
+The gateway refuses every git push (see [gateway](../tech/gateway.md)).
 
 ## Container operations
 
