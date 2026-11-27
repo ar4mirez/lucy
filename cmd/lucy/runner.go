@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/eventstore"
@@ -25,9 +29,16 @@ a line "lucy:pr=<n>" reports the pull request). Each run gets a fresh directory 
 environment of only PATH, HOME, TMPDIR and LUCY_RUN, LUCY_RUN_ORG, LUCY_RUN_PROJECT,
 LUCY_RUN_FLIGHT, LUCY_RUN_GENERATION, LUCY_RUN_GOAL and LUCY_RUN_BASE; the directory is
 deleted when the command exits. A lease not renewed within --ttl (60 s by default) expires:
-the run is lost and the daemon refuses anything sent under its fence afterwards. Stop the
-runner with Ctrl-C or SIGTERM; it stops its runs and reports them lost.
+the run is lost and the daemon refuses anything sent under its fence afterwards. Ctrl-C,
+SIGTERM or a closed terminal (SIGHUP) stops the runner; it stops its runs and reports them lost.
 `
+
+// runnerSignalContext is swapped in tests.
+var runnerSignalContext = defaultRunnerSignalContext
+
+func defaultRunnerSignalContext() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+}
 
 func runRunner(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("runner", flag.ContinueOnError)
@@ -87,7 +98,7 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 2
 	}
-	ctx, cancel := signalContext()
+	ctx, cancel := runnerSignalContext()
 	defer cancel()
 	log.Info("lucy runner started", "id", *id, "socket", c.Socket(), "root", dir)
 	if err := r.Run(ctx, time.Second); err != nil {
