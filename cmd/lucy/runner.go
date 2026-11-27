@@ -31,13 +31,18 @@ LUCY_RUN_FLIGHT, LUCY_RUN_GENERATION, LUCY_RUN_GOAL and LUCY_RUN_BASE; the direc
 deleted when the command exits. A lease not renewed within --ttl (60 s by default) expires:
 the run is lost and the daemon refuses anything sent under its fence afterwards. Ctrl-C,
 SIGTERM or a closed terminal (SIGHUP) stops the runner; it stops its runs and reports them lost.
+A runner started under nohup keeps ignoring SIGHUP and outlives its terminal.
 `
 
 // runnerSignalContext is swapped in tests.
 var runnerSignalContext = defaultRunnerSignalContext
 
 func defaultRunnerSignalContext() (context.Context, context.CancelFunc) {
-	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	sigs := []os.Signal{os.Interrupt, syscall.SIGTERM}
+	if !signal.Ignored(syscall.SIGHUP) {
+		sigs = append(sigs, syscall.SIGHUP)
+	}
+	return signal.NotifyContext(context.Background(), sigs...)
 }
 
 func runRunner(args []string, stdout, stderr io.Writer) int {
