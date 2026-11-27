@@ -183,6 +183,34 @@ func TestATokenDiesWithItsRun(t *testing.T) {
 	})
 }
 
+// A restarted daemon's grace window keeps a run for its runner, but lends its token nothing: the
+// gateway refuses the token until the runner renews the lease, and the token is not revoked while
+// the window runs, so the reattached runner gets a fresh one (LUCY-OPS-005).
+func TestAGraceWindowLendsTheTokenNothing(t *testing.T) {
+	f := open(t)
+	l, tok, _ := f.lease("acme", "f1", "github")
+	f.clock.add(2 * time.Minute) // the daemon was down past the lease
+	if n, err := f.b.Resume(ctx, 0); err != nil || n != 1 {
+		t.Fatalf("resume %d, %v", n, err)
+	}
+	if _, err := f.iss.Verify(ctx, tok, "acme", "github"); !errors.Is(err, capability.ErrRunEnded) {
+		t.Fatalf("a token in the grace window: %v", err)
+	}
+	if n, err := f.iss.RevokeEnded(ctx); err != nil || n != 0 {
+		t.Fatalf("revoked %d, %v while the run waits for its runner", n, err)
+	}
+	if _, err := f.b.Heartbeat(ctx, "r1", l.Run, l.Fence, time.Minute, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _, err := f.iss.Renew(ctx, l.Run, l.Fence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.iss.Verify(ctx, fresh, "acme", "github"); err != nil {
+		t.Fatalf("the reattached runner's token: %v", err)
+	}
+}
+
 func TestRevoke(t *testing.T) {
 	f := open(t)
 	_, tok, c := f.lease("acme", "f1", "github")

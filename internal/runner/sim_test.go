@@ -72,6 +72,7 @@ type world struct {
 	tower   *tower.Tower
 	runners []*runner.Runner
 	silent  map[int]bool // runners that do not step: cut off from the daemon
+	down    bool         // the daemon is down: no runner reaches it, and it expires nothing
 }
 
 func newWorld(t *testing.T, runners int) *world {
@@ -112,6 +113,9 @@ func (w *world) open() {
 	}
 	w.t.Cleanup(func() { st.Close() })
 	w.store, w.broker = st, runner.NewBroker(st, w.sim.Clock.Now)
+	if _, err := w.broker.Resume(context.Background(), 0); err != nil { // as the daemon does on start
+		w.t.Fatal(err)
+	}
 	tw, err := tower.New(context.Background(), tower.Config{Store: st, Runtime: runner.Runtime{Broker: w.broker},
 		Forge: w.sim.Forge, Clock: w.sim.Clock, ForgeIdentity: w.sim.Forge.Identity})
 	if err != nil {
@@ -167,6 +171,10 @@ func (w *world) fly(every func(minute int)) {
 	for minute := 0; minute < 24*60; minute++ {
 		if every != nil {
 			every(minute)
+		}
+		if w.down {
+			w.sim.Clock.Advance(time.Minute)
+			continue
 		}
 		for i, r := range w.runners {
 			if !w.silent[i] {
@@ -305,6 +313,46 @@ func TestDaemonRestartKeepsTheLease(t *testing.T) {
 	}
 	if rs := w.runs(); len(rs) != 1 || rs[0].State != runner.StateDone {
 		t.Fatalf("runs %+v", rs)
+	}
+	if _, err := audit.VerifyStore(context.Background(), w.store); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The daemon is down for longer than a lease: when it starts again the runner, which kept the work
+// going, reattaches under the same fence, and the flight lands with one run (LUCY-OPS-005).
+func TestALongDaemonOutageKeepsTheRun(t *testing.T) {
+	w := newWorld(t, 1)
+	w.dispatch("f1", sim.Work(30*time.Minute), sim.OpenPR(sim.Passing("ci", time.Minute)))
+	w.fly(func(minute int) {
+		switch minute {
+		case 5:
+			w.down = true // three-minute leases; down for five
+		case 10:
+			w.restart()
+			w.down = false
+			// The daemon's expiry timer and the Tower run before the runner reconnects.
+			if _, err := w.broker.Expire(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if err := w.tower.Step(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+	if s := w.flight("f1"); s.State != tower.StateTakeoff || s.Generation != 1 {
+		t.Fatalf("flight %+v", s)
+	}
+	rs := w.runs()
+	if len(rs) != 1 || rs[0].State != runner.StateDone {
+		t.Fatalf("runs %+v", rs)
+	}
+	evs, err := w.store.ReadStream(context.Background(), runner.Stream("acme", rs[0].Run), 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(evs, func(e eventstore.Event) bool { return e.Type == "run.resumed" }) {
+		t.Fatal("the restart resumed no lease")
 	}
 	if _, err := audit.VerifyStore(context.Background(), w.store); err != nil {
 		t.Fatal(err)

@@ -187,6 +187,12 @@ func (tx *Tx) QueryRowContext(ctx context.Context, query string, args ...any) *s
 	return tx.tx.QueryRowContext(ctx, query, args...)
 }
 
+// QueryContext runs a query inside the transaction, seeing its own uncommitted writes, like
+// QueryRowContext for several rows. The rows must be closed before the transaction appends.
+func (tx *Tx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return tx.tx.QueryContext(ctx, query, args...)
+}
+
 type querier interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row

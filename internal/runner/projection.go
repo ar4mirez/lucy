@@ -20,6 +20,7 @@ type RunInfo struct {
 	Placement Placement // the holder's placement
 	Fence     int64     // the current or last lease's fence; 0 when never leased
 	Expires   time.Time // when leased: the lease's expiry
+	Earned    time.Time // when leased: the expiry the runner earned; Expires is later only in a grace window (Resume)
 	Accepted  int64     // the highest streamed event number recorded
 	Activity  time.Time // when the run last did something: leased, streamed, or queued
 	Asking    bool      // the last streamed event was a question
@@ -46,7 +47,7 @@ type Projector struct{}
 func (Projector) Name() string { return "runner_runs" }
 
 // Version implements eventstore.Projector.
-func (Projector) Version() int { return 6 }
+func (Projector) Version() int { return 7 }
 
 // Reset implements eventstore.Projector.
 func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
@@ -67,6 +68,7 @@ func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
 			placement   TEXT NOT NULL DEFAULT '',
 			fence       INTEGER NOT NULL DEFAULT 0,
 			expires_ns  INTEGER NOT NULL DEFAULT 0,
+			earned_ns   INTEGER NOT NULL DEFAULT 0,
 			accepted    INTEGER NOT NULL DEFAULT 0,
 			activity_ns INTEGER NOT NULL,
 			asking      INTEGER NOT NULL DEFAULT 0,
@@ -158,16 +160,25 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 		if err := decode(&p); err != nil {
 			return err
 		}
-		q = `UPDATE runner_runs SET version = ?, state = ?, runner = ?, placement = ?, fence = ?, expires_ns = ?,
+		q = `UPDATE runner_runs SET version = ?, state = ?, runner = ?, placement = ?, fence = ?, expires_ns = ?, earned_ns = ?,
 			accepted = 0, activity_ns = ?, asking = 0, question = '', question_id = '', given = '', answered = '' WHERE run = ?`
-		args = []any{e.StreamVersion, string(StateLeased), p.Runner, string(p.Placement), e.Seq, p.ExpiresAt.UnixNano(), at, run}
+		exp := p.ExpiresAt.UnixNano()
+		args = []any{e.StreamVersion, string(StateLeased), p.Runner, string(p.Placement), e.Seq, exp, exp, at, run}
+	case Resumed{}.EventType():
+		var p Resumed
+		if err := decode(&p); err != nil {
+			return err
+		}
+		q = `UPDATE runner_runs SET version = ?, expires_ns = ? WHERE run = ?`
+		args = []any{e.StreamVersion, p.ExpiresAt.UnixNano(), run}
 	case Renewed{}.EventType():
 		var p Renewed
 		if err := decode(&p); err != nil {
 			return err
 		}
-		q = `UPDATE runner_runs SET version = ?, expires_ns = ?, answered = CASE WHEN ? = '' THEN answered ELSE ? END WHERE run = ?`
-		args = []any{e.StreamVersion, p.ExpiresAt.UnixNano(), p.Answered, p.Answered, run}
+		q = `UPDATE runner_runs SET version = ?, expires_ns = ?, earned_ns = ?, answered = CASE WHEN ? = '' THEN answered ELSE ? END WHERE run = ?`
+		exp := p.ExpiresAt.UnixNano()
+		args = []any{e.StreamVersion, exp, exp, p.Answered, p.Answered, run}
 	case Streamed{}.EventType():
 		var p Streamed
 		if err := decode(&p); err != nil {
@@ -220,17 +231,17 @@ func finalState(o Outcome) State {
 }
 
 const runColumns = `run, version, queued_seq, org, project, flight, generation, goal, base, state, runner, placement,
-	fence, expires_ns, accepted, activity_ns, asking, question, question_id, given, answered, stop, pr, reason`
+	fence, expires_ns, earned_ns, accepted, activity_ns, asking, question, question_id, given, answered, stop, pr, reason`
 
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanRun(r rowScanner) (RunInfo, error) {
 	var ri RunInfo
 	var state, placement string
-	var expires, activity int64
+	var expires, earned, activity int64
 	var asking, stop int
 	err := r.Scan(&ri.Run, &ri.Version, &ri.QueuedSeq, &ri.Org, &ri.Project, &ri.Flight, &ri.Generation, &ri.Goal,
-		&ri.Base, &state, &ri.Runner, &placement, &ri.Fence, &expires, &ri.Accepted, &activity, &asking,
+		&ri.Base, &state, &ri.Runner, &placement, &ri.Fence, &expires, &earned, &ri.Accepted, &activity, &asking,
 		&ri.Question, &ri.QuestionID, &ri.Given, &ri.Answered, &stop, &ri.PR, &ri.Reason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RunInfo{}, ErrNoRun
@@ -241,6 +252,9 @@ func scanRun(r rowScanner) (RunInfo, error) {
 	ri.State, ri.Placement = State(state), Placement(placement)
 	if expires != 0 {
 		ri.Expires = time.Unix(0, expires).UTC()
+	}
+	if earned != 0 {
+		ri.Earned = time.Unix(0, earned).UTC()
 	}
 	ri.Activity = time.Unix(0, activity).UTC()
 	ri.Asking, ri.Stop = asking != 0, stop != 0

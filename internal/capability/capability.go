@@ -262,7 +262,7 @@ func (i *Issuer) Verify(ctx context.Context, token, org, route string) (Capabili
 	case !now.Before(c.Expires):
 		return c, ErrExpired
 	}
-	live, err := i.leased(ctx, c, now)
+	live, err := i.leased(ctx, c, now, true)
 	if err != nil {
 		return c, err
 	}
@@ -273,7 +273,10 @@ func (i *Issuer) Verify(ctx context.Context, token, org, route string) (Capabili
 }
 
 // leased reports whether c's run is still leased under c's fence at now, its lease not run out.
-func (i *Issuer) leased(ctx context.Context, c Capability, now time.Time) (bool, error) {
+// When earned, the expiry is the one the runner itself earned: a restarted daemon's grace window
+// keeps the run for its runner, so its token is not revoked, but lends the token nothing until the
+// runner renews the lease (LUCY-OPS-005).
+func (i *Issuer) leased(ctx context.Context, c Capability, now time.Time, earned bool) (bool, error) {
 	ri, err := i.Leases.Run(ctx, c.Run)
 	if errors.Is(err, runner.ErrNoRun) {
 		return false, nil
@@ -281,7 +284,11 @@ func (i *Issuer) leased(ctx context.Context, c Capability, now time.Time) (bool,
 	if err != nil {
 		return false, err
 	}
-	return ri.Org == c.Org && ri.State == runner.StateLeased && ri.Fence == c.Fence && now.Before(ri.Expires), nil
+	until := ri.Expires
+	if earned {
+		until = ri.Earned
+	}
+	return ri.Org == c.Org && ri.State == runner.StateLeased && ri.Fence == c.Fence && now.Before(until), nil
 }
 
 // RevokeEnded revokes every token, not yet revoked or past its expiry, whose run is no longer
@@ -308,7 +315,7 @@ func (i *Issuer) RevokeEnded(ctx context.Context) (int, error) {
 	}
 	n := 0
 	for _, c := range open {
-		live, err := i.leased(ctx, c, now)
+		live, err := i.leased(ctx, c, now, false)
 		if err != nil {
 			return n, err
 		}

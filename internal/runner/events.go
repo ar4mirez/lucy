@@ -34,6 +34,16 @@ type Renewed struct {
 	Answered  string    `json:"answered,omitempty"`
 }
 
+// Resumed records that the daemon, starting again, gave a held lease a grace window: the lease
+// was not renewed only because the daemon was not there to hear its heartbeats, so its runner may
+// still be working, and it is not lost before ExpiresAt (LUCY-OPS-005, LUCY-RUN-005). The fence is
+// unchanged: the runner carries on under it, and a runner that is really gone still expires. It
+// extends the lease's expiry only, not what the runner earned (RunInfo.Earned).
+type Resumed struct {
+	Fence     int64     `json:"fence"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
 // Streamed records one event the runner streamed under Fence.
 type Streamed struct {
 	Fence int64     `json:"fence"`
@@ -98,6 +108,7 @@ type HostOrgSet struct {
 func (Queued) EventType() string        { return "run.queued" }
 func (Leased) EventType() string        { return "run.leased" }
 func (Renewed) EventType() string       { return "run.renewed" }
+func (Resumed) EventType() string       { return "run.resumed" }
 func (Streamed) EventType() string      { return "run.event" }
 func (StopRequested) EventType() string { return "run.stop_requested" }
 func (Answered) EventType() string      { return "run.answered" }
@@ -111,6 +122,7 @@ func (HostOrgSet) EventType() string        { return "runner.host_org_set" }
 func (Queued) EventVersion() int        { return 1 }
 func (Leased) EventVersion() int        { return 1 }
 func (Renewed) EventVersion() int       { return 1 }
+func (Resumed) EventVersion() int       { return 1 }
 func (Streamed) EventVersion() int      { return 1 }
 func (StopRequested) EventVersion() int { return 1 }
 func (Answered) EventVersion() int      { return 1 }
@@ -123,7 +135,7 @@ func (HostOrgSet) EventVersion() int        { return 1 }
 
 // Payloads returns the run, container hold and host org events, for the store's registry.
 func Payloads() []eventstore.Payload {
-	return []eventstore.Payload{Queued{}, Leased{}, Renewed{}, Streamed{}, StopRequested{}, Answered{}, Finished{}, Expired{},
+	return []eventstore.Payload{Queued{}, Leased{}, Renewed{}, Resumed{}, Streamed{}, StopRequested{}, Answered{}, Finished{}, Expired{},
 		ContainerHeld{}, ContainerReleased{}, HostOrgSet{}}
 }
 

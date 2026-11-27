@@ -306,6 +306,88 @@ func TestRestartKeepsLeases(t *testing.T) {
 	}
 }
 
+// A daemon that was down for longer than a lease gives every held lease a grace window before it
+// expires anything: a runner that kept working renews under its old fence, one that is gone is
+// expired when the window ends, and a lease already in a window is not extended by another restart
+// (LUCY-OPS-005, LUCY-RUN-005).
+func TestResumeAfterAnOutage(t *testing.T) {
+	ctx := context.Background()
+	f := open(t)
+	f.submit("a#1", "b#1", "c#1")
+	a, b, c := f.lease("r1", 0), f.lease("r2", 0), f.lease("r3", MaxTTL)
+	if _, err := f.b.Heartbeat(ctx, "r1", a.Run, a.Fence, 0, evs(1, 1), ""); err != nil {
+		t.Fatal(err)
+	}
+	earned := f.run(a.Run).Expires
+	f.clock.Advance(150 * time.Second) // the daemon is down past a's and b's leases, not c's
+	f.reopen()
+	n, err := f.b.Resume(ctx, 0)
+	if err != nil || n != 2 {
+		t.Fatalf("resumed %d, %v; want a and b", n, err)
+	}
+	until := f.clock.Now().Add(DefaultGrace)
+	if ri := f.run(a.Run); !ri.Expires.Equal(until) || !ri.Earned.Equal(earned) || ri.Fence != a.Fence {
+		t.Fatalf("resumed lease %+v; want expiry %v, earned %v", ri, until, earned)
+	}
+	if ri := f.run(c.Run); !ri.Expires.Equal(c.Expires) {
+		t.Fatalf("a lease longer than the window was changed: %+v", ri)
+	}
+	if n, err := f.b.Expire(ctx); err != nil || n != 0 {
+		t.Fatalf("expired %d, %v during the window", n, err)
+	}
+
+	f.clock.Advance(30 * time.Second)
+	f.reopen() // another restart inside the window extends nothing
+	if n, err := f.b.Resume(ctx, 0); err != nil || n != 0 {
+		t.Fatalf("second resume %d, %v", n, err)
+	}
+	if ri := f.run(b.Run); !ri.Expires.Equal(until) {
+		t.Fatalf("a lease in its window was extended again: %+v", ri)
+	}
+
+	beat, err := f.b.Heartbeat(ctx, "r1", a.Run, a.Fence, MaxTTL, evs(1, 2), "")
+	if err != nil || beat.Accepted != 2 {
+		t.Fatalf("reattach under the old fence: %+v, %v", beat, err)
+	}
+	if ri := f.run(a.Run); !ri.Earned.Equal(beat.Expires) || !ri.Expires.Equal(beat.Expires) {
+		t.Fatalf("renewed lease %+v", ri)
+	}
+	f.clock.Advance(until.Sub(f.clock.Now())) // the window ends; a and c hold leases that run longer
+	if n, err := f.b.Expire(ctx); err != nil || n != 1 {
+		t.Fatalf("expired %d, %v after the window; want b", n, err)
+	}
+	if ri := f.run(b.Run); ri.State != StateLost {
+		t.Fatalf("a runner gone for good: %+v", ri)
+	}
+	if err := first(f.b.Heartbeat(ctx, "r2", b.Run, b.Fence, 0, nil, "")); !errors.Is(err, ErrFenced) {
+		t.Fatalf("heartbeat of an expired lease: %v", err)
+	}
+	if got, want := f.types("acme", a.Run), []string{"run.queued", "run.leased", "run.event", "run.renewed", "run.resumed",
+		"run.event", "run.renewed"}; !equal(got, want) {
+		t.Fatalf("events %v, want %v", got, want)
+	}
+
+	live, err := f.b.Runs(ctx, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.Rebuild(ctx, Projector{}.Name()); err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, err := f.b.Runs(ctx, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range live {
+		if live[i] != rebuilt[i] {
+			t.Fatalf("rebuilt %+v, live %+v", rebuilt[i], live[i])
+		}
+	}
+	if _, err := audit.VerifyStore(ctx, f.store); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRefusals(t *testing.T) {
 	ctx := context.Background()
 	f := open(t)
