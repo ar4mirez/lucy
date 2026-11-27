@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.8.0"
+    "version": "1.9.0"
   },
   "servers": [
     {
@@ -1629,6 +1629,137 @@
       "x-lucy-scope": "read",
       "x-lucy-mutating": false,
       "x-lucy-group": "query"
+    },
+    {
+      "name": "sandbox.held",
+      "summary": "Operations on an org's container that wait on the owner: each would stop the sessions live in it, oldest first.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "held": {
+              "description": "Every container operation that waits on the owner, oldest first; empty when none does.",
+              "items": {
+                "properties": {
+                  "decision": {
+                    "description": "The policy decision that waits; a confirmation names it.",
+                    "type": "integer"
+                  },
+                  "live_sessions": {
+                    "description": "The runs live in the container, which the operation would stop.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "op": {
+                    "description": "up, restart or down: each stops the work running in the container.",
+                    "type": "string"
+                  },
+                  "org": {
+                    "description": "The org whose container it is.",
+                    "type": "string"
+                  },
+                  "outcome": {
+                    "description": "holding, or denied when an earlier confirmation lapsed because the live sessions changed.",
+                    "type": "string"
+                  },
+                  "since": {
+                    "description": "When it was decided, UTC.",
+                    "format": "date-time",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "org",
+                  "op",
+                  "decision",
+                  "outcome",
+                  "live_sessions",
+                  "since"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "held"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "read",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
+    },
+    {
+      "name": "sandbox.confirm",
+      "summary": "Confirm stopping the live sessions a waiting container operation names; the daemon's next request for it is then cleared, while those sessions are unchanged.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "org",
+          "description": "The org whose container it is.",
+          "required": true,
+          "schema": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "op",
+          "description": "up, restart or down.",
+          "required": true,
+          "schema": {
+            "maxLength": 16,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "decision",
+          "description": "The waiting decision, as sandbox.held shows it. A newer request replaces it, and a confirmation of the old one is refused.",
+          "required": true,
+          "schema": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "approval": {
+              "description": "The confirmation's own decision id, which the cleared request will name.",
+              "type": "string"
+            },
+            "op": {
+              "description": "The operation confirmed.",
+              "type": "string"
+            },
+            "org": {
+              "description": "The org confirmed.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "org",
+            "op",
+            "approval"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "decide",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
     }
   ],
   "components": {

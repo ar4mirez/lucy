@@ -66,7 +66,7 @@ func (f *fixture) reopen() {
 		f.t.Fatal(err)
 	}
 	st, err := eventstore.Open(context.Background(), filepath.Join(f.dir, "lucy", "lucy.db"), eventstore.Options{
-		Registry: reg, Projectors: []eventstore.Projector{runner.Projector{}}, SnapshotDir: filepath.Join(f.dir, "lucy", "state"),
+		Registry: reg, Projectors: []eventstore.Projector{runner.Projector{}, sandbox.Projector{}}, SnapshotDir: filepath.Join(f.dir, "lucy", "state"),
 	})
 	if err != nil {
 		f.t.Fatal(err)
@@ -106,9 +106,20 @@ func (f *fixture) request(org string, op sandbox.Op) sandbox.Result {
 	return res
 }
 
+// confirm confirms the operation that waits on the owner, as `lucy sandbox held` shows it.
 func (f *fixture) confirm(org string, op sandbox.Op) {
 	f.t.Helper()
-	if _, err := f.sb.Confirm(context.Background(), org, op); err != nil {
+	held, err := f.sb.Held(context.Background())
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	var seq int64
+	for _, h := range held {
+		if h.Org == org && h.Op == op {
+			seq = h.DecisionSeq
+		}
+	}
+	if _, err := f.sb.Confirm(context.Background(), org, op, seq); err != nil {
 		f.t.Fatalf("confirm %s %s: %v", op, org, err)
 	}
 }
@@ -230,17 +241,17 @@ func TestEndedSessionsDoNotHold(t *testing.T) {
 
 func TestConfirmNeedsAHeldRequest(t *testing.T) {
 	f := open(t)
-	if _, err := f.sb.Confirm(context.Background(), "acme", sandbox.OpRestart); !errors.Is(err, sandbox.ErrNothingHeld) {
+	if _, err := f.sb.Confirm(context.Background(), "acme", sandbox.OpRestart, 0); !errors.Is(err, sandbox.ErrNothingHeld) {
 		t.Fatalf("confirm with nothing held: %v", err)
 	}
 	f.request("acme", sandbox.OpRestart) // cleared: nothing to confirm
-	if _, err := f.sb.Confirm(context.Background(), "acme", sandbox.OpRestart); !errors.Is(err, sandbox.ErrNothingHeld) {
+	if _, err := f.sb.Confirm(context.Background(), "acme", sandbox.OpRestart, 0); !errors.Is(err, sandbox.ErrNothingHeld) {
 		t.Fatalf("confirm after a clearance: %v", err)
 	}
 	f.live("acme", "f1", runner.PlacementContainer)
 	f.request("acme", sandbox.OpRestart)
 	f.confirm("acme", sandbox.OpRestart)
-	if _, err := f.sb.Confirm(context.Background(), "acme", sandbox.OpRestart); !errors.Is(err, sandbox.ErrNothingHeld) {
+	if _, err := f.sb.Confirm(context.Background(), "acme", sandbox.OpRestart, 0); !errors.Is(err, sandbox.ErrNothingHeld) {
 		t.Fatalf("a second confirmation of the same request: %v", err)
 	}
 }
@@ -304,7 +315,7 @@ func TestRefusesBadInput(t *testing.T) {
 	if _, err := f.sb.Request(ctx, "acme", "destroy", sandbox.Daemon("test")); err == nil {
 		t.Error("an unknown operation was requested")
 	}
-	if _, err := f.sb.Confirm(ctx, "acme/x", sandbox.OpDown); err == nil {
+	if _, err := f.sb.Confirm(ctx, "acme/x", sandbox.OpDown, 1); err == nil {
 		t.Error("a bad org name was confirmed")
 	}
 	if f.changes() != 0 || len(f.decisions()) != 0 {
@@ -484,5 +495,51 @@ func TestAHeldOrgDoesNotHoldUpAnotherOrgsRun(t *testing.T) {
 	}
 	if _, ok, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, time.Minute); err != nil || ok {
 		t.Fatalf("a container lease with nothing queued: %v, %v", ok, err)
+	}
+}
+
+func TestHeldListsWhatWaitsOnTheOwner(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	if held, err := f.sb.Held(ctx); err != nil || len(held) != 0 {
+		t.Fatalf("held at start: %+v, %v", held, err)
+	}
+	f.request("acme", sandbox.OpRestart) // cleared: nothing waits
+	f.live("acme", "f1", runner.PlacementContainer)
+	first := f.request("acme", sandbox.OpRestart)
+	f.request("acme", sandbox.OpDown)
+	held, err := f.sb.Held(ctx)
+	if err != nil || len(held) != 2 {
+		t.Fatalf("held: %+v, %v", held, err)
+	}
+	if h := held[0]; h.Org != "acme" || h.Op != sandbox.OpRestart || h.DecisionSeq != first.DecisionSeq ||
+		h.Outcome != policy.Holding || !slices.Equal(h.LiveSessions, []string{"f1#1"}) || h.Since.IsZero() {
+		t.Errorf("held restart: %+v", h)
+	}
+	// Asking again replaces what waits: the owner confirms the newest decision only.
+	second := f.request("acme", sandbox.OpRestart)
+	if _, err := f.sb.Confirm(ctx, "acme", sandbox.OpRestart, first.DecisionSeq); !errors.Is(err, sandbox.ErrStale) {
+		t.Fatalf("confirming a replaced decision: %v, want ErrStale", err)
+	}
+	if _, err := f.sb.Confirm(ctx, "acme", sandbox.OpRestart, second.DecisionSeq); err != nil {
+		t.Fatal(err)
+	}
+	held, _ = f.sb.Held(ctx)
+	if len(held) != 1 || held[0].Op != sandbox.OpDown {
+		t.Fatalf("held after the restart was confirmed: %+v", held)
+	}
+	// The projection is rebuilt from the log alone.
+	if err := f.store.Rebuild(ctx, sandbox.Projector{}.Name()); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := f.sb.Held(ctx); !slices.EqualFunc(again, held, func(a, b sandbox.Held) bool {
+		return a.Org == b.Org && a.Op == b.Op && a.DecisionSeq == b.DecisionSeq && a.Since.Equal(b.Since)
+	}) {
+		t.Errorf("rebuilt: %+v, want %+v", again, held)
+	}
+	// A cleared request releases what waited for its operation.
+	f.request("acme", sandbox.OpRestart)
+	if held, _ := f.sb.Held(ctx); len(held) != 1 {
+		t.Errorf("held after the confirmed restart ran: %+v", held)
 	}
 }

@@ -2,7 +2,7 @@
 id: tech-sandbox
 title: The org sandbox and the runtime seam
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-SBX-001, LUCY-SBX-002, LUCY-SBX-003, LUCY-SPEC-016]
 ---
@@ -63,13 +63,20 @@ first provider, is `internal/sandbox/berth` ([D3a](../decisions/D3a-berth-sandbo
   (`berthtest`, which also applies berth's documented rules: unknown arguments, a missing
   `confirm`, a read-only server) against its response schemas. Tests and CI use only the fake.
 
+- **The owner's confirmation.** The `sandbox_held` projection keeps, per org and operation, the
+  latest request that waits on the owner: the decision, its outcome (holding, or denied when an
+  earlier confirmation lapsed) and the sessions it would stop. `sandbox.held` (scope `read`) lists
+  them and `sandbox.confirm` (scope `decide`, a recorded command) confirms one by its decision: a
+  decision a newer request has replaced is refused, so the owner confirms only sessions they were
+  shown. `lucy sandbox held` and `lucy sandbox confirm <org> <op> <decision>` are the CLI. A
+  confirmation does not touch the container; the daemon's next request is cleared on it. Until the
+  daemon opens a Sandbox binding, nothing is held and a confirmation is `unavailable`.
+
 ## Not built yet
 
 - TODO(LUCY-SBX-001): the daemon opens the org's Sandbox binding and places the in-container
   runner through the seam; idle orgs are stopped. The daemon does not call a provider yet, so
   nothing here acts on a live container.
-- TODO(LUCY-SBX-003): the owner's confirmation through the API and the CLI; until then a holding
-  operation stays held.
 - TODO(LUCY-SBX-001): proving the provider against a real berth needs a real berth on a test
   host; the contract tests run against the fake only.
 

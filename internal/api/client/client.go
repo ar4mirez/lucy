@@ -221,6 +221,20 @@ func (c *Client) Answer(ctx context.Context, p api.AnswerParams) (api.AnswerResu
 	return r, err
 }
 
+// SandboxHeld calls sandbox.held.
+func (c *Client) SandboxHeld(ctx context.Context) (api.HeldList, error) {
+	var r api.HeldList
+	err := c.Call(ctx, api.MethodHeld, api.NoParams{}, &r)
+	return r, err
+}
+
+// SandboxConfirm calls sandbox.confirm.
+func (c *Client) SandboxConfirm(ctx context.Context, p api.ConfirmParams) (api.ConfirmResult, error) {
+	var r api.ConfirmResult
+	err := c.Call(ctx, api.MethodConfirm, p, &r)
+	return r, err
+}
+
 // RunnerPermit calls runner.permit.
 func (c *Client) RunnerPermit(ctx context.Context, p api.PermitParams) (api.PermitResult, error) {
 	var r api.PermitResult

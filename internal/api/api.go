@@ -37,7 +37,8 @@ const Version = 1
 // Revision 7 added questions.list and questions.answer.
 // Revision 8 added the container action kind: starting, restarting or stopping an org's container,
 // the sandbox_busy error runner.lease answers while it is, and runner.queued's placement.
-const SchemaRevision = 8
+// Revision 9 added sandbox.held and sandbox.confirm.
+const SchemaRevision = 9
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"

@@ -80,6 +80,11 @@ type Options struct {
 	// answer is unavailable. TODO(LUCY-SPEC-012): set it once the daemon hosts the Tower (m1
 	// slice 7a).
 	Questions Questions
+	// Containers is the guarded view of the org containers, which sandbox.held and
+	// sandbox.confirm serve. Nil means this daemon has no Sandbox binding open: nothing is held
+	// and a confirmation is unavailable. TODO(LUCY-SBX-001): set it once the daemon opens the
+	// org's Sandbox binding (m1 slice 3).
+	Containers Containers
 }
 
 // Server is the API's HTTP handler.

@@ -31,6 +31,7 @@ Usage:
   lucy audit verify
   lucy questions
   lucy answer <flight> <answer>...
+  lucy sandbox held | confirm <org> <op> <decision>
   lucy runner [--socket <path>] [--id <name>] [--root <dir>] -- <command> [<args>...]
 
 Flags:
@@ -46,6 +47,7 @@ Commands:
   config         validate spec resources; show the daemon's view of them
   audit          verify the hash-chained audit log
   runner         run a runner on this machine: lease runs, run a command for each
+  sandbox        list and confirm org container operations that wait on you
 
 Run ` + "`lucy <command> --help`" + ` for a command's flags.
 
@@ -88,6 +90,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runAnswer(args[1:], stdout, stderr)
 	case "runner":
 		return runRunner(args[1:], stdout, stderr)
+	case "sandbox":
+		return runSandbox(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "error: unknown command or flag %q\nhelp: run `lucy --help`\n", args[0])
 		return 2

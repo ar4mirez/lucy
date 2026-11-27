@@ -24,6 +24,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/runner"
+	"github.com/ar4mirez/lucy/internal/sandbox"
 	"github.com/ar4mirez/lucy/internal/server"
 	"github.com/ar4mirez/lucy/internal/spec"
 )
@@ -59,14 +60,14 @@ func (Stopped) EventVersion() int { return 1 }
 // Registry returns the event registry the daemon opens the store with.
 func Registry() (*eventstore.Registry, error) {
 	payloads := append(spec.Payloads(), Started{}, Stopped{}, server.CommandEvent{}, policy.DecisionRecord{})
-	return eventstore.NewRegistry(append(payloads, runner.Payloads()...)...)
+	return eventstore.NewRegistry(append(append(payloads, runner.Payloads()...), sandbox.Payloads()...)...)
 }
 
 // Projectors returns the projections the daemon's store maintains: resource status, the runner
-// protocol's runs and leases, and the audit hash chain, which every event extends in its own
-// append transaction.
+// protocol's runs and leases, the container operations that wait on the owner, and the audit hash
+// chain, which every event extends in its own append transaction.
 func Projectors() []eventstore.Projector {
-	return []eventstore.Projector{spec.StatusProjector{}, runner.Projector{}, audit.Projector{}}
+	return []eventstore.Projector{spec.StatusProjector{}, runner.Projector{}, sandbox.Projector{}, audit.Projector{}}
 }
 
 // ExpiryInterval is how often the daemon expires runner leases that were not renewed in time.
