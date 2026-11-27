@@ -60,13 +60,15 @@ func TestInstructionsDropsWhatIsNotInTheRepository(t *testing.T) {
 	if err := os.Symlink(filepath.Join(parent, "outside.md"), filepath.Join(dir, "link.md")); err != nil {
 		t.Fatal(err)
 	}
+	write(t, filepath.Join(dir, "arch.png"), "png-text\x00\x89PNG")
+	write(t, filepath.Join(dir, "latin1.md"), "latin1-text\xe9\n")
 	write(t, filepath.Join(dir, "CLAUDE.md"),
-		"main-text @../outside.md @"+filepath.Join(parent, "outside.md")+" @link.md @a.md @big.md\n")
+		"main-text @../outside.md @"+filepath.Join(parent, "outside.md")+" @link.md @a.md @big.md @arch.png @latin1.md\n")
 	got := instructions(t, dir)
 	if !strings.Contains(got, "main-text") || !strings.Contains(got, "a-text") {
 		t.Fatalf("instructions lack the repository's own text: %q", got)
 	}
-	for _, bad := range []string{"outside-text", "nested-import-text", "big-text"} {
+	for _, bad := range []string{"outside-text", "nested-import-text", "big-text", "png-text", "latin1-text"} {
 		if strings.Contains(got, bad) {
 			t.Errorf("instructions include %q: %q", bad, got)
 		}

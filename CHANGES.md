@@ -37,7 +37,8 @@ Changes since the last release. When a version is cut, its section moves to
   `CLAUDE.md` (or `AGENTS.md` when there is none) and the files it imports with `@path`, and
   appends them to the session's system prompt, framed as repository text that grants no
   permission. Imports are followed one level deep and only inside the run directory (no `..`,
-  absolute path or symlink out); a file over 64 KiB, or one that would take the total over 96 KiB,
+  absolute path or symlink out); a file over 64 KiB, one that is not UTF-8 text without NUL bytes,
+  or one that would take the total over 96 KiB,
   is dropped whole, so the prompt fits in one command-line argument. The run directory is an empty
   scratch directory until m1 slice 6 checks the repository out into it, so for now nothing is
   injected.

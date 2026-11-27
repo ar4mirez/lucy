@@ -1,10 +1,12 @@
 package harness
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 // Caps on the repository instructions a session is given.
@@ -24,8 +26,8 @@ var InstructionFiles = []string{"CLAUDE.md", "AGENTS.md"}
 // AGENTS.md when there is no CLAUDE.md, followed by each file it imports with an "@path" word.
 // Every file is read through dir as a root, so an import or a symlink that leads out of dir is
 // dropped. Imports are followed one level deep: an imported file's own imports are not. A file
-// over MaxInstructionFile, or one that would take the total over MaxInstructionTotal, is dropped
-// whole, as is any file that cannot be read. No instruction file is not an error: it returns "".
+// over MaxInstructionFile, one that is not UTF-8 text without NUL bytes, or one that would take the
+// total over MaxInstructionTotal, is dropped whole, as is any file that cannot be read. No instruction file is not an error: it returns "".
 func Instructions(dir string) (string, error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
@@ -70,7 +72,8 @@ func importPath(word string) (string, bool) {
 	return filepath.Clean(p), true
 }
 
-// readCapped reads name through root, refusing a file over MaxInstructionFile.
+// readCapped reads name through root, refusing a file over MaxInstructionFile and one that is not
+// text: a NUL byte or invalid UTF-8 could not be passed as an argument.
 func readCapped(root *os.Root, name string) (string, bool) {
 	f, err := root.Open(name)
 	if err != nil {
@@ -81,7 +84,7 @@ func readCapped(root *os.Root, name string) (string, bool) {
 		return "", false
 	}
 	b, err := io.ReadAll(io.LimitReader(f, MaxInstructionFile+1))
-	if err != nil || len(b) > MaxInstructionFile {
+	if err != nil || len(b) > MaxInstructionFile || bytes.IndexByte(b, 0) >= 0 || !utf8.Valid(b) {
 		return "", false
 	}
 	return string(b), true
