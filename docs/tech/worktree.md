@@ -34,7 +34,9 @@ Where a run's checkout of its repository comes from (TECH.md section 6). The cod
 - **A run that holds a slot already.** Acquire again (a retry, or a restart after the lease was
   recorded) returns the same lease. Its worktree is made again when it is missing or not a worktree
   of `base.git`, reset when it is clean at the lease's base commit, and otherwise left as it is,
-  since it may hold the run's work.
+  since it may hold the run's work. When the run's branch has commits beyond the base, the worktree
+  is made on that branch, or a clean one checked out on it, and the branch is never moved; a
+  worktree with uncommitted changes is never reset.
 - **Concurrency.** A Pool runs one lease or release of a repository at a time, so git steps on
   `base.git` (making it, fetching, adding and resetting worktrees) never race. One Pool per store is
   the unit of concurrency.

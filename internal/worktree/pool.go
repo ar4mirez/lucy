@@ -182,10 +182,12 @@ func (p *Pool) Acquire(ctx context.Context, repo Repo, run, base string) (Lease,
 
 // How a leased slot's worktree is prepared.
 const (
-	resetSlot  = iota // put an existing worktree back at the base
-	newSlot           // make the worktree, in a directory that must not exist yet
-	remakeSlot        // make a held slot's worktree again: it is missing, or not one of base.git
-	keepSlot          // leave a held slot as it is: it may hold the run's work
+	resetSlot      = iota // put an existing worktree back at the base
+	newSlot               // make the worktree, in a directory that must not exist yet
+	remakeSlot            // make a held slot's worktree again: it is missing, or not one of base.git
+	keepSlot              // leave a held slot as it is: it may hold the run's work
+	remakeOnBranch        // remakeSlot, on the run's branch, which is ahead of the base: never moved
+	checkoutBranch        // put a held slot's clean worktree on the run's branch, ahead of the base: never moved
 )
 
 // prepare readies l's worktree as how says and returns l, or records the slot as broken when that
@@ -203,8 +205,31 @@ func (p *Pool) prepare(ctx context.Context, repo Repo, baseDir string, l Lease, 
 
 // heldPrep says how a slot the run holds already is prepared: made again when its worktree is
 // missing or not a worktree of base.git, reset when it is clean at the lease's base commit (nothing
-// in it is lost), and otherwise kept as it is.
+// in it is lost), and otherwise kept as it is. When the run's branch has commits beyond the base,
+// the worktree is made or put on the branch instead, and the branch is never moved.
 func (p *Pool) heldPrep(ctx context.Context, baseDir string, l Lease) (int, error) {
+	how, err := p.heldWorktree(ctx, baseDir, l)
+	if err != nil || how == keepSlot {
+		return how, err
+	}
+	tip, err := p.git().run(ctx, baseDir, "rev-parse", "--verify", "--quiet", "refs/heads/"+l.Branch+"^{commit}")
+	var ee *exec.ExitError
+	switch {
+	case errors.As(err, &ee) && ee.ExitCode() == 1:
+		return how, nil
+	case err != nil:
+		return 0, err
+	case tip == l.BaseSHA:
+		return how, nil
+	case how == remakeSlot:
+		return remakeOnBranch, nil
+	default:
+		return checkoutBranch, nil
+	}
+}
+
+// heldWorktree is heldPrep for the worktree alone: remakeSlot, resetSlot or keepSlot.
+func (p *Pool) heldWorktree(ctx context.Context, baseDir string, l Lease) (int, error) {
 	g := p.git()
 	if _, err := os.Lstat(l.Path); errors.Is(err, fs.ErrNotExist) {
 		return remakeSlot, nil
@@ -248,9 +273,16 @@ func samePath(a, b string) bool {
 // reset makes the slot's worktree, or puts an existing one back, at the lease's base commit with
 // nothing else in it, on a fresh branch for the run. An existing slot was given back with its
 // work landed (Release), or is held by the run and clean at its base, so nothing in it is lost.
+// A held slot whose branch is ahead of the base is only put on that branch.
 func (p *Pool) reset(ctx context.Context, baseDir string, l Lease, how int) error {
 	g := p.git()
 	switch how {
+	case remakeOnBranch:
+		_, err := g.run(ctx, baseDir, "worktree", "add", "--quiet", "--force", "--", l.Path, l.Branch)
+		return err
+	case checkoutBranch:
+		_, err := g.run(ctx, l.Path, "checkout", "--quiet", l.Branch)
+		return err
 	case newSlot, remakeSlot:
 		if how == newSlot {
 			if _, err := os.Lstat(l.Path); !errors.Is(err, fs.ErrNotExist) {

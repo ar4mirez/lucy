@@ -371,20 +371,48 @@ func TestAcquireAgainReturnsTheHeldSlot(t *testing.T) {
 		t.Fatalf("the run's uncommitted work: %q, %v", b, err)
 	}
 
-	// As if the daemon stopped after the lease was recorded and before its worktree was made.
+	// The worktree goes missing with the run's commit on its branch: it is made again on the
+	// branch, and the commit is kept.
 	if err := os.RemoveAll(l.Path); err != nil {
 		t.Fatal(err)
 	}
 	if again, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main"); err != nil || again != l {
 		t.Fatalf("with the worktree missing: %+v, %v", again, err)
 	}
-	if f.head(l.Path) != l.BaseSHA {
-		t.Fatalf("the remade worktree's head %s", f.head(l.Path))
+	if f.head(l.Path) != work {
+		t.Fatalf("the remade worktree dropped the run's commit: head %s", f.head(l.Path))
 	}
 	if br, _ := f.g.run(ctx, l.Path, "branch", "--show-current"); br != l.Branch {
 		t.Fatalf("the remade worktree's branch %q", br)
 	}
-	if slots, err := f.pool.Slots(ctx, "acme", "web"); err != nil || len(slots) != 1 || slots[0].State != StateLeased {
+
+	// HEAD detached at the base while the branch is ahead: the worktree is put back on the branch.
+	f.must(f.g.run(ctx, l.Path, "checkout", "--quiet", "--detach", l.BaseSHA))
+	if again, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main"); err != nil || again != l {
+		t.Fatalf("with HEAD detached at the base: %+v, %v", again, err)
+	}
+	if f.head(l.Path) != work {
+		t.Fatalf("the branch's commit was reset away: head %s", f.head(l.Path))
+	}
+	if br, _ := f.g.run(ctx, l.Path, "branch", "--show-current"); br != l.Branch {
+		t.Fatalf("the worktree's branch %q", br)
+	}
+
+	// A worktree that goes missing with nothing beyond its base is made again at the base.
+	m, err := f.pool.Acquire(ctx, f.repo, "f9#1", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(m.Path); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := f.pool.Acquire(ctx, f.repo, "f9#1", "main"); err != nil || again != m || f.head(m.Path) != m.BaseSHA {
+		t.Fatalf("an empty worktree remade: %+v, %v", again, err)
+	}
+	if br, _ := f.g.run(ctx, m.Path, "branch", "--show-current"); br != m.Branch {
+		t.Fatalf("the remade empty worktree's branch %q", br)
+	}
+	if slots, err := f.pool.Slots(ctx, "acme", "web"); err != nil || len(slots) != 2 || slots[0].State != StateLeased || slots[1].State != StateLeased {
 		t.Fatalf("slots %+v, %v", slots, err)
 	}
 }
