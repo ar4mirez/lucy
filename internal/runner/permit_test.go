@@ -87,14 +87,23 @@ func TestPermitForStaysInsideTheRun(t *testing.T) {
 	l := Lease{Task: Task{Run: "f1#1"}, Runner: "r1", Fence: 3}
 	pm := &fakePermitter{perm: Permission{Outcome: policy.Cleared}}
 	permit := permitFor(dir, nil, l, pm, slog.New(slog.DiscardHandler))
-	for _, p := range []string{"/etc/hosts", filepath.Join(dir, "..", "x"), filepath.Join(dir, "escape", "x"), "escape/x", "~/.ssh/id_rsa", "$HOME/x"} {
+	for _, p := range []string{"/etc/hosts", filepath.Join(dir, "..", "x"), filepath.Join(dir, "escape", "x"), "escape/x", "~/.ssh/id_rsa", "../x"} {
 		if ok, why := permit("Write", harness.Write, p); ok || !strings.Contains(why, "outside") {
+			t.Errorf("%s: %v %q", p, ok, why)
+		}
+	}
+	for _, p := range []string{"$HOME/x", "${HOME}/x", "$(pwd)/x", "src/$X"} {
+		if ok, why := permit("Write", harness.Write, p); ok || !strings.Contains(why, "variable reference") {
 			t.Errorf("%s: %v %q", p, ok, why)
 		}
 	}
 	if len(pm.asked) != 0 {
 		t.Fatalf("the engine was asked about outside paths: %+v", pm.asked)
 	}
+	if ok, why := permit("Edit", harness.Write, "app/routes/posts.$slug.tsx"); !ok {
+		t.Fatalf("a $ inside a name refused: %q", why)
+	}
+	pm.asked = nil
 	if ok, why := permit("Edit", harness.Write, "src/main.go"); !ok {
 		t.Fatalf("inside path refused: %q", why)
 	}

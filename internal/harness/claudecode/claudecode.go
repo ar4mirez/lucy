@@ -241,10 +241,11 @@ var fileTools = map[string]harness.Access{
 var patternFields = map[string]string{"Glob": "pattern", "Grep": "glob"}
 
 // toolPath reads the path a file tool's input names; empty when it names none. A search tool's
-// glob is accepted only when nothing in it can be expanded or climb: no "~", "$", "{", "}" and no
-// ".." element. A relative glob is then decided by the tool's path; an absolute one by its static
-// part, cut back to the last separator before the first of "*?[". Any other glob is refused.
-func toolPath(tool string, input map[string]any) (string, bool) {
+// glob is accepted only when nothing in it can be expanded or climb: no "~", "{", "}", variable
+// reference or ".." element. A relative glob is then decided by the tool's path; an absolute one by
+// its static part, cut back to the last separator before the first of "*?[". Any other glob is
+// refused, and why is the reason.
+func toolPath(tool string, input map[string]any) (p, why string) {
 	var base string
 	for _, k := range []string{"file_path", "notebook_path", "path"} {
 		if p, _ := input[k].(string); p != "" {
@@ -253,16 +254,19 @@ func toolPath(tool string, input map[string]any) (string, bool) {
 		}
 	}
 	glob, _ := input[patternFields[tool]].(string)
-	if strings.ContainsAny(glob, "~${}") || slices.Contains(strings.Split(glob, "/"), "..") {
-		return "", false
+	if harness.VarRef(glob) {
+		return "", "the path contains a variable reference"
+	}
+	if strings.ContainsAny(glob, "~{}") || slices.Contains(strings.Split(glob, "/"), "..") {
+		return "", "the pattern may reach outside the run's directory"
 	}
 	if !strings.HasPrefix(glob, "/") {
-		return base, true
+		return base, ""
 	}
 	if i := strings.IndexAny(glob, "*?["); i >= 0 {
 		glob = glob[:strings.LastIndex(glob[:i], "/")+1]
 	}
-	return path.Clean(glob), true
+	return path.Clean(glob), ""
 }
 
 type question struct {
@@ -400,9 +404,9 @@ func (c *conn) control(m message) []harness.Event {
 	}
 	tool := capped(m.Request.ToolName, 64)
 	if access, ok := fileTools[m.Request.ToolName]; ok && c.permit != nil {
-		p, ok := toolPath(m.Request.ToolName, m.Request.Input)
-		allowed, why := false, "the pattern may reach outside the run's directory"
-		if ok {
+		p, why := toolPath(m.Request.ToolName, m.Request.Input)
+		allowed := false
+		if why == "" {
 			allowed, why = c.permit(m.Request.ToolName, access, p)
 		}
 		if !allowed {

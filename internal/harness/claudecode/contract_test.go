@@ -305,7 +305,7 @@ func TestLiveHarness(t *testing.T) {
 // a relative glob is decided by the tool's path, empty when it names none, and an absolute one by
 // its static part.
 func TestSearchToolPath(t *testing.T) {
-	const refused = "\x00refused"
+	const refused, varRef = "\x00may reach outside", "\x00variable reference"
 	for _, c := range []struct {
 		tool  string
 		input string
@@ -326,7 +326,11 @@ func TestSearchToolPath(t *testing.T) {
 		{"Glob", `{"pattern":"**/../../x","path":"/work/run-1"}`, refused},
 		{"Glob", `{"pattern":"/work/run-1/../etc/*"}`, refused},
 		{"Grep", `{"pattern":"secret","glob":"../../*"}`, refused},
-		{"Grep", `{"pattern":"secret","glob":"$HOME/*"}`, refused},
+		{"Grep", `{"pattern":"secret","glob":"$HOME/*"}`, varRef},
+		{"Glob", `{"pattern":"src/${X}/*"}`, varRef},
+		{"Glob", `{"pattern":"$(pwd)/*"}`, varRef},
+		{"Glob", `{"pattern":"routes/*$*.tsx"}`, ""},
+		{"Glob", `{"pattern":"app/routes/posts.$slug.tsx"}`, ""},
 	} {
 		var asked []string
 		permit := func(tool string, _ harness.Access, path string) (bool, string) {
@@ -340,8 +344,8 @@ func TestSearchToolPath(t *testing.T) {
 		}
 		evs, _ := conn.Decode([]byte(`{"type":"control_request","request_id":"req_1","request":{"subtype":"can_use_tool","tool_name":"` +
 			c.tool + `","input":` + c.input + `}}`))
-		if c.want == refused {
-			if len(asked) != 0 || len(evs) != 1 || !strings.Contains(evs[0].Text, "may reach outside") || !strings.Contains(in.buf.String(), `"deny"`) {
+		if reason, ok := strings.CutPrefix(c.want, "\x00"); ok {
+			if len(asked) != 0 || len(evs) != 1 || !strings.Contains(evs[0].Text, reason) || !strings.Contains(in.buf.String(), `"deny"`) {
 				t.Errorf("%s %s: asked %q, %+v, wrote %s", c.tool, c.input, asked, evs, in.buf.String())
 			}
 			continue

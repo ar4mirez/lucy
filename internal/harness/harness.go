@@ -13,6 +13,7 @@ package harness
 import (
 	"errors"
 	"io"
+	"strings"
 )
 
 // Kind is what a harness event is. The kinds match the runner protocol's event kinds.
@@ -113,4 +114,19 @@ type Conn interface {
 	Answer(text string) error
 	// Close ends the program's input.
 	Close() error
+}
+
+// VarRef reports whether p holds a "$" a shell or the harness could read as a variable or command
+// reference: "${", "$(", or a "$" and a letter or underscore starting a path element. Any other
+// "$" in a name, as in posts.$slug.tsx, is a plain character.
+func VarRef(p string) bool {
+	if strings.Contains(p, "${") || strings.Contains(p, "$(") {
+		return true
+	}
+	for _, e := range strings.Split(p, "/") {
+		if len(e) > 1 && e[0] == '$' && (e[1] == '_' || 'a' <= e[1]|32 && e[1]|32 <= 'z') {
+			return true
+		}
+	}
+	return false
 }

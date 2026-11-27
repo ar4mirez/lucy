@@ -440,6 +440,9 @@ func (pe *processExecution) Stop() {
 // Anything that goes wrong refuses the tool.
 func permitFor(dir string, protected []string, l Lease, pm Permitter, log *slog.Logger) harness.Permit {
 	return func(tool string, access harness.Access, path string) (bool, string) {
+		if harness.VarRef(path) {
+			return false, "the path contains a variable reference"
+		}
 		if path == "" {
 			path = dir
 		}
@@ -477,10 +480,10 @@ func holdsAny(path string, names []string) bool {
 }
 
 // insideDir resolves path, relative to dir when it is not absolute, through any symlinks in its
-// existing part, and reports whether it is dir or inside it. A path that starts with "~" or holds
-// "$" may be expanded elsewhere, so it is refused.
+// existing part, and reports whether it is dir or inside it. A path that starts with "~" may be
+// expanded to the home directory, so it is refused.
 func insideDir(dir, path string) (string, bool) {
-	if strings.HasPrefix(path, "~") || strings.Contains(path, "$") {
+	if strings.HasPrefix(path, "~") {
 		return "", false
 	}
 	if !filepath.IsAbs(path) {
