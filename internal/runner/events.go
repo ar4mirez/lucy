@@ -43,6 +43,8 @@ type Streamed struct {
 	// Question, when asking, is the question's id. An asking event for a question already
 	// answered is recorded as activity, so an answered question never re-opens.
 	Question string `json:"question,omitempty"`
+	// Hook, on a hook event, is the harness lifecycle hook that fired.
+	Hook string `json:"hook,omitempty"`
 }
 
 // StopRequested records that the Tower asked for the run to stop. A queued run finishes at once;

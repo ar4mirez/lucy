@@ -1,0 +1,7 @@
+harness/claude-code hook "SessionStart"
+harness/claude-code activity "session started: claude-code 2.1.332, model claude-opus-5-5"
+harness/claude-code hook "PreToolUse Bash"
+harness/claude-code hook "Notification"
+harness/claude-code hook "Stop"
+harness/claude-code activity "session ended: success after 1 turns"
+exit ok=true pr=3 reason=""

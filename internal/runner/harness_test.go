@@ -37,7 +37,7 @@ func TestPilotReachesTheOwnerOnlyThroughTheTower(t *testing.T) {
 	var lines []string
 	for _, l := range strings.Split(strings.TrimSpace(string(recorded)), "\n") {
 		lines = append(lines, l)
-		if strings.Contains(l, `"control_request"`) {
+		if strings.Contains(l, `"can_use_tool"`) { // after the question's permission prompt
 			lines = append(lines, `{"stderr":"warning: the network is slow"}`, `{"out":{"type":"mystery"}}`)
 		}
 	}

@@ -24,6 +24,7 @@ const (
 	Output   Kind = "output"   // text the Pilot wrote
 	Activity Kind = "activity" // the Pilot did something: started, called a tool, was refused one
 	Asking   Kind = "asking"   // the Pilot asks a question and waits on the owner's answer
+	Hook     Kind = "hook"     // a harness lifecycle hook fired: Event.Hook names it
 )
 
 // Source tags every event a harness produces: it is the harness's untrusted output, whatever the
@@ -36,7 +37,14 @@ type Event struct {
 	Source   Source
 	Text     string // untrusted
 	Question string // when asking: the question's id, the same on every repeat of it; untrusted
+	Hook     string // when a hook: its event name, one of Hooks
 }
+
+// Hooks are the lifecycle hook events a harness may report, by Claude Code's names. A hook event
+// is recorded, never acted on: lucy registers its own callbacks as the session's host, and the
+// harness's settings hooks stay off.
+var Hooks = []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification",
+	"Stop", "SubagentStop", "PreCompact", "SessionEnd"}
 
 // Exit is how a session ended, as the harness's protocol reported it.
 type Exit struct {

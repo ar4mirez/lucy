@@ -16,6 +16,11 @@ Changes since the last release. When a version is cut, its section moves to
 
 ### Added
 
+- Harness hooks are typed events: a Claude Code session registers lucy, its host, for a callback
+  on every lifecycle hook (SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Notification,
+  Stop, SubagentStop, PreCompact, SessionEnd) over stream-json, and each callback is recorded as a
+  `hook` run event naming it. lucy never acts on a hook, and the settings' own hooks stay off. The
+  `runner.heartbeat` events gain the `hook` kind and its `hook` name (OpenRPC revision 6).
 - `runner.permit`: a Pilot's prompted file tool (read, edit or write) on a path inside its run's
   directory is decided by the daemon's policy engine, with the Pilot as a ship worker of the run's
   org, and the decision is recorded before the tool runs; a path outside the directory, also

@@ -6,10 +6,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/eventstore"
+	"github.com/ar4mirez/lucy/internal/harness"
 	"github.com/ar4mirez/lucy/internal/policy"
 )
 
@@ -189,6 +191,9 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 		return Beat{}, fmt.Errorf("%w: an acknowledged question id is at most %d bytes", ErrInvalid, maxIDBytes)
 	}
 	for _, ev := range events {
+		if (ev.Kind == KindHook) != (ev.Hook != "") || (ev.Hook != "" && !slices.Contains(harness.Hooks, ev.Hook)) {
+			return Beat{}, fmt.Errorf("%w: event %d: a hook event, and only a hook event, names a known hook, not %q", ErrInvalid, ev.Seq, ev.Hook)
+		}
 		if !ev.Kind.Valid() || ev.Seq < 1 || len(ev.Question) > maxIDBytes || (ev.Kind == KindAsking) != (ev.Question != "") {
 			return Beat{}, fmt.Errorf("%w: event %d of kind %q with question id %q; a question, and only a question, names its id", ErrInvalid, ev.Seq, ev.Kind, ev.Question)
 		}
@@ -219,7 +224,7 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 			if ev.Kind == KindAsking && (ev.Question == ri.Answered || ev.Question == given.question || ev.Question == acked) {
 				ev.Kind, ev.Text, ev.Question = KindActivity, repeatedQuestion, ""
 			}
-			payloads = append(payloads, Streamed{Fence: fence, Seq: ev.Seq, Kind: ev.Kind, Text: capText(ev.Text), Question: ev.Question})
+			payloads = append(payloads, Streamed{Fence: fence, Seq: ev.Seq, Kind: ev.Kind, Text: capText(ev.Text), Question: ev.Question, Hook: ev.Hook})
 		}
 		exp := b.now().Add(ttl).UTC()
 		payloads = append(payloads, Renewed{Fence: fence, ExpiresAt: exp, Answered: acked})
