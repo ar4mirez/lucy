@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ar4mirez/lucy/internal/policy"
+	"github.com/ar4mirez/lucy/internal/runner"
 	"github.com/ar4mirez/lucy/internal/tower"
 )
 
@@ -208,4 +209,55 @@ func FixtureIntact() Assertion {
 // Holds is a scenario-specific assertion.
 func Holds(name string, fn func(ctx context.Context, e *Env) error) Assertion {
 	return Assertion{name, fn}
+}
+
+// Fenced asserts that the flight's Pilot generation gen lost its run to the broker (its lease
+// expired, or a newer generation replaced it) and that nothing was recorded on the run after
+// that: whatever its runner sent later was refused. It needs Setup.Runners.
+func Fenced(flight string, gen int) Assertion {
+	run := runner.RunID(flight, gen)
+	return Assertion{run + " was fenced", func(ctx context.Context, e *Env) error {
+		if e.World.Broker == nil {
+			return errors.New("Fenced needs Setup.Runners")
+		}
+		r, err := e.World.Broker.Run(ctx, run)
+		if err != nil {
+			return err
+		}
+		evs, err := e.World.Store.ReadStream(ctx, runner.Stream(r.Org, run), 0, 100000)
+		if err != nil {
+			return err
+		}
+		last := ""
+		if len(evs) > 0 {
+			last = evs[len(evs)-1].Type
+		}
+		if r.State != runner.StateLost || (last != "run.expired" && last != "run.replaced") {
+			return fmt.Errorf("run %s is %s, its last event %q", run, r.State, last)
+		}
+		return nil
+	}}
+}
+
+// Runs asserts how many runs the broker queued for the flight. It needs Setup.Runners.
+func Runs(flight string, n int) Assertion {
+	return Assertion{fmt.Sprintf("%s had %d runs", flight, n), func(ctx context.Context, e *Env) error {
+		if e.World.Broker == nil {
+			return errors.New("Runs needs Setup.Runners")
+		}
+		runs, err := e.World.Broker.Runs(ctx, 0, 1000)
+		if err != nil {
+			return err
+		}
+		c := 0
+		for _, r := range runs {
+			if r.Flight == flight {
+				c++
+			}
+		}
+		if c != n {
+			return fmt.Errorf("%d runs", c)
+		}
+		return nil
+	}}
 }

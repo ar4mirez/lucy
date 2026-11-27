@@ -9,6 +9,7 @@ import (
 
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/policy"
+	"github.com/ar4mirez/lucy/internal/runner"
 	"github.com/ar4mirez/lucy/internal/sim"
 	"github.com/ar4mirez/lucy/internal/tower"
 )
@@ -177,9 +178,44 @@ func KillPilot(flight string) Action {
 	return Action{"kill the Pilot of " + flight, func(_ context.Context, e *Env) error {
 		st, err := e.flight(flight)
 		if err == nil {
-			err = e.World.Runtime.Kill(st.Session)
+			err = e.World.Runtime.Kill(e.World.Session(st.Session))
 		}
 		return err
+	}}
+}
+
+// DaemonDown is a fault: the daemon is down for d of virtual time, then starts again. Runners and
+// Pilot sessions carry on meanwhile, unheard.
+func DaemonDown(d time.Duration) Action {
+	return Action{"the daemon is down for " + d.String(), func(ctx context.Context, e *Env) error { return e.World.Down(ctx, d) }}
+}
+
+// CutRunner is a fault: runner i (from 0) is cut off from the daemon; its Pilot carries on unheard.
+func CutRunner(i int) Action {
+	return Action{fmt.Sprintf("cut runner %d off", i), func(_ context.Context, e *Env) error { return e.World.Cut(i) }}
+}
+
+// ReconnectRunner ends CutRunner.
+func ReconnectRunner(i int) Action {
+	return Action{fmt.Sprintf("reconnect runner %d", i), func(_ context.Context, e *Env) error { return e.World.Reconnect(i) }}
+}
+
+// OnLeased arms actions to run once, before the first Tower step after a runner leased the
+// flight's Pilot generation gen and streamed its first event. It needs Setup.Runners.
+func OnLeased(flight string, gen int, actions ...Action) Action {
+	name := fmt.Sprintf("when %s generation %d is leased", flight, gen)
+	return Action{name, func(_ context.Context, e *Env) error {
+		e.hooks = append(e.hooks, &hook{name: name, do: actions, when: func(ctx context.Context, e *Env) (bool, error) {
+			if e.World.Broker == nil {
+				return false, errors.New("OnLeased needs Setup.Runners")
+			}
+			r, err := e.World.Broker.Run(ctx, runner.RunID(flight, gen))
+			if errors.Is(err, runner.ErrNoRun) {
+				return false, nil
+			}
+			return err == nil && r.State == runner.StateLeased && r.Accepted > 0, err
+		}})
+		return nil
 	}}
 }
 

@@ -34,11 +34,11 @@ type Renewed struct {
 	Answered  string    `json:"answered,omitempty"`
 }
 
-// Resumed records that the daemon, starting again, gave a held lease a grace window: the lease
-// was not renewed only because the daemon was not there to hear its heartbeats, so its runner may
-// still be working, and it is not lost before ExpiresAt (LUCY-OPS-005, LUCY-RUN-005). The fence is
-// unchanged: the runner carries on under it, and a runner that is really gone still expires. It
-// extends the lease's expiry only, not what the runner earned (RunInfo.Earned).
+// Resumed records that the daemon, starting again, moved a held lease later by its outage: the
+// lease was not renewed only because the daemon was not there to hear its heartbeats, so its runner
+// may still be working, and it is not lost before ExpiresAt (LUCY-OPS-005, LUCY-RUN-005). The fence
+// is unchanged: the runner carries on under it, and a runner that is really gone still expires. It
+// moves the lease's expiry only, not what the runner earned (RunInfo.Earned).
 type Resumed struct {
 	Fence     int64     `json:"fence"`
 	ExpiresAt time.Time `json:"expires_at"`
@@ -84,6 +84,15 @@ type Expired struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+// Replaced ends a run because the Tower queued a newer Pilot generation of its flight, By, while
+// this one was still queued or leased: the old run is fenced in the same transaction that queues
+// the new one, so a flight never has two live runs (LUCY-RUN-004). Fence is 0 when no runner held
+// it. The run is lost; its runner is refused under Fence from then on.
+type Replaced struct {
+	Fence int64  `json:"fence"`
+	By    string `json:"by"` // the run that replaces it
+}
+
 // ContainerHeld records that an operation which stops org's container is under way: until
 // ContainerReleased or ExpiresAt, no run of org is leased to a runner placed in a container. It is
 // on the stream "container/<org>".
@@ -113,6 +122,7 @@ func (Streamed) EventType() string      { return "run.event" }
 func (StopRequested) EventType() string { return "run.stop_requested" }
 func (Answered) EventType() string      { return "run.answered" }
 func (Finished) EventType() string      { return "run.finished" }
+func (Replaced) EventType() string      { return "run.replaced" }
 func (Expired) EventType() string       { return "run.expired" }
 
 func (ContainerHeld) EventType() string     { return "container.held" }
@@ -127,6 +137,7 @@ func (Streamed) EventVersion() int      { return 1 }
 func (StopRequested) EventVersion() int { return 1 }
 func (Answered) EventVersion() int      { return 1 }
 func (Finished) EventVersion() int      { return 1 }
+func (Replaced) EventVersion() int      { return 1 }
 func (Expired) EventVersion() int       { return 1 }
 
 func (ContainerHeld) EventVersion() int     { return 1 }
@@ -135,7 +146,7 @@ func (HostOrgSet) EventVersion() int        { return 1 }
 
 // Payloads returns the run, container hold and host org events, for the store's registry.
 func Payloads() []eventstore.Payload {
-	return []eventstore.Payload{Queued{}, Leased{}, Renewed{}, Resumed{}, Streamed{}, StopRequested{}, Answered{}, Finished{}, Expired{},
+	return []eventstore.Payload{Queued{}, Leased{}, Renewed{}, Resumed{}, Streamed{}, StopRequested{}, Answered{}, Finished{}, Expired{}, Replaced{},
 		ContainerHeld{}, ContainerReleased{}, HostOrgSet{}}
 }
 

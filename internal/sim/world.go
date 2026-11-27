@@ -19,6 +19,10 @@ import (
 type Options struct {
 	Start time.Time    // the clock's start; Epoch when zero
 	Tower tower.Config // timings and limits; Store, Runtime, Forge, Clock and ForgeIdentity are the World's own
+	// Runners, when not zero, flies Pilots through the runner protocol with that many runners of
+	// RunnerOrg's runs (see runners.go); zero lets the Tower drive the fake runtime directly.
+	Runners   int
+	RunnerOrg string // "acme" when empty
 }
 
 // World is one simulation: a virtual clock, a fake forge, a fake Pilot runtime, an event store
@@ -30,9 +34,16 @@ type World struct {
 	Runtime *Runtime
 	Store   *eventstore.Store
 	Tower   *tower.Tower
+	// With Options.Runners: the daemon's broker (nil while the daemon is down) and the runners.
+	Broker  *runner.Broker
+	Runners []*runner.Runner
 
-	dir    string
-	config tower.Config
+	dir      string
+	config   tower.Config
+	runners  bool
+	sessions map[string]string // run -> the fake session playing it
+	cut      map[int]bool      // runners cut off from the daemon
+	stopped  time.Time         // when the daemon last stopped
 }
 
 // Registry returns the event registry a World's store opens with: the Tower's events, policy
@@ -52,9 +63,20 @@ func Open(ctx context.Context, dir string, seed uint64, opts Options) (*World, e
 	rng := rand.New(rand.NewPCG(seed, seed^0x6c756379)) // #nosec G404 -- deterministic simulation from a test seed (0x6c756379 is "lucy"); never for secrets
 	clock := NewClock(start)
 	forge := newForge(clock, rng)
-	w := &World{Seed: seed, Clock: clock, Forge: forge, Runtime: newRuntime(clock, rng, forge), dir: dir, config: opts.Tower}
+	w := &World{Seed: seed, Clock: clock, Forge: forge, Runtime: newRuntime(clock, rng, forge), dir: dir, config: opts.Tower,
+		runners: opts.Runners > 0, sessions: map[string]string{}, cut: map[int]bool{}}
 	if err := w.open(ctx); err != nil {
 		return nil, err
+	}
+	if w.runners {
+		org := opts.RunnerOrg
+		if org == "" {
+			org = "acme"
+		}
+		if err := w.newRunners(opts.Runners, org); err != nil {
+			_ = w.Close() // the runner's error is what matters
+			return nil, err
+		}
 	}
 	return w, nil
 }
@@ -73,12 +95,22 @@ func (w *World) open(ctx context.Context) error {
 	}
 	cfg := w.config
 	cfg.Store, cfg.Runtime, cfg.Forge, cfg.Clock, cfg.ForgeIdentity = store, w.Runtime, w.Forge, w.Clock, w.Forge.Identity
+	var broker *runner.Broker
+	if w.runners {
+		// As the daemon does on start: every held lease is moved later by the outage first.
+		broker = runner.NewBroker(store, w.Clock.Now)
+		if _, err := broker.Resume(ctx, w.stopped); err != nil {
+			_ = store.Close() // the broker's error is what matters
+			return err
+		}
+		cfg.Runtime = runner.Runtime{Broker: broker}
+	}
 	t, err := tower.New(ctx, cfg)
 	if err != nil {
 		_ = store.Close() // the Tower's error is what matters
 		return err
 	}
-	w.Store, w.Tower = store, t
+	w.Store, w.Tower, w.Broker = store, t, broker
 	return nil
 }
 
@@ -88,7 +120,7 @@ func (w *World) Close() error {
 		return nil
 	}
 	err := w.Store.Close()
-	w.Store, w.Tower = nil, nil
+	w.Store, w.Tower, w.Broker, w.stopped = nil, nil, nil, w.Clock.Now()
 	return err
 }
 
@@ -122,7 +154,7 @@ type RunOptions struct {
 // ErrTimeout is returned when a Run's virtual time runs out with a flight still active.
 var ErrTimeout = errors.New("sim: virtual time ran out with a flight still active")
 
-// Run steps the Tower and advances the clock by the Tower's poll interval until every flight is
+// Run steps the Tower (with runners, each runner first) and advances the clock by the Tower's poll interval until every flight is
 // final or waiting on the owner (asking or holding), and returns. Between Runs a scenario plays
 // the owner: Answer, Approve.
 func (w *World) Run(ctx context.Context, opts RunOptions) error {
@@ -137,6 +169,11 @@ func (w *World) Run(ctx context.Context, opts RunOptions) error {
 				return err
 			}
 		}
+		if w.runners {
+			if err := w.stepRunners(ctx); err != nil {
+				return err
+			}
+		}
 		if err := w.Tower.Step(ctx); err != nil {
 			return err
 		}
@@ -146,6 +183,9 @@ func (w *World) Run(ctx context.Context, opts RunOptions) error {
 		}
 		if next.After(end) {
 			return fmt.Errorf("%w (after %s)", ErrTimeout, limit)
+		}
+		if w.runners && next.Sub(w.Clock.Now()) > runnerStep {
+			next = w.Clock.Now().Add(runnerStep) // the runners renew their leases in time
 		}
 		w.Clock.Advance(next.Sub(w.Clock.Now()))
 	}

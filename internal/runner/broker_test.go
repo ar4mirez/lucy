@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -306,43 +307,50 @@ func TestRestartKeepsLeases(t *testing.T) {
 	}
 }
 
-// A daemon that was down for longer than a lease gives every held lease a grace window before it
-// expires anything: a runner that kept working renews under its old fence, one that is gone is
-// expired when the window ends, and a lease already in a window is not extended by another restart
-// (LUCY-OPS-005, LUCY-RUN-005).
+// A daemon that was down for longer than a lease moves every lease still live when it stopped later
+// by the outage, at least DefaultTTL from now, before it expires anything: a runner that kept
+// working renews under its old fence, one that is gone is expired when its moved lease ends, a
+// lease that had run out before the daemon stopped is not moved, and neither a restart with no
+// outage nor another restart before the runner renews moves anything (LUCY-OPS-005, LUCY-RUN-005).
 func TestResumeAfterAnOutage(t *testing.T) {
 	ctx := context.Background()
 	f := open(t)
-	f.submit("a#1", "b#1", "c#1")
+	t0 := f.clock.Now()
+	f.submit("a#1", "b#1", "c#1", "d#1", "e#1")
 	a, b, c := f.lease("r1", 0), f.lease("r2", 0), f.lease("r3", MaxTTL)
+	d, e := f.lease("r4", MinTTL), f.lease("r5", 3*time.Minute)
 	if _, err := f.b.Heartbeat(ctx, "r1", a.Run, a.Fence, 0, evs(1, 1), ""); err != nil {
 		t.Fatal(err)
 	}
 	earned := f.run(a.Run).Expires
-	f.clock.Advance(150 * time.Second) // the daemon is down past a's and b's leases, not c's
+	f.clock.Advance(10 * time.Second) // d's lease runs out; then the daemon stops
+	stopped := f.clock.Now()
+	f.clock.Advance(140 * time.Second) // down past a's, b's and e's leases, not c's
 	f.reopen()
-	n, err := f.b.Resume(ctx, 0)
-	if err != nil || n != 2 {
-		t.Fatalf("resumed %d, %v; want a and b", n, err)
+	n, err := f.b.Resume(ctx, stopped)
+	if err != nil || n != 3 {
+		t.Fatalf("resumed %d, %v; want a, b and e", n, err)
 	}
-	until := f.clock.Now().Add(DefaultGrace)
-	if ri := f.run(a.Run); !ri.Expires.Equal(until) || !ri.Earned.Equal(earned) || ri.Fence != a.Fence {
-		t.Fatalf("resumed lease %+v; want expiry %v, earned %v", ri, until, earned)
+	floor := t0.Add(150*time.Second + DefaultTTL) // now plus a lease life
+	for run, want := range map[string]time.Time{a.Run: floor, b.Run: floor, e.Run: e.Expires.Add(140 * time.Second), c.Run: c.Expires, d.Run: d.Expires} {
+		if ri := f.run(run); !ri.Expires.Equal(want) {
+			t.Fatalf("%s expires %v, want %v", run, ri.Expires, want)
+		}
 	}
-	if ri := f.run(c.Run); !ri.Expires.Equal(c.Expires) {
-		t.Fatalf("a lease longer than the window was changed: %+v", ri)
+	if ri := f.run(a.Run); !ri.Earned.Equal(earned) || ri.Fence != a.Fence {
+		t.Fatalf("a resumed lease keeps what the runner earned and its fence: %+v", ri)
 	}
-	if n, err := f.b.Expire(ctx); err != nil || n != 0 {
-		t.Fatalf("expired %d, %v during the window", n, err)
+	if n, err := f.b.Expire(ctx); err != nil || n != 1 || f.run(d.Run).State != StateLost {
+		t.Fatalf("expired %d, %v; want only d, which ran out before the daemon stopped", n, err)
 	}
 
 	f.clock.Advance(30 * time.Second)
-	f.reopen() // another restart inside the window extends nothing
-	if n, err := f.b.Resume(ctx, 0); err != nil || n != 0 {
-		t.Fatalf("second resume %d, %v", n, err)
+	f.reopen()
+	if n, err := f.b.Resume(ctx, f.clock.Now()); err != nil || n != 0 {
+		t.Fatalf("a restart with no outage: %d, %v", n, err)
 	}
-	if ri := f.run(b.Run); !ri.Expires.Equal(until) {
-		t.Fatalf("a lease in its window was extended again: %+v", ri)
+	if n, err := f.b.Resume(ctx, f.clock.Now().Add(-10*time.Second)); err != nil || n != 0 {
+		t.Fatalf("another outage before the runners renewed: %d, %v", n, err)
 	}
 
 	beat, err := f.b.Heartbeat(ctx, "r1", a.Run, a.Fence, MaxTTL, evs(1, 2), "")
@@ -352,12 +360,9 @@ func TestResumeAfterAnOutage(t *testing.T) {
 	if ri := f.run(a.Run); !ri.Earned.Equal(beat.Expires) || !ri.Expires.Equal(beat.Expires) {
 		t.Fatalf("renewed lease %+v", ri)
 	}
-	f.clock.Advance(until.Sub(f.clock.Now())) // the window ends; a and c hold leases that run longer
-	if n, err := f.b.Expire(ctx); err != nil || n != 1 {
-		t.Fatalf("expired %d, %v after the window; want b", n, err)
-	}
-	if ri := f.run(b.Run); ri.State != StateLost {
-		t.Fatalf("a runner gone for good: %+v", ri)
+	f.clock.Advance(floor.Sub(f.clock.Now())) // b's moved lease ends; a, c and e run longer
+	if n, err := f.b.Expire(ctx); err != nil || n != 1 || f.run(b.Run).State != StateLost {
+		t.Fatalf("expired %d, %v; want b", n, err)
 	}
 	if err := first(f.b.Heartbeat(ctx, "r2", b.Run, b.Fence, 0, nil, "")); !errors.Is(err, ErrFenced) {
 		t.Fatalf("heartbeat of an expired lease: %v", err)
@@ -385,6 +390,86 @@ func TestResumeAfterAnOutage(t *testing.T) {
 	}
 	if _, err := audit.VerifyStore(ctx, f.store); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A newer Pilot generation fences the flight's live run before it is queued, in one transaction:
+// the flight never has two live runs, the old runner is refused from then on, and a generation that
+// is not newer than the flight's newest is refused (LUCY-RUN-004).
+func TestANewerGenerationFencesTheOldRun(t *testing.T) {
+	ctx := context.Background()
+	f := open(t)
+	g1 := Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}
+	if err := f.b.Submit(ctx, g1); err != nil {
+		t.Fatal(err)
+	}
+	old := f.lease("r1", 0)
+	g2 := g1
+	g2.Run, g2.Generation = "f1#2", 2
+	if err := f.b.Submit(ctx, g2); err != nil {
+		t.Fatal(err)
+	}
+	if ri := f.run(old.Run); ri.State != StateLost || ri.Reason != "replaced by f1#2" {
+		t.Fatalf("the replaced run %+v", ri)
+	}
+	if err := first(f.b.Heartbeat(ctx, "r1", old.Run, old.Fence, 0, evs(1, 1), "")); !errors.Is(err, ErrFenced) {
+		t.Fatalf("the old runner's heartbeat: %v", err)
+	}
+	if err := f.b.Finish(ctx, "r1", old.Run, old.Fence, Result{Outcome: OutcomeDone, PR: 7}); !errors.Is(err, ErrFenced) {
+		t.Fatalf("the old runner's finish: %v", err)
+	}
+	if got, want := f.types("acme", old.Run), []string{"run.queued", "run.leased", "run.replaced"}; !equal(got, want) {
+		t.Fatalf("the old run's events %v, want %v", got, want)
+	}
+
+	// A queued generation is replaced too, and another org's flight of the same name is untouched.
+	other := Task{Run: "beta-f1#1", Org: "beta", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}
+	if err := f.b.Submit(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	g3 := g1
+	g3.Run, g3.Generation = "f1#3", 3
+	if err := f.b.Submit(ctx, g3); err != nil {
+		t.Fatal(err)
+	}
+	if ri := f.run("f1#2"); ri.State != StateLost || ri.Fence != 0 {
+		t.Fatalf("the replaced queued run %+v", ri)
+	}
+	if ri := f.run(other.Run); ri.State != StateQueued {
+		t.Fatalf("another org's flight %+v", ri)
+	}
+
+	for _, g := range []int{2, 3} { // older than the newest, and the newest itself under a new id
+		stale := g1
+		stale.Run, stale.Generation = fmt.Sprintf("f1-again#%d", g), g
+		if err := f.b.Submit(ctx, stale); !errors.Is(err, ErrStale) {
+			t.Fatalf("generation %d after 3: %v", g, err)
+		}
+	}
+	live := 0
+	runs, err := f.b.Runs(ctx, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ri := range runs {
+		if ri.Org == "acme" && ri.Flight == "f1" && !ri.State.Final() {
+			live++
+		}
+	}
+	if live != 1 {
+		t.Fatalf("%d live runs of f1: %+v", live, runs)
+	}
+	if err := f.store.Rebuild(ctx, Projector{}.Name()); err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, err := f.b.Runs(ctx, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range runs {
+		if runs[i] != rebuilt[i] {
+			t.Fatalf("rebuilt %+v, live %+v", rebuilt[i], runs[i])
+		}
 	}
 }
 

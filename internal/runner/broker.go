@@ -58,7 +58,10 @@ func NewBroker(store *eventstore.Store, now func() time.Time) *Broker {
 func (b *Broker) VerifyPlacementWith(v PlacementVerifier) { b.verifier = v }
 
 // Submit queues a run. Its Base is "main" when empty. A run id is unique across every org and
-// may be submitted only once (ErrExists).
+// may be submitted only once (ErrExists), and its generation must be newer than every run of its
+// org's flight (ErrStale). Every run of the flight still queued or leased is fenced first, in the
+// same transaction, recorded as run.replaced: a flight never has two live runs, and a runner
+// holding an older generation is refused from then on (LUCY-RUN-004).
 func (b *Broker) Submit(ctx context.Context, t Task) error {
 	if t.Base == "" {
 		t.Base = "main"
@@ -66,7 +69,8 @@ func (b *Broker) Submit(ctx context.Context, t Task) error {
 	if err := checkTask(t); err != nil {
 		return err
 	}
-	return b.store.Update(ctx, func(tx *eventstore.Tx) error {
+	var replaced []string
+	err := b.store.Update(ctx, func(tx *eventstore.Tx) error {
 		var n int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runner_runs WHERE run = ?`, t.Run).Scan(&n); err != nil {
 			return err
@@ -74,11 +78,49 @@ func (b *Broker) Submit(ctx context.Context, t Task) error {
 		if n > 0 {
 			return fmt.Errorf("%w: %q", ErrExists, t.Run)
 		}
-		_, err := tx.Append(ctx, Stream(t.Org, t.Run), eventstore.NoStream, ActorDaemon, Queued{
+		var newest int
+		if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(generation), 0) FROM runner_runs WHERE org = ? AND flight = ?`,
+			t.Org, t.Flight).Scan(&newest); err != nil {
+			return err
+		}
+		if newest >= t.Generation {
+			return fmt.Errorf("%w: flight %q of org %q has generation %d; %q is generation %d", ErrStale, t.Flight, t.Org, newest, t.Run, t.Generation)
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT `+runColumns+` FROM runner_runs WHERE org = ? AND flight = ? AND state IN (?, ?)
+			ORDER BY generation`, t.Org, t.Flight, string(StateQueued), string(StateLeased))
+		if err != nil {
+			return err
+		}
+		var live []RunInfo
+		for rows.Next() {
+			ri, err := scanRun(rows)
+			if err != nil {
+				_ = rows.Close() // the scan error is what matters
+				return err
+			}
+			live = append(live, ri)
+		}
+		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+			return err
+		}
+		for _, ri := range live {
+			if _, err := tx.Append(ctx, Stream(ri.Org, ri.Run), ri.Version, ActorDaemon, Replaced{Fence: ri.Fence, By: t.Run}); err != nil {
+				return err
+			}
+			replaced = append(replaced, ri.Run)
+		}
+		_, err = tx.Append(ctx, Stream(t.Org, t.Run), eventstore.NoStream, ActorDaemon, Queued{
 			Org: t.Org, Project: t.Project, Flight: t.Flight, Generation: t.Generation, Goal: capText(t.Goal), Base: t.Base,
 		})
 		return err
 	})
+	if err != nil {
+		return err
+	}
+	for _, r := range replaced {
+		b.dropAnswer(r)
+	}
+	return nil
 }
 
 // Run returns one run.
@@ -539,36 +581,29 @@ func (b *Broker) Stop(ctx context.Context, run string) error {
 	})
 }
 
-// Expire records every leased run whose lease is past its expiry as expired, and returns how many
-// it expired. The daemon calls it on a timer; Runtime.Poll also expires the run it reads.
-func (b *Broker) Expire(ctx context.Context) (int, error) {
-	return b.expireLeases(ctx)
-}
-
-// DefaultGrace is how long a restarted daemon waits for a held lease's runner before expiring it:
-// two lease lives, so a runner that kept working while the daemon was down has time to reconnect.
-const DefaultGrace = 2 * DefaultTTL
-
-// Resume is what a daemon does on start, before it expires anything: every run still leased gets
-// a grace window, until grace (DefaultGrace when zero) from now, unless its lease already runs
-// longer. A lease that ran out while the daemon was down was not renewed only because no daemon
-// was there to hear the heartbeats; its runner may still be working, and it reattaches under the
-// same fence. A runner that is really gone is expired once the grace window ends (LUCY-OPS-005,
-// LUCY-RUN-005). It returns how many leases it extended, each recorded as run.resumed.
+// Resume is what a daemon does on start, before it expires anything, given when it stopped
+// (stoppedAt: the time of the newest event in the log). Runners kept working while it was down,
+// and their heartbeats went unheard, so every lease still live when the daemon stopped is moved
+// later by the outage, and left at least DefaultTTL to run from now: its runner reattaches under
+// the same fence (LUCY-OPS-005, LUCY-RUN-005). A lease that had already run out before the daemon
+// stopped is not moved, a lease with DefaultTTL or more left is left alone, and a restart with no
+// outage moves nothing. It returns how many leases it moved, each recorded as run.resumed.
 //
-// The window keeps the run, not the runner's authority: Earned stays what the runner last earned,
+// The move keeps the run, not the runner's authority: Earned stays what the runner last earned,
 // so nothing that trusts a lease (a capability token) trusts it past that until the runner renews
-// it. A lease already in a window is not extended again, so a daemon that restarts over and over
-// cannot keep a dead runner's run from being replaced.
-func (b *Broker) Resume(ctx context.Context, grace time.Duration) (int, error) {
-	if grace <= 0 {
-		grace = DefaultGrace
+// it. A lease already moved and not renewed since is not moved again, so a daemon that restarts
+// over and over cannot keep a dead runner's run from being replaced.
+func (b *Broker) Resume(ctx context.Context, stoppedAt time.Time) (int, error) {
+	now := b.now()
+	down := now.Sub(stoppedAt)
+	if down <= 0 {
+		return 0, nil
 	}
-	until := b.now().Add(grace).UTC()
+	floor := now.Add(DefaultTTL).UTC()
 	n := 0
 	err := b.store.Update(ctx, func(tx *eventstore.Tx) error {
 		rows, err := tx.QueryContext(ctx, `SELECT `+runColumns+` FROM runner_runs WHERE state = ? AND expires_ns <= earned_ns
-			AND expires_ns < ? ORDER BY queued_seq`, string(StateLeased), until.UnixNano())
+			AND expires_ns > ? AND expires_ns < ? ORDER BY queued_seq`, string(StateLeased), stoppedAt.UnixNano(), floor.UnixNano())
 		if err != nil {
 			return err
 		}
@@ -585,6 +620,10 @@ func (b *Broker) Resume(ctx context.Context, grace time.Duration) (int, error) {
 			return err
 		}
 		for _, ri := range held {
+			until := ri.Expires.Add(down).UTC()
+			if until.Before(floor) {
+				until = floor
+			}
 			if _, err := tx.Append(ctx, Stream(ri.Org, ri.Run), ri.Version, ActorDaemon, Resumed{Fence: ri.Fence, ExpiresAt: until}); err != nil {
 				return err
 			}
@@ -598,7 +637,9 @@ func (b *Broker) Resume(ctx context.Context, grace time.Duration) (int, error) {
 	return n, nil
 }
 
-func (b *Broker) expireLeases(ctx context.Context) (int, error) {
+// Expire records every leased run whose lease is past its expiry as expired, and returns how many
+// it expired. The daemon calls it on a timer; Runtime.Poll also expires the run it reads.
+func (b *Broker) Expire(ctx context.Context) (int, error) {
 	now := b.now()
 	rows, err := b.store.QueryContext(ctx, `SELECT run FROM runner_runs WHERE state = ? AND expires_ns <= ? ORDER BY queued_seq`,
 		string(StateLeased), now.UnixNano())

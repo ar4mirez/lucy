@@ -128,6 +128,10 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	defer store.Close() //nolint:errcheck // reported through the log by the store's callers
+	stoppedAt, err := lastEvent(ctx, store)
+	if err != nil {
+		return err
+	}
 
 	set, err := loadResources(ctx, store, opts.ResourcesDir, log)
 	if err != nil {
@@ -156,11 +160,12 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	broker := runner.NewBroker(store, nil)
 	// Runners kept working while the daemon was down; before anything is expired, every held
-	// lease gets a grace window to reconnect under its fence (LUCY-OPS-005, LUCY-RUN-005).
-	if n, err := broker.Resume(ctx, 0); err != nil {
+	// lease is moved later by the outage so its runner reconnects under its fence (LUCY-OPS-005,
+	// LUCY-RUN-005).
+	if n, err := broker.Resume(ctx, stoppedAt); err != nil {
 		return fmt.Errorf("daemon: resume runner leases: %w", err)
 	} else if n > 0 {
-		log.Info("runner leases resumed after a restart", "runs", n, "grace", runner.DefaultGrace)
+		log.Info("runner leases resumed after a restart", "runs", n, "down", time.Since(stoppedAt).Round(time.Millisecond))
 	}
 	caps := &capability.Issuer{Store: store, Leases: broker}
 	gateways.Capabilities = caps
@@ -249,6 +254,21 @@ func expireLeases(ctx context.Context, b *runner.Broker, caps *capability.Issuer
 			log.Info("capabilities of ended runs revoked", "capabilities", n)
 		}
 	}
+}
+
+// lastEvent returns the time of the newest event in the log, before this start appends any: when
+// the last daemon stopped, recording daemon.stopped, or, had it crashed, no earlier than its last
+// record, which a live lease's heartbeats keep recent. It is zero for an empty log.
+func lastEvent(ctx context.Context, store *eventstore.Store) (time.Time, error) {
+	head, err := store.Head(ctx)
+	if err != nil || head == 0 {
+		return time.Time{}, err
+	}
+	evs, err := store.ReadAfter(ctx, head-1, 1)
+	if err != nil || len(evs) == 0 {
+		return time.Time{}, err
+	}
+	return evs[0].Time, nil
 }
 
 func openStore(ctx context.Context, opts Options) (*eventstore.Store, error) {

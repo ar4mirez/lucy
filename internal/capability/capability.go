@@ -273,9 +273,9 @@ func (i *Issuer) Verify(ctx context.Context, token, org, route string) (Capabili
 }
 
 // leased reports whether c's run is still leased under c's fence at now, its lease not run out.
-// When earned, the expiry is the one the runner itself earned: a restarted daemon's grace window
-// keeps the run for its runner, so its token is not revoked, but lends the token nothing until the
-// runner renews the lease (LUCY-OPS-005).
+// When earned, the expiry is the one the runner itself earned: a restarted daemon moves the lease
+// to keep the run for its runner, so its token is not revoked, but that lends the token nothing
+// until the runner renews the lease (LUCY-OPS-005).
 func (i *Issuer) leased(ctx context.Context, c Capability, now time.Time, earned bool) (bool, error) {
 	ri, err := i.Leases.Run(ctx, c.Run)
 	if errors.Is(err, runner.ErrNoRun) {

@@ -20,7 +20,7 @@ type RunInfo struct {
 	Placement Placement // the holder's placement
 	Fence     int64     // the current or last lease's fence; 0 when never leased
 	Expires   time.Time // when leased: the lease's expiry
-	Earned    time.Time // when leased: the expiry the runner earned; Expires is later only in a grace window (Resume)
+	Earned    time.Time // when leased: the expiry the runner earned; Expires is later only after a restart (Resume)
 	Accepted  int64     // the highest streamed event number recorded
 	Activity  time.Time // when the run last did something: leased, streamed, or queued
 	Asking    bool      // the last streamed event was a question
@@ -47,7 +47,7 @@ type Projector struct{}
 func (Projector) Name() string { return "runner_runs" }
 
 // Version implements eventstore.Projector.
-func (Projector) Version() int { return 7 }
+func (Projector) Version() int { return 8 }
 
 // Reset implements eventstore.Projector.
 func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
@@ -82,6 +82,7 @@ func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
 			ended_ns    INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX runner_runs_state ON runner_runs (state, queued_seq)`,
+		`CREATE INDEX runner_runs_flight ON runner_runs (org, flight, generation)`,
 		`DROP TABLE IF EXISTS runner_holds`,
 		`CREATE TABLE runner_holds (
 			org        TEXT PRIMARY KEY,
@@ -210,6 +211,13 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 	case Expired{}.EventType():
 		q = `UPDATE runner_runs SET version = ?, state = ?, reason = ?, asking = 0, question = '', ended_ns = ? WHERE run = ?`
 		args = []any{e.StreamVersion, string(StateLost), "the lease expired", at, run}
+	case Replaced{}.EventType():
+		var p Replaced
+		if err := decode(&p); err != nil {
+			return err
+		}
+		q = `UPDATE runner_runs SET version = ?, state = ?, reason = ?, asking = 0, question = '', ended_ns = ? WHERE run = ?`
+		args = []any{e.StreamVersion, string(StateLost), capText("replaced by " + p.By), at, run}
 	default:
 		return nil
 	}

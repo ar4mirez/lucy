@@ -14,8 +14,8 @@
 //   - expiry: a lease that is not renewed in time expires; the run is lost, and every later call
 //     under its fence is refused (ErrFenced), so a runner that was cut off and comes back can
 //     never report into, or finish, work the Tower has already replaced. A restarted daemon first
-//     gives every held lease a grace window (Broker.Resume), so a runner that kept working while
-//     the daemon was down reattaches under its fence rather than being replaced.
+//     moves every held lease later by its outage (Broker.Resume), so a runner that kept working
+//     while the daemon was down reattaches under its fence rather than being replaced.
 //
 // The daemon side is the Broker, a projection over the run streams; the runner side is the Runner
 // loop with an Executor that runs the work. Runtime adapts the Broker to the Tower's Runtime seam,
@@ -116,6 +116,9 @@ var (
 	ErrNoRun = errors.New("runner: no such run")
 	// ErrExists refuses a second submit of a run id.
 	ErrExists = errors.New("runner: the run was already submitted")
+	// ErrStale refuses a run whose Pilot generation is not newer than every run of its flight:
+	// generations only grow, so a stale one would replace its own replacement.
+	ErrStale = errors.New("runner: stale generation: the flight already has this generation or a newer one")
 	// ErrSequence refuses streamed events that skip a number.
 	ErrSequence = errors.New("runner: streamed events must be numbered without gaps")
 	// ErrInvalid refuses a malformed task, runner id, event or outcome.

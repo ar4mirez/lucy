@@ -298,9 +298,10 @@ func (t *Tower) step(ctx context.Context, f *flight) error {
 	return nil
 }
 
-// startPilot starts the flight's next Pilot generation. A session started but not recorded,
-// because the daemon stopped in between, is orphaned and a new one starts after the restart;
-// TODO(LUCY-RUN-001): reattach before spawn, through the runner protocol's leases (m1).
+// startPilot starts the flight's next Pilot generation. A generation started but not recorded,
+// because the daemon stopped in between, is started again after the restart: the runner protocol
+// (runner.Runtime) returns the run it already queued, and fences any older live run of the flight
+// before it queues a new one, so a flight never has two live sessions (LUCY-RUN-004).
 func (t *Tower) startPilot(ctx context.Context, f *flight) error {
 	gen := f.generation + 1
 	session, err := t.cfg.Runtime.Start(ctx, PilotRequest{Flight: f.spec.ID, Org: f.spec.Org, Project: f.spec.Project,

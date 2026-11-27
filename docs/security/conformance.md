@@ -15,7 +15,7 @@ an agent supervisor must keep, and every class of past incident, is a scenario t
 lucy on the simulation harness (LUCY-CORP-001, LUCY-CORP-002). An airspace moves onto lucy only
 when its corpus is green. `mise run conformance` runs it, and CI runs it on every change.
 
-Corpus v1: 88 scenarios, **59 executable** (green: CI fails on any red one) and **29 pending** on
+Corpus v1: 88 scenarios, **61 executable** (green: CI fails on any red one) and **27 pending** on
 the milestone named in their row. Each executable scenario runs twice, as written and with the
 daemon restarted before every step, and both runs must leave the same event log.
 
@@ -37,7 +37,7 @@ daemon restarted before every step, and both runs must leave the same event log.
 | unlanded-work | 4 | 2 |
 | closing-refs | 1 | 3 |
 | durability | 4 | 2 |
-| sessions | 2 | 3 |
+| sessions | 4 | 1 |
 | public-artifacts | 0 | 3 |
 | validation | 0 | 4 |
 
@@ -127,8 +127,8 @@ requirements that make it executable.
 | durability-06 | durability | incident | high | A validation job that exhausts memory is stopped by its own cap, never by killing work shared with other flights | pending: m2 (LUCY-ORG-003) |
 | sessions-01 | sessions | incident | critical | A crashed Pilot is replaced by one new session, never two live sessions for one flight | executable |
 | sessions-02 | sessions | rule | high | A Pilot session that dies mid-work is replaced once, and the flight still lands | executable |
-| sessions-03 | sessions | incident | critical | A restarted daemon reattaches to a live Pilot session before it starts another | pending: m1 (LUCY-RUN-004, LUCY-RUN-005) |
-| sessions-04 | sessions | incident | critical | A supervisor session is fenced before it is replaced: never two live sessions per role | pending: m1 (LUCY-RUN-004) |
+| sessions-03 | sessions | incident | critical | A restarted daemon reattaches to a live Pilot session before it starts another | executable |
+| sessions-04 | sessions | incident | critical | A supervisor session is fenced before it is replaced: never two live sessions per role | executable |
 | sessions-05 | sessions | rule | high | Steering is addressed by airspace, flight and session generation, and refused when stale or ambiguous | pending: m1 (LUCY-RUN-004, LUCY-API-002) |
 | public-01 | public-artifacts | incident | high | Pull request text and commit messages carry no internal notes, owner quotes, local paths or other airspaces' names | pending: m1 (LUCY-VAL-011) |
 | public-02 | public-artifacts | incident | high | A bare @handle in public text is refused unless it is formatted as code | pending: m1 (LUCY-VAL-011) |

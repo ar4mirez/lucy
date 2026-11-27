@@ -183,14 +183,15 @@ func TestATokenDiesWithItsRun(t *testing.T) {
 	})
 }
 
-// A restarted daemon's grace window keeps a run for its runner, but lends its token nothing: the
-// gateway refuses the token until the runner renews the lease, and the token is not revoked while
-// the window runs, so the reattached runner gets a fresh one (LUCY-OPS-005).
+// A restarted daemon keeps a run for its runner by moving its lease, but lends its token nothing:
+// the gateway refuses the token until the runner renews the lease, and the token is not revoked
+// while the moved lease runs, so the reattached runner gets a fresh one (LUCY-OPS-005).
 func TestAGraceWindowLendsTheTokenNothing(t *testing.T) {
 	f := open(t)
 	l, tok, _ := f.lease("acme", "f1", "github")
+	stopped := f.clock.Now()
 	f.clock.add(2 * time.Minute) // the daemon was down past the lease
-	if n, err := f.b.Resume(ctx, 0); err != nil || n != 1 {
+	if n, err := f.b.Resume(ctx, stopped); err != nil || n != 1 {
 		t.Fatalf("resume %d, %v", n, err)
 	}
 	if _, err := f.iss.Verify(ctx, tok, "acme", "github"); !errors.Is(err, capability.ErrRunEnded) {
