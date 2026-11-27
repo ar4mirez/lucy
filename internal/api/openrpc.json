@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.7.0"
+    "version": "1.8.0"
   },
   "servers": [
     {
@@ -363,7 +363,7 @@
       "params": [
         {
           "name": "kind",
-          "description": "The action: read, write, merge, delete, force_push, branch_delete, history_rewrite, credential_use, exec or fetch.",
+          "description": "The action: read, write, merge, delete, force_push, branch_delete, history_rewrite, credential_use, exec, fetch or container.",
           "required": true,
           "schema": {
             "maxLength": 32,

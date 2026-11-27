@@ -54,6 +54,7 @@ var privileged = map[Kind]bool{
 	KindCredentialUse:  true,
 	KindExec:           true,
 	KindFetch:          true,
+	KindContainer:      true,
 }
 
 // Privileged reports whether k is a privileged action kind. Unknown kinds are.
@@ -64,6 +65,15 @@ func Privileged(k Kind) bool {
 
 // mergers may merge, within the posture. Workers, researchers, reviewers and the gateway never merge.
 var mergers = map[Role]bool{RoleOwner: true, RoleDaemon: true, RoleSupervisor: true}
+
+// containerRoles may start, restart or stop an org's container: the daemon, and the owner. An
+// agent never does, whatever its org.
+var containerRoles = map[Role]bool{RoleOwner: true, RoleDaemon: true}
+
+// ContainerOps are the operations on an org's container a container request names as its
+// resource. Each stops the work running in the container: up and restart recreate it, down
+// removes it.
+var ContainerOps = map[string]bool{"up": true, "restart": true, "down": true}
 
 // neverWrite roles never change a project, so they never delete or rewrite anything either.
 var neverWrite = map[Role]bool{RoleSupervisor: true, RoleResearcher: true, RoleReviewer: true, RoleGateway: true}

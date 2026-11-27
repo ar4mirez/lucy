@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 )
 
 // ActionDigest is the SHA-256 of the action a request asks for: its actor, kind and target, but
@@ -28,7 +29,9 @@ func ActionDigest(r Request) string {
 // FactsDigest is the SHA-256 of the facts an approval of a kind of action binds to, the facts the
 // approver saw: for a merge the pull request's head SHA, base ref and base SHA; for a delete the
 // symlink-resolved path; for a credential use the credential's scope; for a force-push, branch
-// delete or history rewrite the project's default branch. Other kinds bind to no facts. It is the
+// delete or history rewrite the project's default branch; for a container operation the live
+// sessions in the org's container, so a confirmation lapses when a session starts or ends. Other
+// kinds bind to no facts. It is the
 // SHA-256 of the JSON object {"kind": kind, "facts": {...}} with exactly those fields, so it is
 // deterministic and an approval made under one set of facts never matches another.
 func FactsDigest(k Kind, f Facts) string {
@@ -42,6 +45,8 @@ func FactsDigest(k Kind, f Facts) string {
 		bound = map[string]string{"credential_scope": f.CredentialScope}
 	case KindForcePush, KindBranchDelete, KindHistoryRewrite:
 		bound = map[string]string{"default_branch": f.DefaultBranch}
+	case KindContainer:
+		bound = map[string]string{"live_sessions": strings.Join(f.LiveSessions, "\n")}
 	}
 	data, err := json.Marshal(struct {
 		Kind  Kind              `json:"kind"`

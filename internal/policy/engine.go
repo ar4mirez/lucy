@@ -15,7 +15,7 @@ import (
 // RuleSetVersion is the version of the rule set. Bump it whenever any non-test source file of this
 // package changes; the committed testdata/ruleset.sum, checked by TestRuleSetVersioned, records the
 // SHA-256 of every version and refuses a changed rule set under an old version.
-const RuleSetVersion = 5
+const RuleSetVersion = 6
 
 //go:embed *.go
 var ruleSources embed.FS

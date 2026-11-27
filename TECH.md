@@ -2,7 +2,7 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 18
+version: 19
 owner: ar4mirez
 requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-001, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-009, LUCY-SIM-001, LUCY-SIM-002, LUCY-RUN-001, LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-013, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007, LUCY-SEC-002]
 ---
@@ -162,6 +162,9 @@ before returning it. The request model, facts, rule order, decision record and p
   descendant outlives it, and deletes the directory through the path guard. The same binary runs in
   an org container (`--placement container`) once berth mounts the socket and per-runner
   credentials exist (m1 slices 3, 4); a cloud runner later speaks the same protocol.
+- **Org sandbox** (LUCY-SBX-001 to LUCY-SBX-003), in `internal/sandbox`: the runtime seam, with
+  berth as its first provider; nothing stops a container's work without a recorded clearance:
+  [docs/tech/sandbox.md](docs/tech/sandbox.md).
 - **Harness adapters** (LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-013), in `internal/harness`: an
   `Adapter` drives one harness over its structured protocol, pinned to one version; `claudecode`
   runs Claude Code over stream-json. Session limits, tool prompts, questions, hooks and the
@@ -229,6 +232,7 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 | `internal/pathguard/` | The path guard every delete passes (section 5) |
 | `internal/policy/` | The policy engine: request model, rules, rule-set hash, decision record (section 5) |
 | `internal/runner/` | The runner protocol: broker and its projection, the Tower's Runtime over it, the runner loop, the process executor (section 6) |
+| `internal/sandbox/` | The runtime seam: providers, the guard, berth's client, a fake berth (section 6) |
 | `internal/harness/` | The harness adapter seam; `claudecode/` is the Claude Code adapter and its recorded transcripts, `harnesstest/` replays them (section 6) |
 | `internal/tower/` | The flight state machine and its seams: Pilot runtime, forge, clock (section 11) |
 | `internal/sim/` | The simulation harness: virtual clock, fake forge, fake Pilot runtime, fault hooks (section 11) |

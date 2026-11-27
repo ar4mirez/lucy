@@ -99,6 +99,28 @@ func (b *Broker) Runs(ctx context.Context, after int64, limit int) ([]RunInfo, e
 	return out, rows.Err()
 }
 
+// LiveInContainer returns the runs leased by a runner placed in org's container, sorted: the
+// sessions that starting, restarting or stopping that container would stop (LUCY-SBX-003). A
+// lease that has run out but is not yet recorded as expired still counts, so a session is never
+// missed because the daemon has not looked at it yet.
+func (b *Broker) LiveInContainer(ctx context.Context, org string) ([]string, error) {
+	rows, err := b.store.QueryContext(ctx, `SELECT run FROM runner_runs WHERE org = ? AND state = ? AND placement = ?
+		ORDER BY run`, org, string(StateLeased), string(PlacementContainer))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck // read-only
+	var out []string
+	for rows.Next() {
+		var run string
+		if err := rows.Scan(&run); err != nil {
+			return nil, err
+		}
+		out = append(out, run)
+	}
+	return out, rows.Err()
+}
+
 // Queued returns how many runs wait for a runner. It is a read: a runner polls it, and leases
 // only when there is something to lease, so an idle runner adds nothing to the log.
 func (b *Broker) Queued(ctx context.Context) (int, error) {

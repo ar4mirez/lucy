@@ -164,7 +164,7 @@ type ShutdownResult struct {
 // identified it; the facts (posture, checks, approvals, resolved paths) are the daemon's own and
 // cannot be supplied here.
 type EvaluateParams struct {
-	Kind     string        `json:"kind" lucy:"required,maxlen=32" doc:"The action: read, write, merge, delete, force_push, branch_delete, history_rewrite, credential_use, exec or fetch."`
+	Kind     string        `json:"kind" lucy:"required,maxlen=32" doc:"The action: read, write, merge, delete, force_push, branch_delete, history_rewrite, credential_use, exec, fetch or container."`
 	Org      string        `json:"org" lucy:"required,maxlen=128" doc:"The org the target belongs to."`
 	Project  string        `json:"project,omitempty" lucy:"maxlen=128" doc:"The project (repository), when the action has one."`
 	Resource string        `json:"resource,omitempty" lucy:"maxlen=4096" doc:"What the action is on: a PR (pr/12), an absolute path, a branch or a credential name."`
