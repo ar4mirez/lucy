@@ -31,7 +31,7 @@ func lucy(args ...string) (int, string, string) {
 
 func TestClientCommandsWithoutADaemon(t *testing.T) {
 	sock := filepath.Join(shortTempDir(t), "none.sock")
-	for _, cmd := range [][]string{{"status"}, {"events"}, {"daemon", "stop"}} {
+	for _, cmd := range [][]string{{"status"}, {"events"}, {"daemon", "stop"}, {"questions"}, {"answer", "f1", "yes"}} {
 		code, out, errOut := lucy(append(cmd, "--socket", sock)...)
 		if code != 1 || out != "" || !strings.Contains(errOut, "lucy daemon is not running") ||
 			!strings.Contains(errOut, "help: start it with `lucy daemon`") {
@@ -44,12 +44,13 @@ func TestUsageErrors(t *testing.T) {
 	for _, args := range [][]string{
 		{"status", "extra"}, {"events", "--limit", "x"}, {"daemon", "--nope"}, {"daemon", "stop", "x"},
 		{"runner"}, {"runner", "--id", "Bad Id", "--", "true"}, {"runner", "--placement", "moon", "--", "true"}, {"runner", "--nope"}, {"runner", "--harness", "nope"},
+		{"questions", "extra"}, {"answer"}, {"answer", "f1"},
 	} {
 		if code, _, errOut := lucy(args...); code != 2 || !strings.Contains(errOut, "help: run `lucy") {
 			t.Errorf("%v: code %d stderr %q", args, code, errOut)
 		}
 	}
-	for _, args := range [][]string{{"status", "--help"}, {"events", "-h"}, {"daemon", "--help"}, {"runner", "--help"}} {
+	for _, args := range [][]string{{"status", "--help"}, {"events", "-h"}, {"daemon", "--help"}, {"runner", "--help"}, {"questions", "--help"}, {"answer", "-h"}} {
 		if code, out, _ := lucy(args...); code != 0 || !strings.Contains(out, "Usage:") {
 			t.Errorf("%v: code %d stdout %q", args, code, out)
 		}

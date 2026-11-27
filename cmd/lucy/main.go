@@ -29,6 +29,8 @@ Usage:
   lucy config validate [<dir>]
   lucy config status
   lucy audit verify
+  lucy questions
+  lucy answer <flight> <answer>...
   lucy runner [--socket <path>] [--id <name>] [--root <dir>] -- <command> [<args>...]
 
 Flags:
@@ -80,6 +82,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runConfig(args[1:], stdout, stderr)
 	case "audit":
 		return runAudit(args[1:], stdout, stderr)
+	case "questions":
+		return runQuestions(args[1:], stdout, stderr)
+	case "answer":
+		return runAnswer(args[1:], stdout, stderr)
 	case "runner":
 		return runRunner(args[1:], stdout, stderr)
 	default:

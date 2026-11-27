@@ -95,6 +95,8 @@ type Spec struct {
 // Status is a flight as the Tower sees it.
 type Status struct {
 	ID         string
+	Org        string
+	Project    string
 	State      State
 	Session    string
 	Generation int
@@ -253,7 +255,7 @@ func (t *Tower) Flights() []Status {
 }
 
 func (f *flight) status() Status {
-	return Status{ID: f.spec.ID, State: f.state, Session: f.session, Generation: f.generation, Question: f.question,
+	return Status{ID: f.spec.ID, Org: f.spec.Org, Project: f.spec.Project, State: f.state, Session: f.session, Generation: f.generation, Question: f.question,
 		PR: f.pr, Observed: f.observed, Reason: f.reason, Since: f.since}
 }
 

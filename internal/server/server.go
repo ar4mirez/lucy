@@ -75,6 +75,11 @@ type Options struct {
 	// Runs is the runner protocol's broker, which the runner and runs methods serve. Nil means
 	// this daemon serves no runners: those methods answer unavailable. Its store must be Store.
 	Runs *runner.Broker
+	// Questions is the Tower's view of the Pilots' open questions, which questions.list and
+	// questions.answer serve. Nil means this daemon hosts no Tower yet: the list is empty and an
+	// answer is unavailable. TODO(LUCY-SPEC-012): set it once the daemon hosts the Tower (m1
+	// slice 7a).
+	Questions Questions
 }
 
 // Server is the API's HTTP handler.

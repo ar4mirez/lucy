@@ -34,7 +34,8 @@ const Version = 1
 // Revision 4 added runner.permit: the policy engine's decision on a Pilot's prompted file tool.
 // Revision 5 added the exec and fetch action kinds and renamed runner.permit's path to resource.
 // Revision 6 added hook events: the hook kind and its name on runner.heartbeat's events.
-const SchemaRevision = 6
+// Revision 7 added questions.list and questions.answer.
+const SchemaRevision = 7
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"
