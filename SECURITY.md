@@ -106,8 +106,9 @@ token prefixes (GitHub, OpenAI, Slack, AWS, GitLab) and long high-entropy string
 `<redacted>`, capped at 512 bytes, then `sha256:` and the digest of the original, so one command
 can be matched across records without being stored. `runner.permit`'s `api.command` record holds
 only a digest of its parameters. The gateway's records (`gateway.forwarded`, `gateway.denied`,
-`gateway.completed`) hold the route, method, redacted path, upstream host, status and the policy
-decision, never a credential, a query string or a body.
+`gateway.completed`) hold the route, method, redacted path, upstream host, status, the policy
+decision, and the run and capability id, never a credential, a capability token, a query string or
+a body.
 
 The owner's security checklist (38 items in five areas) is mapped to milestones and requirements in the
 [checklist map](docs/security/checklist.md). The threat model is re-checked at every milestone exit and each
