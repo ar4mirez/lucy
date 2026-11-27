@@ -69,12 +69,16 @@ func TestVaultCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	value := "test_" + hex.EncodeToString(b) // made up by the test
-	code, out, errOut := withStdin(t, value+"\n", "vault", "set", "--dir", dir, "--socket", sock, "--org", "acme", "github")
+	pass := passphraseFile(t, testVaultPassphrase)
+	code, out, errOut := withStdin(t, value+"\n", "vault", "set", "--dir", dir, "--socket", sock, "--passphrase-file", pass, "--org", "acme", "github")
 	if code != 0 || out != "set: acme/github\n" || strings.Contains(out+errOut, value) {
 		t.Fatalf("set: %d %q %q", code, out, errOut)
 	}
 	v, err := vault.Open(dir)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := v.Unlock([]byte(testVaultPassphrase)); err != nil {
 		t.Fatal(err)
 	}
 	got, err := v.Credential(context.Background(), "acme", "github")
@@ -151,12 +155,16 @@ func TestVaultFailureRecordsItsKindOnly(t *testing.T) {
 func TestVaultChangeNeedsTheDaemon(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "vault")
 	sock := filepath.Join(shortTempDir(t), "none.sock")
-	code, _, errOut := withStdin(t, "made-up\n", "vault", "set", "--dir", dir, "--socket", sock, "--org", "acme", "github")
+	code, _, errOut := withStdin(t, "made-up\n", "vault", "set", "--dir", dir, "--socket", sock, "--passphrase-file",
+		passphraseFile(t, testVaultPassphrase), "--org", "acme", "github")
 	if code != 1 || !strings.Contains(errOut, "the change was not made") {
 		t.Fatalf("set without a daemon: %d %q", code, errOut)
 	}
 	if code, out, _ := lucy("vault", "ls", "--dir", dir, "--org", "acme"); code != 0 || out != "credentials[0]: acme holds none\n" {
 		t.Fatalf("the vault changed without a record: %d %q", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "keys", "kek")); !os.IsNotExist(err) {
+		t.Fatalf("the passphrase was set without a record: %v", err)
 	}
 }
 
@@ -200,10 +208,132 @@ func TestOrgVaultIsOneOrg(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer v.Close()
+	if err := v.Unlock([]byte(testVaultPassphrase)); err != nil {
+		t.Fatal(err)
+	}
 	if err := v.Set("beta", "github", []byte("made-up")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := (orgVault{v: v, org: "acme"}).Credential(context.Background(), "beta", "github"); err == nil {
 		t.Fatal("the acme gateway read beta's credential")
+	}
+}
+
+// testVaultPassphrase is the made-up passphrase test vaults use.
+const testVaultPassphrase = "test passphrase, not a real one"
+
+// passphraseFile writes pass to a new 0400 file outside any vault and returns its path.
+func passphraseFile(t *testing.T, pass string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "passphrase")
+	if err := os.WriteFile(p, []byte(pass+"\n"), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// The vault passphrase comes from a file only its owner can read, outside the vault, or a
+// systemd credential, or the terminal; a wrong one or an unsafe file changes nothing, and each
+// attempt is recorded as a failed change: a wrong passphrase as locked.
+func TestVaultPassphrase(t *testing.T) {
+	sock := startDaemon(t)
+	dir := filepath.Join(t.TempDir(), "vault")
+	vaultEvents := func() int {
+		code, out, _ := lucy("events", "--socket", sock, "--limit", "500")
+		if code != 0 {
+			t.Fatalf("events: %d", code)
+		}
+		return strings.Count(out, ",vault/acme,")
+	}
+	set := func(name string, args ...string) (int, string) {
+		code, _, errOut := withStdin(t, "test_value\n", append(append([]string{"vault", "set", "--dir", dir, "--socket", sock}, args...), "--org", "acme", name)...)
+		return code, errOut
+	}
+
+	// No file and no terminal: asked on the terminal, twice for a new vault, once after.
+	var asked []bool
+	promptPassphrase = func(confirm bool) ([]byte, error) {
+		asked = append(asked, confirm)
+		return []byte(testVaultPassphrase), nil
+	}
+	t.Cleanup(func() { promptPassphrase = promptTTY })
+	t.Setenv("CREDENTIALS_DIRECTORY", "")
+	if code, errOut := set("github"); code != 0 {
+		t.Fatalf("set with a prompted passphrase: %d %q", code, errOut)
+	}
+	if code, errOut := set("npm"); code != 0 {
+		t.Fatalf("set again: %d %q", code, errOut)
+	}
+	if len(asked) != 2 || !asked[0] || asked[1] {
+		t.Fatalf("prompted %v; want a confirmation only when the vault had no passphrase", asked)
+	}
+	before := vaultEvents()
+
+	// A systemd credential is used when no file is named.
+	creds := t.TempDir()
+	if err := os.WriteFile(filepath.Join(creds, "lucy-vault"), []byte(testVaultPassphrase), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CREDENTIALS_DIRECTORY", creds)
+	promptPassphrase = func(bool) ([]byte, error) {
+		t.Fatal("asked on the terminal with a systemd credential")
+		return nil, nil
+	}
+	if code, errOut := set("pypi"); code != 0 {
+		t.Fatalf("set with a systemd credential: %d %q", code, errOut)
+	}
+	t.Setenv("CREDENTIALS_DIRECTORY", "")
+	before += 2
+
+	wide := passphraseFile(t, testVaultPassphrase)
+	if err := os.Chmod(wide, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(passphraseFile(t, testVaultPassphrase), link); err != nil {
+		t.Fatal(err)
+	}
+	inside := filepath.Join(dir, "passphrase")
+	if err := os.WriteFile(inside, []byte(testVaultPassphrase), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	for name, c := range map[string]struct{ file, want string }{
+		"a wrong passphrase":      {passphraseFile(t, "another test passphrase"), "does not unlock this vault"},
+		"a file others can read":  {wide, "only its owner may read it"},
+		"a symlinked file":        {link, "not a plain file"},
+		"a file inside the vault": {inside, "keep it outside the vault"},
+		"a short passphrase":      {passphraseFile(t, "short"), "12 to 1024 bytes"},
+	} {
+		if code, errOut := set("github", "--passphrase-file", c.file); code != 1 || !strings.Contains(errOut, c.want) {
+			t.Errorf("%s: %d %q", name, code, errOut)
+		}
+	}
+	if n := vaultEvents(); n != before+10 {
+		t.Fatalf("refused sets recorded %d vault events; want %d, each requested and failed", n, before+10)
+	}
+	code, out, _ := lucy("events", "--socket", sock, "--limit", "500")
+	if code != 0 || !strings.Contains(out, ",vault/acme,") {
+		t.Fatalf("events: %d", code)
+	}
+	c := client.New(sock, "lucy-test", "test")
+	defer c.Close()
+	page, err := c.Events(context.Background(), api.EventsParams{Limit: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked := 0
+	for _, e := range page.Events {
+		if e.Type == "vault.changed" && strings.Contains(string(e.Payload), vault.ReasonLocked) {
+			locked++
+		}
+	}
+	if locked != 1 {
+		t.Fatalf("%d changes recorded as locked; want the wrong passphrase's", locked)
+	}
+
+	// The gateway unlocks the vault at start: a wrong passphrase file stops it before it serves.
+	if code, _, errOut := lucy("gateway", "--org", "acme", "--socket", sock, "--vault", dir, "--listen", filepath.Join(shortTempDir(t), "gw.sock"),
+		"--passphrase-file", passphraseFile(t, "another test passphrase")); code != 1 || !strings.Contains(errOut, "does not unlock this vault") {
+		t.Fatalf("a gateway with a wrong passphrase: %d %q", code, errOut)
 	}
 }

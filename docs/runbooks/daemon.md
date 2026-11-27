@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 17
+version: 18
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-RUN-005, LUCY-OPS-005, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -167,7 +167,8 @@ An org's gateway is configured by an `AdapterBinding` in the resources directory
 ([gateway](../tech/gateway.md)) and runs as its own process, next to the daemon:
 
 ```sh
-pass show acme/github | lucy vault set --org acme github   # from stdin only; recorded by name in the log
+pass show acme/github | lucy vault set --org acme github   # from stdin only; asks for the vault passphrase on the terminal
+lucy gateway --org acme --passphrase-file /path/outside/lucy/vault-passphrase  # headless: a 0400 file or the systemd credential lucy-vault
 lucy vault ls --org acme                # names and when each was set; never a value
 lucy gateway --org acme                 # routes from the daemon; socket gateway/acme.sock, 0600
 lucy events                             # each request: gateway.forwarded / gateway.denied / gateway.completed
@@ -180,8 +181,11 @@ gateway gets no routes: `lucy gateway` says the daemon has no gateway binding fo
 whose credential the vault does not hold is refused, and the refusal recorded
 ([vault](../tech/vault.md)). `lucy vault set` refuses to read a value from a terminal: pipe it in. A request without the
 run's capability token, or with one revoked, expired or for another run, is refused and recorded
-([capabilities](../tech/capability.md)). Do not put a real credential in the vault until the org
-keys are wrapped at rest (#32).
+([capabilities](../tech/capability.md)). Each org's key is wrapped under the vault passphrase
+([D14](../decisions/D14-vault-passphrase-kek.md)): `lucy vault set` and `lucy gateway` need it,
+from `--passphrase-file`, the systemd credential `lucy-vault` or the terminal, and nothing opens
+without it. The first `set` on a vault from before keys were wrapped sets the passphrase and wraps
+its keys. A lost passphrase cannot be recovered: keep it in your password manager.
 
 ## When something is wrong
 

@@ -2,7 +2,7 @@
 id: decisions
 title: Decisions
 status: active
-version: 6
+version: 7
 owner: ar4mirez
 requirements: []
 ---
@@ -30,6 +30,7 @@ new ADR whose front matter says `supersedes`.
 | [D11](D11-spec-loading.md) | How lucy loads spec resources and chains its audit log | accepted |
 | [D12](D12-threat-model.md) | lucy's STRIDE threat model, re-checked at every milestone exit | accepted |
 | [D13](D13-run-gateway-socket.md) | A run reaches its org's gateway through a socket its runner fronts; the host serves one org | accepted |
+| [D14](D14-vault-passphrase-kek.md) | The vault's org keys are wrapped under a passphrase-derived key | accepted |
 | [R1](R1-adversarial-review.md) | Adversarial architecture review, adopted in full | accepted |
 
 ## Format
@@ -39,4 +40,4 @@ Front matter: `id`, `title`, `status` (`accepted`, `superseded` or `draft`), `ve
 `superseded_by` when they apply. Body: **Context**, **Decision**, **Consequences**, and
 **Revisions** when the decision changed. D1 to D9 and R1 were made by the owner on 2026-11-26; D10 was
 delegated to m0 slice 4, D11 to m0 slice 6 and D12 to m0 slice 9, each under stated rules its
-Context records. D13 was made by the owner on 2026-11-27.
+Context records. D13 and D14 were made by the owner on 2026-11-27.
