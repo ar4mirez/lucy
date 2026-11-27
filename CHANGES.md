@@ -25,7 +25,8 @@ Changes since the last release. When a version is cut, its section moves to
   stopping exactly those sessions, a confirmation lapses when a session starts or ends and is used
   once, and no agent may ask. While a cleared restart or stop runs, no new session is placed in that
   container: a runner in a container does not count that org's runs as waiting, and if it leases
-  meanwhile it is told the sandbox is busy and leases again later. `runner.queued` takes the
-  runner's placement for this; without one it counts as before. Every
-  decision is recorded before the container is touched, and what berth did after it. The daemon does not use the seam yet, so nothing acts on a live container,
-  and the owner's confirmation has no API or command yet.
+  meanwhile it is refused with the new `sandbox_busy` error and leases again later.
+  `runner.queued` takes the runner's placement for this; without one it counts as before. Every
+  decision is recorded before the container is touched, and what berth did after it. The daemon
+  does not use the seam yet, so nothing acts on a live container, and the owner's confirmation has
+  no API or command yet.

@@ -123,7 +123,9 @@ func (w *world) open() {
 // socket is the runners' connection to whichever daemon is up, as the unix socket is.
 type socket struct{ w *world }
 
-func (s socket) Queued(ctx context.Context, pl runner.Placement) (int, error) { return s.w.broker.Queued(ctx, pl) }
+func (s socket) Queued(ctx context.Context, pl runner.Placement) (int, error) {
+	return s.w.broker.Queued(ctx, pl)
+}
 
 func (s socket) Lease(ctx context.Context, id string, p runner.Placement, ttl time.Duration) (runner.Lease, bool, error) {
 	return s.w.broker.Lease(ctx, id, p, ttl)
