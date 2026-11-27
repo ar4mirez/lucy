@@ -33,14 +33,32 @@ func (r Remote) Routes(ctx context.Context, org string) ([]Route, error) {
 	return out, nil
 }
 
-// Decide implements Recorder (gateway.use).
-func (r Remote) Decide(ctx context.Context, org string, u Use) (Decision, error) {
-	d, err := r.Client.GatewayUse(ctx, api.GatewayUseParams{Org: org, Route: u.Route, Method: u.Method, Path: u.Path, Upstream: u.Upstream})
+func useParams(org string, u Use) api.GatewayUseParams {
+	return api.GatewayUseParams{Org: org, Route: u.Route, Method: u.Method, Path: u.Path, Upstream: u.Upstream, Capability: u.Capability}
+}
+
+// routeError maps the API's refusal of an unknown route back to ErrUnknownRoute.
+func routeError(err error) error {
 	var ae *api.Error
 	if errors.As(err, &ae) && ae.Code == api.CodeInvalidParams && ae.Data != nil && ae.Data.Field == "route" {
-		return Decision{}, errors.Join(ErrUnknownRoute, err)
+		return errors.Join(ErrUnknownRoute, err)
 	}
+	return err
+}
+
+// Verify implements Recorder (gateway.verify).
+func (r Remote) Verify(ctx context.Context, org string, u Use) (bool, error) {
+	v, err := r.Client.GatewayVerify(ctx, useParams(org, u))
 	if err != nil {
+		return false, routeError(err)
+	}
+	return v.Verified, nil
+}
+
+// Decide implements Recorder (gateway.use).
+func (r Remote) Decide(ctx context.Context, org string, u Use) (Decision, error) {
+	d, err := r.Client.GatewayUse(ctx, useParams(org, u))
+	if err := routeError(err); err != nil {
 		return Decision{}, err
 	}
 	return Decision{Seq: d.Decision, Cleared: d.Cleared, Rule: d.Rule, Reason: d.Reason}, nil

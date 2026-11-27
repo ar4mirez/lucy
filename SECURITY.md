@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 9
+version: 10
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-SEC-002, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -81,6 +81,20 @@ nothing of another's and a sealed file moved or changed does not open (LUCY-CRED
   deletes `keys/<org>.key` and every `keys/<org>.key.tmp-*` beside it.
 - **Tests** use keys and credentials they generate; nothing reads a real credential.
 
+## Capability tokens
+
+A run proves to its org's gateway that it may use a route with a capability token
+([capabilities](docs/tech/capability.md), LUCY-CRED-003): 32 random bytes, issued by the daemon on
+the run's lease and given only to its runner, scoped to the org, the run under that lease, the
+org's routes, and five minutes. Each heartbeat of the live lease renews it with a fresh token and
+revokes the one before, never past four hours from the lease's start; finishing or stopping the
+run, or its lease running out, revokes its tokens. The daemon stores only the token's SHA-256 and
+compares it in constant time; a token is refused once revoked, past its expiry, for another org or
+route, or once its run's lease has ended or been replaced. The daemon checks it before the gateway
+reads any credential or resolves any upstream, and again when deciding. The gateway never
+forwards it. Until the owner
+decides how a Pilot's tools get it, no token is in a Pilot's environment.
+
 ## Audit and log data
 
 Decision records and the audit trail hold names and references, never secrets or input text. A
@@ -92,8 +106,9 @@ token prefixes (GitHub, OpenAI, Slack, AWS, GitLab) and long high-entropy string
 `<redacted>`, capped at 512 bytes, then `sha256:` and the digest of the original, so one command
 can be matched across records without being stored. `runner.permit`'s `api.command` record holds
 only a digest of its parameters. The gateway's records (`gateway.forwarded`, `gateway.denied`,
-`gateway.completed`) hold the route, method, redacted path, upstream host, status and the policy
-decision, never a credential, a query string or a body.
+`gateway.completed`) hold the route, method, redacted path, upstream host, status, the policy
+decision, and the run and capability id, never a credential, a capability token, a query string or
+a body.
 
 The owner's security checklist (38 items in five areas) is mapped to milestones and requirements in the
 [checklist map](docs/security/checklist.md). The threat model is re-checked at every milestone exit and each

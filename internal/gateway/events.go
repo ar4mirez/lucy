@@ -15,10 +15,12 @@ func Stream(org string) string { return StreamPrefix + org }
 
 // Denied records a request the gateway refused without forwarding it.
 type Denied struct {
-	Route  string `json:"route,omitempty"`
-	Method string `json:"method"`
-	Path   string `json:"path"`   // redacted
-	Reason string `json:"reason"` // why, for the owner; never a credential
+	Route      string `json:"route,omitempty"`
+	Method     string `json:"method"`
+	Path       string `json:"path"`                 // redacted
+	Reason     string `json:"reason"`               // why, for the owner; never a credential
+	Run        string `json:"run,omitempty"`        // the run whose capability it named, when known
+	Capability string `json:"capability,omitempty"` // that capability's id, never the token
 }
 
 // Forwarded records a request the gateway forwarded with its credential, after the policy
@@ -29,6 +31,8 @@ type Forwarded struct {
 	Path        string `json:"path"` // redacted
 	Upstream    string `json:"upstream"`
 	DecisionSeq int64  `json:"decision_seq"`
+	Run         string `json:"run"`        // the run the request is for, from its capability
+	Capability  string `json:"capability"` // the capability's id, never the token
 }
 
 // Completed records how a forwarded request ended: the upstream's status, how many echoed copies

@@ -35,8 +35,8 @@ spec:
 `
 
 // TestGatewayProcess runs `lucy daemon` with an org's gateway binding and a gateway on a socket in a
-// temp dir. The vault does not hold the route's credential, so the gateway refuses the request
-// before it looks anything up, and the daemon records the refusal; nothing is sent anywhere.
+// temp dir. The request carries no capability, so the gateway refuses it before it reads a
+// credential or looks anything up, and the daemon records the refusal; nothing is sent anywhere.
 func TestGatewayProcess(t *testing.T) {
 	dir := shortTempDir(t)
 	sock := filepath.Join(dir, "run", "lucy.sock")
@@ -116,7 +116,7 @@ func TestGatewayProcess(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusBadGateway || !strings.Contains(string(body), "credential is unavailable") {
+	if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(string(body), "carries no capability") {
 		t.Fatalf("status %d body %q", resp.StatusCode, body)
 	}
 	// A second gateway on the socket of one that is serving is refused.
@@ -126,6 +126,9 @@ func TestGatewayProcess(t *testing.T) {
 	gcancel()
 	if err := <-served; err != nil {
 		t.Fatalf("serveGateway: %v", err)
+	}
+	if code, out, errOut := lucy("capability", "ls", "--socket", sock); code != 0 || out != "capabilities[0]: none\n" {
+		t.Fatalf("capability ls: %d %q %q", code, out, errOut)
 	}
 	code, out, _ := lucy("events", "--socket", sock)
 	if code != 0 || !strings.Contains(out, ",gateway/acme,1,gateway.denied,1,") {

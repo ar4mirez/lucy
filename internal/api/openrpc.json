@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.10.0"
+    "version": "1.11.0"
   },
   "servers": [
     {
@@ -1001,6 +1001,10 @@
                   "description": "The branch the work targets.",
                   "type": "string"
                 },
+                "capability": {
+                  "description": "The run's capability token for its org's gateway: valid only while this lease is held, for the org's gateway routes, until it expires (five minutes, renewed by each heartbeat) or is revoked. lucy keeps only its digest; give it to nothing but the run's own gateway calls.",
+                  "type": "string"
+                },
                 "expires_at": {
                   "description": "When the lease expires unless renewed, UTC.",
                   "format": "date-time",
@@ -1175,6 +1179,10 @@
             "asking": {
               "description": "The run's last recorded event is a question still waiting on an answer. False with no answer after the runner asked means the answer was lost: ask again.",
               "type": "boolean"
+            },
+            "capability": {
+              "description": "The run's fresh capability token for its org's gateway, replacing the one before, which is revoked: keep only the newest, in memory. Absent when the run has none, is stopping, or its lease is past the four-hour limit.",
+              "type": "string"
             },
             "expires_at": {
               "description": "The lease's new expiry, UTC.",
@@ -1915,6 +1923,15 @@
             "minLength": 1,
             "type": "string"
           }
+        },
+        {
+          "name": "capability",
+          "description": "The capability token the worker presented. The daemon verifies it first and records only its id; a request without a valid one is refused.",
+          "required": true,
+          "schema": {
+            "maxLength": 128,
+            "type": "string"
+          }
         }
       ],
       "result": {
@@ -1944,6 +1961,91 @@
             "cleared",
             "rule",
             "reason"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "gateway",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
+    },
+    {
+      "name": "gateway.verify",
+      "summary": "Check the capability token a request to an org's gateway carries, before the gateway reads any credential, and record a refusal as gateway.denied.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "org",
+          "description": "The org.",
+          "required": true,
+          "schema": {
+            "maxLength": 63,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "route",
+          "description": "The route, which must be in the daemon's config for the org.",
+          "required": true,
+          "schema": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "method",
+          "description": "The worker's HTTP method.",
+          "required": true,
+          "schema": {
+            "maxLength": 16,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "path",
+          "description": "The path the worker sent, in the form the gateway records it: redacted, capped, with the SHA-256 of the whole path.",
+          "required": true,
+          "schema": {
+            "maxLength": 600,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "upstream",
+          "description": "The host the gateway will call, which must be the route's.",
+          "required": true,
+          "schema": {
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "capability",
+          "description": "The capability token the worker presented. The daemon verifies it first and records only its id; a request without a valid one is refused.",
+          "required": true,
+          "schema": {
+            "maxLength": 128,
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "verified": {
+              "description": "Whether the capability is valid for the org, the route and a run still leased under it. False is recorded as gateway.denied; forward nothing.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verified"
           ],
           "type": "object"
         }
@@ -2097,6 +2199,185 @@
         }
       },
       "x-lucy-scope": "gateway",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
+    },
+    {
+      "name": "capabilities.list",
+      "summary": "The capability tokens issued to runs, by id, never the tokens: newest first, only those not yet expired unless all.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "all",
+          "description": "Include capabilities past their expiry.",
+          "required": false,
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "capabilities": {
+              "description": "Newest first; empty when there are none.",
+              "items": {
+                "properties": {
+                  "expires": {
+                    "description": "When it expires at the latest, UTC; the run's lease ends it sooner.",
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "fence": {
+                    "description": "The lease it is bound to.",
+                    "type": "integer"
+                  },
+                  "id": {
+                    "description": "The first 16 hex digits of the token's SHA-256.",
+                    "type": "string"
+                  },
+                  "issued": {
+                    "description": "When it was issued, UTC.",
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "org": {
+                    "description": "The org it is for.",
+                    "type": "string"
+                  },
+                  "revoked": {
+                    "description": "Whether it was revoked.",
+                    "type": "boolean"
+                  },
+                  "revoked_reason": {
+                    "description": "Why, when it was.",
+                    "type": "string"
+                  },
+                  "routes": {
+                    "description": "The gateway routes it may use.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "run": {
+                    "description": "The run it was issued to.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "org",
+                  "run",
+                  "fence",
+                  "routes",
+                  "issued",
+                  "expires",
+                  "revoked"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "capabilities"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "read",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
+    },
+    {
+      "name": "capability.revoke",
+      "summary": "Revoke a capability token by its id: the gateway refuses it from then on.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "id",
+          "description": "The capability's id, as capabilities.list shows it.",
+          "required": true,
+          "schema": {
+            "maxLength": 16,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "reason",
+          "description": "Why, for the record.",
+          "required": false,
+          "schema": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "expires": {
+              "description": "When it expires at the latest, UTC; the run's lease ends it sooner.",
+              "format": "date-time",
+              "type": "string"
+            },
+            "fence": {
+              "description": "The lease it is bound to.",
+              "type": "integer"
+            },
+            "id": {
+              "description": "The first 16 hex digits of the token's SHA-256.",
+              "type": "string"
+            },
+            "issued": {
+              "description": "When it was issued, UTC.",
+              "format": "date-time",
+              "type": "string"
+            },
+            "org": {
+              "description": "The org it is for.",
+              "type": "string"
+            },
+            "revoked": {
+              "description": "Whether it was revoked.",
+              "type": "boolean"
+            },
+            "revoked_reason": {
+              "description": "Why, when it was.",
+              "type": "string"
+            },
+            "routes": {
+              "description": "The gateway routes it may use.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "run": {
+              "description": "The run it was issued to.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "org",
+            "run",
+            "fence",
+            "routes",
+            "issued",
+            "expires",
+            "revoked"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "decide",
       "x-lucy-mutating": true,
       "x-lucy-group": "command"
     }

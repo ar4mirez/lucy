@@ -44,8 +44,11 @@ const (
 	MethodConfirm   = "sandbox.confirm"
 	MethodGwRoutes  = "gateway.routes"
 	MethodGwUse     = "gateway.use"
+	MethodGwVerify  = "gateway.verify"
 	MethodGwDeny    = "gateway.deny"
 	MethodGwDone    = "gateway.complete"
+	MethodCaps      = "capabilities.list"
+	MethodRevoke    = "capability.revoke"
 )
 
 var methods = []Method{
@@ -71,8 +74,11 @@ var methods = []Method{
 	{MethodConfirm, "Confirm stopping the live sessions a waiting container operation names; the daemon's next request for it is then cleared, while those sessions are unchanged.", "command", ScopeDecide, true, typeOf[ConfirmParams](), typeOf[ConfirmResult]()},
 	{MethodGwRoutes, "An org's credential gateway routes, as the daemon loaded them from the org's SecretStore binding. No credential is in them.", "query", ScopeGateway, false, typeOf[GatewayRoutesParams](), typeOf[GatewayRoutes]()},
 	{MethodGwUse, "Decide an org gateway's use of a route's credential through the policy engine, and record the decision and the request, before the gateway forwards it.", "command", ScopeGateway, true, typeOf[GatewayUseParams](), typeOf[GatewayDecision]()},
+	{MethodGwVerify, "Check the capability token a request to an org's gateway carries, before the gateway reads any credential, and record a refusal as gateway.denied.", "command", ScopeGateway, true, typeOf[GatewayUseParams](), typeOf[GatewayVerified]()},
 	{MethodGwDeny, "Record a request an org's gateway refused before any credential was involved.", "command", ScopeGateway, true, typeOf[GatewayDenyParams](), typeOf[GatewayRecorded]()},
 	{MethodGwDone, "Record how a forwarded gateway request ended.", "command", ScopeGateway, true, typeOf[GatewayCompleteParams](), typeOf[GatewayRecorded]()},
+	{MethodCaps, "The capability tokens issued to runs, by id, never the tokens: newest first, only those not yet expired unless all.", "query", ScopeRead, false, typeOf[CapabilitiesParams](), typeOf[CapabilitiesList]()},
+	{MethodRevoke, "Revoke a capability token by its id: the gateway refuses it from then on.", "command", ScopeDecide, true, typeOf[RevokeParams](), typeOf[CapabilityInfo]()},
 }
 
 // NewParams returns a pointer to a new, zero params value for the method, ready for DecodeParams.
@@ -311,6 +317,7 @@ type RunLease struct {
 	Base       string    `json:"base" doc:"The branch the work targets."`
 	Fence      int64     `json:"fence" doc:"The fencing token: name it on every heartbeat and finish. Fences only grow; an old one is refused."`
 	ExpiresAt  time.Time `json:"expires_at" doc:"When the lease expires unless renewed, UTC."`
+	Capability string    `json:"capability,omitempty" doc:"The run's capability token for its org's gateway: valid only while this lease is held, for the org's gateway routes, until it expires (five minutes, renewed by each heartbeat) or is revoked. lucy keeps only its digest; give it to nothing but the run's own gateway calls."`
 }
 
 // HeartbeatParams renews a lease and streams events.
@@ -334,12 +341,13 @@ type RunEvent struct {
 
 // HeartbeatResult answers runner.heartbeat.
 type HeartbeatResult struct {
-	ExpiresAt time.Time `json:"expires_at" doc:"The lease's new expiry, UTC."`
-	Stop      bool      `json:"stop" doc:"The Tower asked for the run to stop: stop the work and finish the run as stopped."`
-	Accepted  int64     `json:"accepted" doc:"The highest event number recorded for the run."`
-	Answer    string    `json:"answer,omitempty" doc:"The owner's answer to the run's question, relayed by the Tower. Give it to the work once, then acknowledge it; it comes again in every result until acknowledged."`
-	Question  string    `json:"question,omitempty" doc:"With answer: the id of the question it answers, to send back as acked."`
-	Asking    bool      `json:"asking" doc:"The run's last recorded event is a question still waiting on an answer. False with no answer after the runner asked means the answer was lost: ask again."`
+	ExpiresAt  time.Time `json:"expires_at" doc:"The lease's new expiry, UTC."`
+	Capability string    `json:"capability,omitempty" doc:"The run's fresh capability token for its org's gateway, replacing the one before, which is revoked: keep only the newest, in memory. Absent when the run has none, is stopping, or its lease is past the four-hour limit."`
+	Stop       bool      `json:"stop" doc:"The Tower asked for the run to stop: stop the work and finish the run as stopped."`
+	Accepted   int64     `json:"accepted" doc:"The highest event number recorded for the run."`
+	Answer     string    `json:"answer,omitempty" doc:"The owner's answer to the run's question, relayed by the Tower. Give it to the work once, then acknowledge it; it comes again in every result until acknowledged."`
+	Question   string    `json:"question,omitempty" doc:"With answer: the id of the question it answers, to send back as acked."`
+	Asking     bool      `json:"asking" doc:"The run's last recorded event is a question still waiting on an answer. False with no answer after the runner asked means the answer was lost: ask again."`
 }
 
 // FinishParams ends a run.
@@ -494,11 +502,17 @@ type GatewayRule struct {
 
 // GatewayUseParams is a credential use an org's gateway asks to have decided.
 type GatewayUseParams struct {
-	Org      string `json:"org" lucy:"required,maxlen=63" doc:"The org."`
-	Route    string `json:"route" lucy:"required,maxlen=32" doc:"The route, which must be in the daemon's config for the org."`
-	Method   string `json:"method" lucy:"required,maxlen=16" doc:"The worker's HTTP method."`
-	Path     string `json:"path" lucy:"required,maxlen=600" doc:"The path the worker sent, in the form the gateway records it: redacted, capped, with the SHA-256 of the whole path."`
-	Upstream string `json:"upstream" lucy:"required,maxlen=300" doc:"The host the gateway will call, which must be the route's."`
+	Org        string `json:"org" lucy:"required,maxlen=63" doc:"The org."`
+	Route      string `json:"route" lucy:"required,maxlen=32" doc:"The route, which must be in the daemon's config for the org."`
+	Method     string `json:"method" lucy:"required,maxlen=16" doc:"The worker's HTTP method."`
+	Path       string `json:"path" lucy:"required,maxlen=600" doc:"The path the worker sent, in the form the gateway records it: redacted, capped, with the SHA-256 of the whole path."`
+	Upstream   string `json:"upstream" lucy:"required,maxlen=300" doc:"The host the gateway will call, which must be the route's."`
+	Capability string `json:"capability" lucy:"maxlen=128" doc:"The capability token the worker presented. The daemon verifies it first and records only its id; a request without a valid one is refused."`
+}
+
+// GatewayVerified answers gateway.verify.
+type GatewayVerified struct {
+	Verified bool `json:"verified" doc:"Whether the capability is valid for the org, the route and a run still leased under it. False is recorded as gateway.denied; forward nothing."`
 }
 
 // GatewayDecision answers gateway.use.
@@ -530,4 +544,33 @@ type GatewayCompleteParams struct {
 // GatewayRecorded answers gateway.deny and gateway.complete.
 type GatewayRecorded struct {
 	Recorded bool `json:"recorded" doc:"Always true: an unrecorded request is an error."`
+}
+
+// CapabilitiesParams pages capabilities.list.
+type CapabilitiesParams struct {
+	All bool `json:"all,omitempty" doc:"Include capabilities past their expiry."`
+}
+
+// CapabilitiesList answers capabilities.list.
+type CapabilitiesList struct {
+	Capabilities []CapabilityInfo `json:"capabilities" doc:"Newest first; empty when there are none."`
+}
+
+// CapabilityInfo is one issued capability: never the token.
+type CapabilityInfo struct {
+	ID            string    `json:"id" doc:"The first 16 hex digits of the token's SHA-256."`
+	Org           string    `json:"org" doc:"The org it is for."`
+	Run           string    `json:"run" doc:"The run it was issued to."`
+	Fence         int64     `json:"fence" doc:"The lease it is bound to."`
+	Routes        []string  `json:"routes" doc:"The gateway routes it may use."`
+	Issued        time.Time `json:"issued" doc:"When it was issued, UTC."`
+	Expires       time.Time `json:"expires" doc:"When it expires at the latest, UTC; the run's lease ends it sooner."`
+	Revoked       bool      `json:"revoked" doc:"Whether it was revoked."`
+	RevokedReason string    `json:"revoked_reason,omitempty" doc:"Why, when it was."`
+}
+
+// RevokeParams revokes one capability.
+type RevokeParams struct {
+	ID     string `json:"id" lucy:"required,maxlen=16" doc:"The capability's id, as capabilities.list shows it."`
+	Reason string `json:"reason,omitempty" lucy:"maxlen=200" doc:"Why, for the record."`
 }

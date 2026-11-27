@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 11
+version: 12
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -147,12 +147,17 @@ pass show acme/github | lucy vault set --org acme github   # the route's credent
 lucy vault ls --org acme                # names and when each was set; never a value
 lucy gateway --org acme                 # routes from the daemon; socket gateway/acme.sock, 0600
 lucy events                             # each request: gateway.forwarded / gateway.denied / gateway.completed
+lucy capability ls                      # the runs' capability tokens, by id; never a token
+lucy capability revoke 3f2a9c0d1e4b5a67 lost   # the gateway refuses it from then on
 ```
 
 A binding the daemon cannot read is logged at start (`gateway binding refused`) and that org's
 gateway gets no routes: `lucy gateway` says the daemon has no gateway binding for the org. A route
 whose credential the vault does not hold is refused, and the refusal recorded
-([vault](../tech/vault.md)). `lucy vault set` refuses to read a value from a terminal: pipe it in.
+([vault](../tech/vault.md)). `lucy vault set` refuses to read a value from a terminal: pipe it in. A request without the
+run's capability token, or with one revoked, expired or for another run, is refused and recorded
+([capabilities](../tech/capability.md)). Do not put a real credential in the vault until the org
+keys are wrapped at rest (#32).
 
 ## When something is wrong
 

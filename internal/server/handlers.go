@@ -39,8 +39,11 @@ func (s *Server) bindAll() map[string]handler {
 		api.MethodConfirm:   bind(s.sandboxConfirm),
 		api.MethodGwRoutes:  bind(s.gatewayRoutes),
 		api.MethodGwUse:     bind(s.gatewayUse),
+		api.MethodGwVerify:  bind(s.gatewayVerify),
 		api.MethodGwDeny:    bind(s.gatewayDeny),
 		api.MethodGwDone:    bind(s.gatewayComplete),
+		api.MethodCaps:      bind(s.capabilities),
+		api.MethodRevoke:    bind(s.capabilityRevoke),
 	}
 }
 

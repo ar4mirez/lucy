@@ -20,6 +20,7 @@ import (
 
 	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/audit"
+	"github.com/ar4mirez/lucy/internal/capability"
 	"github.com/ar4mirez/lucy/internal/config"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/gateway"
@@ -62,6 +63,7 @@ func (Stopped) EventVersion() int { return 1 }
 func Registry() (*eventstore.Registry, error) {
 	payloads := append(spec.Payloads(), Started{}, Stopped{}, server.CommandEvent{}, policy.DecisionRecord{})
 	payloads = append(append(append(payloads, runner.Payloads()...), sandbox.Payloads()...), gateway.Payloads()...)
+	payloads = append(payloads, capability.Payloads()...)
 	return eventstore.NewRegistry(payloads...)
 }
 
@@ -69,7 +71,7 @@ func Registry() (*eventstore.Registry, error) {
 // protocol's runs and leases, the container operations that wait on the owner, and the audit hash
 // chain, which every event extends in its own append transaction.
 func Projectors() []eventstore.Projector {
-	return []eventstore.Projector{spec.StatusProjector{}, runner.Projector{}, sandbox.Projector{}, audit.Projector{}}
+	return []eventstore.Projector{spec.StatusProjector{}, runner.Projector{}, sandbox.Projector{}, capability.Projector{}, audit.Projector{}}
 }
 
 // ExpiryInterval is how often the daemon expires runner leases that were not renewed in time.
@@ -152,14 +154,17 @@ func Run(ctx context.Context, opts Options) error {
 		log.Warn("socket connection refused", "uid", cred.UID, "pid", cred.PID, "err", err)
 	}
 	broker := runner.NewBroker(store, nil)
+	caps := &capability.Issuer{Store: store, Leases: broker}
+	gateways.Capabilities = caps
 	srv, err := server.New(server.Options{
-		Store:      store,
-		Version:    opts.Version,
-		Log:        log,
-		OnShutdown: func() { stop(errAPIStop) },
-		Refused:    pl.Refused,
-		Runs:       broker,
-		Gateways:   gateways,
+		Store:        store,
+		Version:      opts.Version,
+		Log:          log,
+		OnShutdown:   func() { stop(errAPIStop) },
+		Refused:      pl.Refused,
+		Runs:         broker,
+		Gateways:     gateways,
+		Capabilities: caps,
 	})
 	if err != nil {
 		return err
@@ -174,7 +179,7 @@ func Run(ctx context.Context, opts Options) error {
 	expiring := make(chan struct{})
 	go func() {
 		defer close(expiring)
-		expireLeases(ctx, broker, log)
+		expireLeases(ctx, broker, caps, log)
 	}()
 	log.Info("lucy daemon serving", "socket", sock, "api", api.Path, "version", opts.Version)
 	if opts.OnReady != nil {
@@ -210,8 +215,9 @@ func Run(ctx context.Context, opts Options) error {
 }
 
 // expireLeases expires runner leases that were not renewed in time, every ExpiryInterval, until
-// ctx ends. A run whose runner went silent is then lost, and its fence refused (LUCY-RUN-001).
-func expireLeases(ctx context.Context, b *runner.Broker, log *slog.Logger) {
+// ctx ends. A run whose runner went silent is then lost, and its fence refused (LUCY-RUN-001), and
+// the capability tokens of every run no longer leased under them are revoked (LUCY-CRED-003).
+func expireLeases(ctx context.Context, b *runner.Broker, caps *capability.Issuer, log *slog.Logger) {
 	t := time.NewTicker(ExpiryInterval)
 	defer t.Stop()
 	for {
@@ -226,6 +232,13 @@ func expireLeases(ctx context.Context, b *runner.Broker, log *slog.Logger) {
 			log.Warn("could not expire runner leases", "err", err)
 		case n > 0:
 			log.Info("runner leases expired", "runs", n)
+		}
+		n, err = caps.RevokeEnded(ctx)
+		switch {
+		case err != nil && ctx.Err() == nil:
+			log.Warn("could not revoke ended runs' capabilities", "err", err)
+		case n > 0:
+			log.Info("capabilities of ended runs revoked", "capabilities", n)
 		}
 	}
 }

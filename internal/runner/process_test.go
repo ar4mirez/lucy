@@ -639,7 +639,7 @@ func TestHarnessExecutorKeepsTheQuestionAfterAHook(t *testing.T) {
 }
 
 // TestNoCredentialReachesThePilot checks LUCY-CRED-005 at the runner: whatever credentials the
-// runner's own environment holds, a Pilot's environment is exactly PATH, HOME, TMPDIR and the
+// runner's own environment holds, and whatever capability its lease carries, a Pilot's environment is exactly PATH, HOME, TMPDIR and the
 // run's LUCY_RUN_* variables, so none of them reaches the work. The values are made up by the test.
 func TestNoCredentialReachesThePilot(t *testing.T) {
 	secrets := map[string]string{}
@@ -651,7 +651,10 @@ func TestNoCredentialReachesThePilot(t *testing.T) {
 		t.Setenv(name, v)
 	}
 	pf := newProc(t)
-	x, err := pf.ex.Start(context.Background(), procLease("env"))
+	l := procLease("env")
+	l.Capability = "lcap_made-up-capability-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	secrets["the run's capability"] = l.Capability
+	x, err := pf.ex.Start(context.Background(), l)
 	if err != nil {
 		t.Fatal(err)
 	}

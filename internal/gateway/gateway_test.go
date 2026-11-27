@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/audit"
+	"github.com/ar4mirez/lucy/internal/capability"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/gateway"
 	"github.com/ar4mirez/lucy/internal/policy"
@@ -43,12 +45,70 @@ func token(t *testing.T) string {
 
 type creds map[string]string
 
+// countingCreds counts every credential read.
+type countingCreds struct {
+	creds
+	mu    sync.Mutex
+	reads int
+}
+
+func (c *countingCreds) Credential(ctx context.Context, org, name string) ([]byte, error) {
+	c.mu.Lock()
+	c.reads++
+	c.mu.Unlock()
+	return c.creds.Credential(ctx, org, name)
+}
+
 func (c creds) Credential(_ context.Context, org, name string) ([]byte, error) {
 	v, ok := c[org+"/"+name]
 	if !ok {
 		return nil, errors.New("no such credential")
 	}
 	return []byte(v), nil
+}
+
+// verifier stands in for the daemon's capability issuer: the tokens it knows, valid for their
+// org and routes unless revoked.
+type verifier struct {
+	mu       sync.Mutex
+	tokens   map[string]capability.Capability
+	revoked  map[string]bool
+	expired  map[string]bool
+	onVerify func(token string) // called after each check, outside the lock
+}
+
+func (v *verifier) Verify(_ context.Context, token, org, route string) (capability.Capability, error) {
+	c, err := v.check(token, org, route)
+	if v.onVerify != nil {
+		v.onVerify(token)
+	}
+	return c, err
+}
+
+func (v *verifier) revoke(token string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.revoked == nil {
+		v.revoked = map[string]bool{}
+	}
+	v.revoked[token] = true
+}
+
+func (v *verifier) check(token, org, route string) (capability.Capability, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	c, ok := v.tokens[token]
+	switch {
+	case !ok:
+		return capability.Capability{}, capability.ErrInvalid
+	case v.revoked[token]:
+		return c, capability.ErrRevoked
+	case v.expired[token]:
+		return c, capability.ErrExpired
+	case c.Org != org || !slices.Contains(c.Routes, route):
+		return c, capability.ErrScope
+	}
+	return c, nil
 }
 
 // resolver maps names to addresses and counts lookups.
@@ -123,14 +183,16 @@ func (u *upstream) last() *http.Request {
 }
 
 type fixture struct {
-	t     *testing.T
-	store *eventstore.Store
-	rec   *gateway.StoreRecorder
-	up    *upstream
-	res   *resolver
-	tok   string
-	gw    *gateway.Gateway
-	front *httptest.Server
+	t        *testing.T
+	store    *eventstore.Store
+	rec      *gateway.StoreRecorder
+	cap      string // the run's capability token, made up by the test
+	verifier *verifier
+	up       *upstream
+	res      *resolver
+	tok      string
+	gw       *gateway.Gateway
+	front    *httptest.Server
 }
 
 var loopback = netip.MustParseAddr("127.0.0.1")
@@ -166,7 +228,10 @@ func open(t *testing.T, tweak func(*gateway.Config)) *fixture {
 		Allow: []gateway.Rule{{Methods: []string{"GET"}, Path: "/repos/acme/web"}, {Methods: []string{"GET", "POST"}, Path: "/echo"},
 			{Methods: []string{"GET"}, Path: "/redirect"}},
 	}}
-	f.rec = &gateway.StoreRecorder{Store: st}
+	f.cap = "lcap_" + strings.TrimPrefix(token(t), "test_")
+	f.verifier = &verifier{tokens: map[string]capability.Capability{f.cap: {ID: "c0ffee0000000001", Org: "acme", Run: "f1#1",
+		Routes: []string{"github"}}}}
+	f.rec = &gateway.StoreRecorder{Store: st, Capabilities: f.verifier}
 	if err := f.rec.SetRoutes(map[string][]gateway.Route{"acme": routes}); err != nil {
 		t.Fatal(err)
 	}
@@ -194,8 +259,9 @@ func (f *fixture) call(method, rawPath string, hdr http.Header) (int, http.Heade
 		f.t.Fatal(err)
 	}
 	req.URL.Opaque = rawPath
+	req.Header.Set(gateway.CapabilityHeader, f.cap)
 	for k, vs := range hdr {
-		req.Header[k] = vs
+		req.Header[k] = vs // a test may replace or empty the capability
 	}
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := client.Do(req)
@@ -551,8 +617,8 @@ func TestRecorderTrustsOnlyItsOwnRoutes(t *testing.T) {
 	f := open(t, nil)
 	ctx := context.Background()
 	for name, u := range map[string]gateway.Use{
-		"unknown route":    {Route: "other", Method: "GET", Path: "/x", Upstream: "example.com:" + f.up.port()},
-		"another upstream": {Route: "github", Method: "GET", Path: "/x", Upstream: "evil.example:443"},
+		"unknown route":    {Route: "other", Method: "GET", Path: "/x", Upstream: "example.com:" + f.up.port(), Capability: f.cap},
+		"another upstream": {Route: "github", Method: "GET", Path: "/x", Upstream: "evil.example:443", Capability: f.cap},
 	} {
 		if _, err := f.rec.Decide(ctx, "acme", u); !errors.Is(err, gateway.ErrUnknownRoute) {
 			t.Errorf("%s: %v", name, err)
@@ -614,5 +680,120 @@ func TestListenUnixRefusesUnsafePlaces(t *testing.T) {
 	}
 	if _, err := gateway.ListenUnix(filepath.Join(link, "x.sock")); err == nil {
 		t.Error("a directory reached through a symlink")
+	}
+}
+
+// LUCY-CRED-003: a request without a capability, or with one that is unknown, revoked or for
+// another route, is refused and recorded; the capability never reaches the upstream.
+func TestCapabilityIsRequired(t *testing.T) {
+	f := open(t, nil)
+	if status, _, _ := f.call("GET", "/github/repos/acme/web", http.Header{gateway.CapabilityHeader: {""}}); status != http.StatusUnauthorized {
+		t.Errorf("no capability: status %d", status)
+	}
+	if status, _, _ := f.call("GET", "/github/repos/acme/web", http.Header{gateway.CapabilityHeader: {"lcap_madeup"}}); status != http.StatusForbidden {
+		t.Errorf("an unknown capability: status %d", status)
+	}
+	f.verifier.mu.Lock()
+	f.verifier.revoked = map[string]bool{f.cap: true}
+	f.verifier.mu.Unlock()
+	if status, _, _ := f.call("GET", "/github/repos/acme/web", nil); status != http.StatusForbidden {
+		t.Errorf("a revoked capability: status %d", status)
+	}
+	if f.up.count() != 0 {
+		t.Fatalf("the upstream was called %d times without a valid capability", f.up.count())
+	}
+	if d, _ := f.store.ReadStream(context.Background(), policy.Stream, 0, 10); len(d) != 0 {
+		t.Error("a credential use was decided without a valid capability")
+	}
+	evs, err := f.store.ReadStream(context.Background(), gateway.Stream("acme"), 0, 100)
+	if err != nil || len(evs) != 3 {
+		t.Fatalf("events %v, %v", evs, err)
+	}
+	last, err := eventstore.DecodeAs[gateway.Denied](f.store.Registry(), evs[2])
+	if err != nil || last.Capability != "c0ffee0000000001" || last.Run != "f1#1" || !strings.Contains(last.Reason, "revoked") {
+		t.Errorf("the revoked request's record: %+v, %v", last, err)
+	}
+	for _, e := range evs {
+		if bytes.Contains(e.Payload, []byte(f.cap)) {
+			t.Fatal("an event holds the capability token")
+		}
+	}
+
+	// A valid one is forwarded, named in the record, and never sent upstream.
+	g := open(t, nil)
+	if status, _, _ := g.call("GET", "/github/repos/acme/web", nil); status != 200 {
+		t.Fatalf("a valid capability: status %d", status)
+	}
+	if v := g.up.last().Header.Get(gateway.CapabilityHeader); v != "" {
+		t.Fatalf("the capability reached the upstream: %q", v)
+	}
+	evs, _ = g.store.ReadStream(context.Background(), gateway.Stream("acme"), 0, 100)
+	fw, err := eventstore.DecodeAs[gateway.Forwarded](g.store.Registry(), evs[0])
+	if err != nil || fw.Run != "f1#1" || fw.Capability != "c0ffee0000000001" {
+		t.Fatalf("forwarded %+v, %v", fw, err)
+	}
+	// Without a verifier nothing is cleared.
+	h := open(t, nil)
+	h.rec.Capabilities = nil
+	if status, _, _ := h.call("GET", "/github/repos/acme/web", nil); status != http.StatusForbidden || h.up.count() != 0 {
+		t.Fatalf("no verifier: status %d, upstream %d", status, h.up.count())
+	}
+}
+
+// LUCY-CRED-003: a forged or expired capability is refused before the gateway reads the route's
+// credential or looks its upstream up, and the refusal is recorded as gateway.denied.
+func TestARefusedCapabilityTouchesNoCredential(t *testing.T) {
+	for _, tc := range []struct {
+		name, reason string
+		capability   func(f *fixture) string
+	}{
+		{"forged", "not a token lucy issued", func(*fixture) string { return "lcap_" + strings.TrimPrefix(token(t), "test_") }},
+		{"expired", "expired", func(f *fixture) string {
+			f.verifier.mu.Lock()
+			f.verifier.expired = map[string]bool{f.cap: true}
+			f.verifier.mu.Unlock()
+			return f.cap
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var cc *countingCreds
+			f := open(t, func(c *gateway.Config) {
+				cc = &countingCreds{creds: c.Credentials.(creds)}
+				c.Credentials = cc
+			})
+			status, _, _ := f.call("GET", "/github/repos/acme/web", http.Header{gateway.CapabilityHeader: {tc.capability(f)}})
+			if status != http.StatusForbidden || f.up.count() != 0 {
+				t.Fatalf("status %d, upstream %d", status, f.up.count())
+			}
+			if cc.reads != 0 || f.res.calls != 0 {
+				t.Fatalf("%d credential reads and %d lookups for a refused capability", cc.reads, f.res.calls)
+			}
+			if types := f.events(); len(types) != 1 || types[0] != "gateway.denied" {
+				t.Fatalf("events %v", types)
+			}
+			d, err := eventstore.DecodeAs[gateway.Denied](f.store.Registry(), f.lastGateway())
+			if err != nil || !strings.Contains(d.Reason, tc.reason) {
+				t.Fatalf("denied %+v, %v", d, err)
+			}
+			if p, _ := f.store.ReadStream(context.Background(), policy.Stream, 0, 10); len(p) != 0 {
+				t.Error("a credential use was decided for a refused capability")
+			}
+		})
+	}
+}
+
+// A capability revoked after the gateway's first check is refused by the decision itself.
+func TestACapabilityRevokedBeforeTheDecisionIsRefused(t *testing.T) {
+	f := open(t, nil)
+	f.verifier.onVerify = func(tok string) { f.verifier.revoke(tok) }
+	if status, _, _ := f.call("GET", "/github/repos/acme/web", nil); status != http.StatusForbidden || f.up.count() != 0 {
+		t.Fatalf("status %d, upstream %d", status, f.up.count())
+	}
+	if types := f.events(); len(types) != 1 || types[0] != "gateway.denied" {
+		t.Fatalf("events %v", types)
+	}
+	d, err := eventstore.DecodeAs[gateway.Denied](f.store.Registry(), f.lastGateway())
+	if err != nil || !strings.Contains(d.Reason, "revoked") {
+		t.Fatalf("denied %+v, %v", d, err)
 	}
 }

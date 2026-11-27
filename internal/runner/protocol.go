@@ -144,6 +144,9 @@ type Lease struct {
 	Runner  string    `json:"runner"`
 	Fence   int64     `json:"fence"`
 	Expires time.Time `json:"expires"`
+	// Capability is the run's capability token for its org's gateway (LUCY-CRED-003), when the
+	// daemon issued one. It is never serialized, logged or given to the work's environment.
+	Capability string `json:"-"`
 }
 
 // Event is one streamed event. Seq numbers a run's events from 1, without gaps.
@@ -174,6 +177,9 @@ type Beat struct {
 	Answer   string    // the owner's answer to the run's question, relayed by the Tower; given until acknowledged
 	Question string    // with Answer: the id of the question it answers, to acknowledge
 	Asking   bool      // the run's last recorded event is a question still waiting on an answer
+	// Capability is the run's renewed capability token, replacing the lease's, when the daemon
+	// issued one. Like Lease.Capability it is kept in memory only.
+	Capability string
 }
 
 // RunID returns the run id of a flight's Pilot generation.

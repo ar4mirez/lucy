@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -230,5 +231,38 @@ func TestNewRefuses(t *testing.T) {
 		if _, err := New(cfg); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+// renewing stands in for a daemon that renews the run's capability on every heartbeat.
+type renewing struct {
+	*Broker
+	n int
+}
+
+func (p *renewing) Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event, acked string) (Beat, error) {
+	b, err := p.Broker.Heartbeat(ctx, runner, run, fence, ttl, events, acked)
+	if err == nil {
+		p.n++
+		b.Capability = "lcap_made-up-" + strconv.Itoa(p.n)
+	}
+	return b, err
+}
+
+// The runner keeps the newest capability a heartbeat brings, in its held lease.
+func TestRunnerKeepsTheNewestCapability(t *testing.T) {
+	f := open(t)
+	ex := &fakeExecutor{execs: map[string]*scripted{}}
+	p := &renewing{Broker: f.b}
+	r := newRunner(t, f, "r1", ex, p)
+	f.submit("a#1")
+	step(t, r)
+	for range 2 {
+		f.clock.Advance(11 * time.Second)
+		step(t, r)
+	}
+	held := r.Held()
+	if len(held) != 1 || p.n == 0 || held[0].Capability != "lcap_made-up-"+strconv.Itoa(p.n) {
+		t.Fatalf("held %+v after %d renewals", held, p.n)
 	}
 }

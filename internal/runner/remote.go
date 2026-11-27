@@ -51,7 +51,7 @@ func (r Remote) Lease(ctx context.Context, runner string, placement Placement, t
 	return Lease{
 		Task: Task{Run: l.Run, Org: l.Org, Project: l.Project, Flight: l.Flight, Generation: l.Generation,
 			Goal: l.Goal, Base: l.Base},
-		Runner: runner, Fence: l.Fence, Expires: l.ExpiresAt,
+		Runner: runner, Fence: l.Fence, Expires: l.ExpiresAt, Capability: l.Capability,
 	}, true, nil
 }
 
@@ -65,7 +65,8 @@ func (r Remote) Heartbeat(ctx context.Context, runner, run string, fence int64, 
 	if err != nil {
 		return Beat{}, remoteError(err)
 	}
-	return Beat{Expires: res.ExpiresAt, Stop: res.Stop, Accepted: res.Accepted, Answer: res.Answer, Question: res.Question, Asking: res.Asking}, nil
+	return Beat{Expires: res.ExpiresAt, Stop: res.Stop, Accepted: res.Accepted, Answer: res.Answer, Question: res.Question, Asking: res.Asking,
+		Capability: res.Capability}, nil
 }
 
 // Finish implements Protocol.

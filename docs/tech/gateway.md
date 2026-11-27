@@ -2,7 +2,7 @@
 id: tech-gateway
 title: The credential gateway
 status: active
-version: 3
+version: 4
 owner: ar4mirez
 requirements: [LUCY-CRED-001, LUCY-CRED-004, LUCY-CRED-005, LUCY-SPEC-016]
 ---
@@ -30,6 +30,11 @@ How a worker reaches a service without ever holding its credential (TECH.md sect
   6to4, Teredo) or a private one (`fc00::/7`, `fe80::/10`). The connection goes only to the
   addresses that were checked, rechecked at dial time, so an answer that changes in between (DNS
   rebinding) is never used. Environment proxies are ignored.
+- **Capability.** Every request carries the run's capability token in `X-Lucy-Capability`
+  ([capabilities](capability.md)); one without is refused before any credential is read, the
+  daemon checks the token in `gateway.verify` before the credential is read or the upstream looked
+  up, and again in `gateway.use` before the credential's use is decided. It is never
+  forwarded.
 - **Headers.** The worker's own credential and forwarding headers (`Authorization`, `Cookie`,
   `X-Api-Key`, `Proxy-Authorization`, `Forwarded`, `X-Forwarded-*` and the like) and hop-by-hop
   headers are removed before the route's credential is added. So are `Accept-Encoding`, `Range`
@@ -77,8 +82,9 @@ their names or values reaches the Pilot (LUCY-CRED-005).
   same org is logged and that org's gateway gets no routes at all, so it forwards nothing.
 - **Recording through the daemon.** A gateway records through a `gateway.Recorder`: the daemon's
   `StoreRecorder` over its event store, which a gateway process reaches over the API as
-  `gateway.Remote`. The methods are `gateway.routes` (the org's routes, read), `gateway.use` (decide
-  and record a credential use before forwarding), `gateway.deny` and `gateway.complete`, all under
+  `gateway.Remote`. The methods are `gateway.routes` (the org's routes, read), `gateway.verify`
+  (check a request's capability first), `gateway.use` (decide and record a credential use before
+  forwarding), `gateway.deny` and `gateway.complete`, all under
   the `gateway` scope. The daemon decides from its own routes: a use names only the route and the
   host the gateway will call, and a route the daemon does not have for the org, or another host, is
   refused, so a gateway cannot widen what its credentials are used for. Each call is also an
@@ -91,8 +97,8 @@ their names or values reaches the Pilot (LUCY-CRED-005).
 
 ## Not built yet
 
-- TODO(LUCY-CRED-003): a worker's request carries its capability token, scoped to (org, task,
-  action, expiry), and the gateway checks it before a route is used (slice 4b).
+- TODO(LUCY-CRED-003): the worker's tools present the run's capability token
+  ([capabilities](capability.md)); today only a caller holding the runner's token can.
 - TODO(LUCY-CRED-001): the gateway's socket reachable from the org's container and nowhere else,
   which needs berth to mount it there (berth#216), and the worker's tools (git, the forge CLI, the
   harness) pointed at it.

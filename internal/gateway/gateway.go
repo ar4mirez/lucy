@@ -226,7 +226,10 @@ func workerPath(r *http.Request) (name, rest string, err error) {
 var hopHeaders = []string{"Connection", "Keep-Alive", "Proxy-Connection", "Proxy-Authenticate", "Proxy-Authorization",
 	"Te", "Trailer", "Transfer-Encoding", "Upgrade"}
 
-var workerCredentialHeaders = []string{"Authorization", "Cookie", "X-Api-Key", "Api-Key", "Private-Token",
+// CapabilityHeader carries the run's capability token to the gateway. It is never forwarded.
+const CapabilityHeader = "X-Lucy-Capability"
+
+var workerCredentialHeaders = []string{CapabilityHeader, "Authorization", "Cookie", "X-Api-Key", "Api-Key", "Private-Token",
 	"X-Auth-Token", "Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-Ip"}
 
 // workerShapeHeaders would let a worker ask for an answer the scrubber cannot read whole: encoded,
@@ -263,6 +266,22 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		deny(http.StatusForbidden, name, "the route does not allow "+r.Method+" on this path")
 		return
 	}
+	// The capability is checked before any credential is read or upstream looked up: a request
+	// without one, or with one the daemon refuses, touches neither (LUCY-CRED-003).
+	use := Use{Route: name, Method: r.Method, Path: recorded, Upstream: rt.upstream.Host, Capability: r.Header.Get(CapabilityHeader)}
+	if use.Capability == "" {
+		deny(http.StatusUnauthorized, name, "the request carries no capability")
+		return
+	}
+	verified, err := g.cfg.Recorder.Verify(ctx, g.cfg.Org, use)
+	if err != nil {
+		http.Error(w, "lucy gateway: the request's capability could not be checked", http.StatusServiceUnavailable)
+		return
+	}
+	if !verified {
+		http.Error(w, "lucy gateway: the request's capability is refused", http.StatusForbidden)
+		return
+	}
 	// The credential is read before the upstream's name is looked up, so a request that cannot be
 	// served touches no network at all.
 	secret, err := g.cfg.Credentials.Credential(ctx, g.cfg.Org, rt.Credential)
@@ -283,7 +302,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The credential's use is decided and recorded before anything is sent (LUCY-POL-002).
-	d, err := g.cfg.Recorder.Decide(ctx, g.cfg.Org, Use{Route: name, Method: r.Method, Path: recorded, Upstream: rt.upstream.Host})
+	d, err := g.cfg.Recorder.Decide(ctx, g.cfg.Org, use)
 	if err != nil {
 		http.Error(w, "lucy gateway: the request could not be decided and recorded", http.StatusServiceUnavailable)
 		return
