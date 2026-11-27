@@ -2,7 +2,7 @@
 id: extensions
 title: "lucy: configuration and extension specification"
 status: active
-version: 7
+version: 8
 owner: ar4mirez
 requirements: [LUCY-SPEC-001, LUCY-SPEC-002, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-006, LUCY-SPEC-016, LUCY-SBX-002, LUCY-VAL-010, LUCY-BRD-001]
 ---
@@ -51,7 +51,7 @@ size-limited, and symlinks are not followed ([D11](docs/decisions/D11-spec-loadi
 | `QualityGate` | `ai-sdlc.io/v1alpha1` | Hard, soft and advisory gates; the owner is the only override |
 | `AutonomyPolicy` | `ai-sdlc.io/v1alpha1` | Merge postures as levels; demotion triggers |
 | `AdapterBinding` | `ai-sdlc.io/v1alpha1` | Provider seams (section 4) and the toolchain manifest |
-| `Airspace`, `Runway`, `Flight`, `Pilot` | `lucy/v1alpha1` | An org, a project, a task and a worker agent; schema stubs so far, filled in by later slices. An Airspace's namespace is its own name (LUCY-SPEC-006) |
+| `Airspace`, `Runway`, `Flight`, `Pilot` | `lucy/v1alpha1` | An org, a project, a task and a worker agent; Airspace, Runway and Pilot are schema stubs so far, filled in by later slices. A Flight states its `goal`, `runway`, `delivery`, `autonomy` and `acceptance`, and carries a `Ready` condition saying what it lacks (LUCY-SPEC-012). An Airspace's namespace is its own name (LUCY-SPEC-006) |
 | `Account`, `Session` | `lucy/v1alpha1` | Planned: accounts and sessions, with their own schemas |
 | client-confirm route | `lucy/v1alpha1` | Planned: the client-confirm posture, which the spec schema cannot express |
 
