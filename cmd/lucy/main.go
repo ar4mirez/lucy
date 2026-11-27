@@ -33,6 +33,7 @@ Usage:
   lucy answer <flight> <answer>...
   lucy sandbox held | confirm <org> <op> <decision>
   lucy gateway --org <org> [--listen <path>]
+  lucy vault set|ls|rm --org <org> [<name>]
   lucy runner [--socket <path>] [--id <name>] [--root <dir>] -- <command> [<args>...]
 
 Flags:
@@ -50,6 +51,7 @@ Commands:
   runner         run a runner on this machine: lease runs, run a command for each
   sandbox        list and confirm org container operations that wait on you
   gateway        run an org's credential gateway
+  vault          set, list and remove an org's credentials
 
 Run ` + "`lucy <command> --help`" + ` for a command's flags.
 
@@ -96,6 +98,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runSandbox(args[1:], stdout, stderr)
 	case "gateway":
 		return runGateway(args[1:], stdout, stderr)
+	case "vault":
+		return runVault(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "error: unknown command or flag %q\nhelp: run `lucy --help`\n", args[0])
 		return 2

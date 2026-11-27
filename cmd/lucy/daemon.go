@@ -100,6 +100,20 @@ func parseFlags(fs *flag.FlagSet, args []string, usage, helpCmd string, stdout, 
 	return 0, true
 }
 
+// parseFlagsAllowingArgs parses flags like parseFlags and leaves the arguments after them to the
+// caller.
+func parseFlagsAllowingArgs(fs *flag.FlagSet, args []string, usage, helpCmd string, stdout, stderr io.Writer) (int, bool) {
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprint(stdout, usage)
+			return 0, false
+		}
+		fmt.Fprintf(stderr, "error: %v\nhelp: run `%s`\n", err, helpCmd)
+		return 2, false
+	}
+	return 0, true
+}
+
 // dial returns a client for the socket (the default when empty), or nil and an exit code.
 func dial(sock string, stderr io.Writer) (*client.Client, int) {
 	if sock == "" {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/ar4mirez/lucy/internal/api/client"
 	"github.com/ar4mirez/lucy/internal/gateway"
+	"github.com/ar4mirez/lucy/internal/vault"
 )
 
 const gatewayBinding = `apiVersion: ai-sdlc.io/v1alpha1
@@ -27,15 +28,15 @@ spec:
   config:
     routes:
       - name: github
-        upstream: https://api.github.com
+        upstream: https://forge.invalid
         credential: github
         allow:
           - { methods: [GET], path: /repos/acme/web }
 `
 
 // TestGatewayProcess runs `lucy daemon` with an org's gateway binding and a gateway on a socket in a
-// temp dir. Without the vault the gateway refuses every request that needs a credential and the
-// daemon records the refusal; nothing is sent anywhere.
+// temp dir. The vault does not hold the route's credential, so the gateway refuses the request
+// before it looks anything up, and the daemon records the refusal; nothing is sent anywhere.
 func TestGatewayProcess(t *testing.T) {
 	dir := shortTempDir(t)
 	sock := filepath.Join(dir, "run", "lucy.sock")
@@ -78,6 +79,12 @@ func TestGatewayProcess(t *testing.T) {
 		}
 	})
 
+	v, err := vault.Open(filepath.Join(dir, "vault"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close()
+	creds := orgVault{v: v, org: "acme"} // an empty vault: the route's credential is not held
 	c := client.New(sock, "test", "0")
 	defer c.Close()
 	gsock := filepath.Join(dir, "gw", "acme.sock")
@@ -90,7 +97,7 @@ func TestGatewayProcess(t *testing.T) {
 	}
 	gctx, gcancel := context.WithCancel(context.Background())
 	served := make(chan error, 1)
-	go func() { served <- serveGateway(gctx, c, "acme", ln, noVault{}, slog.New(slog.DiscardHandler)) }()
+	go func() { served <- serveGateway(gctx, c, "acme", ln, creds, slog.New(slog.DiscardHandler)) }()
 
 	hc := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		var d net.Dialer
@@ -130,7 +137,7 @@ func TestGatewayProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := serveGateway(context.Background(), c, "beta", ln2, noVault{}, slog.New(slog.DiscardHandler)); err == nil ||
+	if err := serveGateway(context.Background(), c, "beta", ln2, creds, slog.New(slog.DiscardHandler)); err == nil ||
 		!strings.Contains(err.Error(), "no gateway binding for org beta") {
 		t.Fatalf("an org without a binding: %v", err)
 	}

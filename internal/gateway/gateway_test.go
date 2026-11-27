@@ -488,6 +488,9 @@ func TestFailsClosed(t *testing.T) {
 		if types := f.events(); len(types) != 1 || types[0] != "gateway.denied" {
 			t.Fatalf("events %v", types)
 		}
+		if f.res.calls != 0 {
+			t.Fatalf("a request without a credential looked the upstream up (%d lookups)", f.res.calls)
+		}
 	})
 	t.Run("the log cannot be written", func(t *testing.T) {
 		f := open(t, nil)

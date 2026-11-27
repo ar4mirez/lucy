@@ -2,7 +2,7 @@
 id: tech-gateway
 title: The credential gateway
 status: active
-version: 2
+version: 3
 owner: ar4mirez
 requirements: [LUCY-CRED-001, LUCY-CRED-004, LUCY-CRED-005, LUCY-SPEC-016]
 ---
@@ -86,13 +86,11 @@ their names or values reaches the Pilot (LUCY-CRED-005).
 - **`lucy gateway --org <org>`** fetches the org's routes from the daemon, listens on a Unix socket
   (`gateway/<org>.sock` in lucy's runtime directory by default: a 0700 directory that must not be
   a symlink, the socket 0600; a socket still answering is refused, a stale one replaced) and serves
-  until a signal. Until the vault lands it has no credentials, so it refuses every request that
-  needs one and records the refusal.
+  until a signal. Its credentials come from the org's vault ([vault](vault.md)), for its org only;
+  a route whose credential the vault does not hold is refused, and the refusal recorded.
 
 ## Not built yet
 
-- TODO(LUCY-CRED-002): the org's credentials come from the per-org encrypted vault (slice 4b);
-  `gateway.Credentials` is the seam, and tests use made-up credentials only.
 - TODO(LUCY-CRED-003): a worker's request carries its capability token, scoped to (org, task,
   action, expiry), and the gateway checks it before a route is used (slice 4b).
 - TODO(LUCY-CRED-001): the gateway's socket reachable from the org's container and nowhere else,

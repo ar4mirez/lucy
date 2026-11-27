@@ -61,7 +61,7 @@ func TestUsageErrors(t *testing.T) {
 		}
 	}
 	for _, args := range [][]string{{"status", "--help"}, {"events", "-h"}, {"daemon", "--help"}, {"runner", "--help"}, {"questions", "--help"}, {"answer", "-h"},
-		{"sandbox", "--help"}, {"sandbox", "held", "--help"}, {"sandbox", "confirm", "-h"}, {"gateway", "--help"}} {
+		{"sandbox", "--help"}, {"sandbox", "held", "--help"}, {"sandbox", "confirm", "-h"}, {"gateway", "--help"}, {"vault", "-h"}} {
 		if code, out, _ := lucy(args...); code != 0 || !strings.Contains(out, "Usage:") {
 			t.Errorf("%v: code %d stdout %q", args, code, out)
 		}
