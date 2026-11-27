@@ -10,6 +10,7 @@ import (
 
 	"github.com/ar4mirez/lucy/internal/audit"
 	"github.com/ar4mirez/lucy/internal/eventstore"
+	"github.com/ar4mirez/lucy/internal/policy"
 )
 
 // clock is a settable clock for the broker and the store.
@@ -55,7 +56,7 @@ func (f *fixture) reopen() {
 			f.t.Fatal(err)
 		}
 	}
-	reg, err := eventstore.NewRegistry(Payloads()...)
+	reg, err := eventstore.NewRegistry(append(Payloads(), policy.DecisionRecord{})...)
 	if err != nil {
 		f.t.Fatal(err)
 	}

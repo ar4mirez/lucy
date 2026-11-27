@@ -13,6 +13,7 @@ package harness
 import (
 	"errors"
 	"io"
+	"strings"
 )
 
 // Kind is what a harness event is. The kinds match the runner protocol's event kinds.
@@ -46,8 +47,23 @@ type Exit struct {
 
 // Session is what one harness session is started with.
 type Session struct {
-	Goal string // the flight's goal: data for the Pilot to act on
+	Goal   string // the flight's goal: data for the Pilot to act on
+	Permit Permit // decides the session's prompted file tools; nil refuses them all
 }
+
+// Access is what a prompted tool asks to do with files.
+type Access string
+
+// Accesses.
+const (
+	Read  Access = "read"
+	Write Access = "write"
+)
+
+// Permit asks the policy engine whether the Pilot may run a prompted tool that reads or writes
+// path (empty when the tool names none). It returns whether the tool may run and, when not, why.
+// An adapter refuses, without asking, every prompted tool it cannot map to an Access.
+type Permit func(tool string, access Access, path string) (allowed bool, why string)
 
 // PRDirective starts the line a Pilot writes to report its pull request: "lucy:pr=<number>".
 const PRDirective = "lucy:pr="
@@ -78,6 +94,9 @@ type Adapter interface {
 	Args(s Session) []string
 	// Env is what the adapter adds to the session's environment, as KEY=value.
 	Env() []string
+	// Protected are the path elements, compared case-insensitively, that name the harness's own
+	// configuration; a prompted write to a path inside the run holding one is refused.
+	Protected() []string
 	// Open starts the session's protocol on the program's input, writing the opening message.
 	Open(in io.WriteCloser, s Session) (Conn, error)
 }
@@ -95,4 +114,19 @@ type Conn interface {
 	Answer(text string) error
 	// Close ends the program's input.
 	Close() error
+}
+
+// VarRef reports whether p holds a "$" a shell or the harness could read as a variable or command
+// reference: "${", "$(", or a "$" and a letter or underscore starting a path element. Any other
+// "$" in a name, as in posts.$slug.tsx, is a plain character.
+func VarRef(p string) bool {
+	if strings.Contains(p, "${") || strings.Contains(p, "$(") {
+		return true
+	}
+	for _, e := range strings.Split(p, "/") {
+		if len(e) > 1 && e[0] == '$' && (e[1] == '_' || 'a' <= e[1]|32 && e[1]|32 <= 'z') {
+			return true
+		}
+	}
+	return false
 }

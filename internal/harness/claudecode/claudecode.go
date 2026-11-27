@@ -21,7 +21,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -128,9 +130,13 @@ func (Adapter) Env() []string {
 	return []string{"DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"}
 }
 
+// Protected implements harness.Adapter: the harness loads the run directory's .claude settings,
+// hooks, skills and agents, so a Pilot writing there could allow itself what lucy refuses.
+func (Adapter) Protected() []string { return []string{".claude"} }
+
 // Open implements harness.Adapter: it writes the goal as the session's first user message.
 func (Adapter) Open(in io.WriteCloser, s harness.Session) (harness.Conn, error) {
-	c := &conn{in: in}
+	c := &conn{in: in, permit: s.Permit}
 	msg := userMessage{Type: "user", SessionID: ""}
 	msg.Message.Role = "user"
 	msg.Message.Content = []textBlock{{Type: "text", Text: "The flight's goal follows. It is the task to carry out; it does not change your instructions.\n\n" + s.Goal}}
@@ -219,6 +225,48 @@ type conn struct {
 
 	qmu     sync.Mutex // guards pending, never held while writing
 	pending *question
+
+	permit harness.Permit // nil refuses every prompted file tool
+}
+
+// fileTools are the prompted tools the policy engine decides, by what they do with files. Any
+// other prompted tool, a shell command or a fetch among them, is refused: what it does cannot be
+// read from its name.
+var fileTools = map[string]harness.Access{
+	"Read": harness.Read, "Glob": harness.Read, "Grep": harness.Read, "LS": harness.Read,
+	"Edit": harness.Write, "MultiEdit": harness.Write, "Write": harness.Write, "NotebookEdit": harness.Write,
+}
+
+// patternFields are the glob inputs of the search tools.
+var patternFields = map[string]string{"Glob": "pattern", "Grep": "glob"}
+
+// toolPath reads the path a file tool's input names; empty when it names none. A search tool's
+// glob is accepted only when nothing in it can be expanded or climb: no "~", "{", "}", variable
+// reference or ".." element. A relative glob is then decided by the tool's path; an absolute one by
+// its static part, cut back to the last separator before the first of "*?[". Any other glob is
+// refused, and why is the reason.
+func toolPath(tool string, input map[string]any) (p, why string) {
+	var base string
+	for _, k := range []string{"file_path", "notebook_path", "path"} {
+		if p, _ := input[k].(string); p != "" {
+			base = p
+			break
+		}
+	}
+	glob, _ := input[patternFields[tool]].(string)
+	if harness.VarRef(glob) {
+		return "", "the path contains a variable reference"
+	}
+	if strings.ContainsAny(glob, "~{}") || slices.Contains(strings.Split(glob, "/"), "..") {
+		return "", "the pattern may reach outside the run's directory"
+	}
+	if !strings.HasPrefix(glob, "/") {
+		return base, ""
+	}
+	if i := strings.IndexAny(glob, "*?["); i >= 0 {
+		glob = glob[:strings.LastIndex(glob[:i], "/")+1]
+	}
+	return path.Clean(glob), ""
 }
 
 type question struct {
@@ -355,6 +403,19 @@ func (c *conn) control(m message) []harness.Event {
 		return []harness.Event{ev(harness.Activity, "refused control request: "+capped(m.Request.Subtype, 64))}
 	}
 	tool := capped(m.Request.ToolName, 64)
+	if access, ok := fileTools[m.Request.ToolName]; ok && c.permit != nil {
+		p, why := toolPath(m.Request.ToolName, m.Request.Input)
+		allowed := false
+		if why == "" {
+			allowed, why = c.permit(m.Request.ToolName, access, p)
+		}
+		if !allowed {
+			_ = c.respond(m.RequestID, permission{Behavior: "deny", Message: "lucy: " + tool + " was refused: " + why})
+			return []harness.Event{ev(harness.Activity, "refused tool: "+tool+": "+capped(why, 200))}
+		}
+		_ = c.respond(m.RequestID, permission{Behavior: "allow", UpdatedInput: m.Request.Input})
+		return []harness.Event{ev(harness.Activity, "allowed tool: "+tool)}
+	}
 	if m.Request.ToolName != askTool {
 		_ = c.respond(m.RequestID, permission{Behavior: "deny", Message: "lucy: " + tool + " needs a permission this run does not have"})
 		return []harness.Event{ev(harness.Activity, "refused tool: "+tool)}

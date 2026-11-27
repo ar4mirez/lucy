@@ -40,8 +40,9 @@ With --harness claude-code the runner drives Claude Code (` + "`claude`" + ` unl
 --) over its stream-json protocol instead of streaming lines: the harness must report version
 ` + claudecode.Pinned + `, the one this lucy supports, or the run fails without starting. Each session gets no
 MCP servers, no user-level settings or hooks and no saved transcript; its question to the owner
-is streamed as asking and answered only with what the Tower relays, and every other permission
-prompt is refused.
+is streamed as asking and answered only with what the Tower relays. A prompted file tool (read,
+edit or write) on a path inside the run's directory is decided by the daemon's policy engine, as
+the Pilot; every other permission prompt is refused.
 `
 
 // runnerSignalContext is swapped in tests.
@@ -119,7 +120,7 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	r, err := runner.New(runner.Config{
 		ID: *id, Placement: runner.Placement(*placement), Protocol: runner.Remote{Client: c},
-		Executor: &runner.ProcessExecutor{Root: dir, Command: command, Harness: adapter, Log: log},
+		Executor: &runner.ProcessExecutor{Root: dir, Command: command, Harness: adapter, Permitter: runner.Remote{Client: c}, Log: log},
 		TTL:      time.Duration(*ttl) * time.Second, Log: log,
 	})
 	if err != nil {

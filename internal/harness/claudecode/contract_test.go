@@ -37,8 +37,17 @@ func (c *capture) lines() [][]byte {
 	return bytes.Split(bytes.TrimSuffix(c.buf.Bytes(), []byte("\n")), []byte("\n"))
 }
 
+// fakePermit stands in for the policy engine: it allows file tools inside the run's directory, as
+// the transcripts record it, and refuses the rest.
+func fakePermit(tool string, access harness.Access, path string) (bool, string) {
+	if path == "" || strings.HasPrefix(path, "/work/run-1/") {
+		return true, ""
+	}
+	return false, "the path is outside the run's directory"
+}
+
 // required are the transcripts every pinned version must have: the contract.
-var required = []string{"ask", "done", "drift", "error", "refused"}
+var required = []string{"ask", "done", "drift", "error", "permitted", "refused"}
 
 // TestContract replays every recorded transcript of the pinned version through the adapter: what
 // the adapter writes must match each recorded input, and what it reports must match the golden
@@ -97,7 +106,7 @@ func TestContract(t *testing.T) {
 func replay(t *testing.T, tr harnesstest.Transcript) string {
 	t.Helper()
 	in := &capture{}
-	conn, err := Adapter{}.Open(in, harness.Session{Goal: "make the failing test pass"})
+	conn, err := Adapter{}.Open(in, harness.Session{Goal: "make the failing test pass", Permit: fakePermit})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,5 +298,60 @@ func TestLiveHarness(t *testing.T) {
 	}
 	if !bytes.Contains(help, []byte(`"`+PermissionMode+`"`)) {
 		t.Errorf("claude-code %s no longer offers the permission mode %q", v, PermissionMode)
+	}
+}
+
+// TestSearchToolPath: a Glob or Grep glob that could expand or climb is refused without asking;
+// a relative glob is decided by the tool's path, empty when it names none, and an absolute one by
+// its static part.
+func TestSearchToolPath(t *testing.T) {
+	const refused, varRef = "\x00may reach outside", "\x00variable reference"
+	for _, c := range []struct {
+		tool  string
+		input string
+		want  string
+	}{
+		{"Glob", `{"pattern":"/home/someone/.ssh/*"}`, "/home/someone/.ssh"},
+		{"Glob", `{"pattern":"/*"}`, "/"},
+		{"Glob", `{"pattern":"/work/run-1/src/*.go"}`, "/work/run-1/src"},
+		{"Glob", `{"pattern":"/work/run-1/src/main.go"}`, "/work/run-1/src/main.go"},
+		{"Glob", `{"pattern":"src/**/*.go"}`, ""},
+		{"Glob", `{"pattern":"src/*.go","path":"/work/run-1"}`, "/work/run-1"},
+		{"Glob", `{"pattern":"/etc/*","path":"/work/run-1"}`, "/etc"},
+		{"Grep", `{"pattern":"/etc/*","path":"/work/run-1/src"}`, "/work/run-1/src"},
+		{"Read", `{"file_path":"/work/run-1/a","pattern":"~/x"}`, "/work/run-1/a"},
+		{"Glob", `{"pattern":"~/.ssh/*"}`, refused},
+		{"Glob", `{"pattern":"{/etc,src}/*"}`, refused},
+		{"Glob", `{"pattern":"{..,x}/*"}`, refused},
+		{"Glob", `{"pattern":"**/../../x","path":"/work/run-1"}`, refused},
+		{"Glob", `{"pattern":"/work/run-1/../etc/*"}`, refused},
+		{"Grep", `{"pattern":"secret","glob":"../../*"}`, refused},
+		{"Grep", `{"pattern":"secret","glob":"$HOME/*"}`, varRef},
+		{"Glob", `{"pattern":"src/${X}/*"}`, varRef},
+		{"Glob", `{"pattern":"$(pwd)/*"}`, varRef},
+		{"Glob", `{"pattern":"routes/*$*.tsx"}`, ""},
+		{"Glob", `{"pattern":"app/routes/posts.$slug.tsx"}`, ""},
+	} {
+		var asked []string
+		permit := func(tool string, _ harness.Access, path string) (bool, string) {
+			asked = append(asked, path)
+			return false, "no"
+		}
+		in := &capture{}
+		conn, err := Adapter{}.Open(in, harness.Session{Permit: permit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		evs, _ := conn.Decode([]byte(`{"type":"control_request","request_id":"req_1","request":{"subtype":"can_use_tool","tool_name":"` +
+			c.tool + `","input":` + c.input + `}}`))
+		if reason, ok := strings.CutPrefix(c.want, "\x00"); ok {
+			if len(asked) != 0 || len(evs) != 1 || !strings.Contains(evs[0].Text, reason) || !strings.Contains(in.buf.String(), `"deny"`) {
+				t.Errorf("%s %s: asked %q, %+v, wrote %s", c.tool, c.input, asked, evs, in.buf.String())
+			}
+			continue
+		}
+		if len(asked) != 1 || asked[0] != c.want {
+			t.Errorf("%s %s: asked about %q, want %q", c.tool, c.input, asked, c.want)
+		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/eventstore"
+	"github.com/ar4mirez/lucy/internal/policy"
 )
 
 // ActorDaemon is the actor of the events the broker appends on its own: queueing, stops and
@@ -394,4 +395,34 @@ func (b *Broker) expire(ctx context.Context, run string) (expired bool, err erro
 		b.dropAnswer(run)
 	}
 	return expired, err
+}
+
+// Permit asks the policy engine whether the Pilot of runner's run may use a prompted tool, and
+// records the decision, in one transaction with the lease check, so a fenced runner gets nothing.
+// The Pilot is the actor, as a ship worker of the run's org; its tool call is agent output and the
+// run's task is the trusted basis. The Pilot's own text never picks the actor, org or project:
+// those come from the lease (LUCY-POL-001, LUCY-POL-004).
+func (b *Broker) Permit(ctx context.Context, runner, run string, fence int64, p PermitRequest) (Permission, error) {
+	if (p.Kind != policy.KindRead && p.Kind != policy.KindWrite) || p.Tool == "" || len(p.Tool) > 64 || len(p.Path) > 4096 {
+		return Permission{}, fmt.Errorf("%w: a permit is a read or a write by a named tool", ErrInvalid)
+	}
+	var perm Permission
+	err := b.held(ctx, runner, run, fence, func(tx *eventstore.Tx, ri RunInfo) error {
+		req := policy.Request{
+			Actor:  policy.Actor{ID: "pilot/" + ri.Run, Role: policy.RoleWorker, Org: ri.Org},
+			Kind:   p.Kind,
+			Target: policy.Target{Org: ri.Org, Project: ri.Project, Resource: p.Path},
+			Inputs: []policy.Input{{Source: policy.SourceTask, Ref: "run/" + ri.Run}, {Source: policy.SourceAgent, Ref: "tool/" + p.Tool}},
+		}
+		d := policy.Evaluate(req, policy.Facts{})
+		if _, err := tx.Append(ctx, policy.Stream, eventstore.AnyVersion, runnerActor(runner), policy.NewRecord(req, policy.Facts{}, d)); err != nil {
+			return err // unrecorded, so it allows nothing
+		}
+		perm = Permission{Outcome: d.Outcome, Rule: d.Rule, Reason: d.Reason}
+		return nil
+	})
+	if err != nil {
+		return Permission{}, err
+	}
+	return perm, nil
 }

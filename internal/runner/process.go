@@ -17,6 +17,7 @@ import (
 
 	"github.com/ar4mirez/lucy/internal/harness"
 	"github.com/ar4mirez/lucy/internal/pathguard"
+	"github.com/ar4mirez/lucy/internal/policy"
 )
 
 // ProcessExecutor runs one program per leased run, directly on this machine. With a Harness it
@@ -47,6 +48,10 @@ type ProcessExecutor struct {
 	// the protocol reports, not the exit status, and the work takes the owner's answers, relayed
 	// by the Tower, on its input (LUCY-RUN-013).
 	Harness harness.Adapter
+	// Permitter, with a Harness, decides the session's prompted file tools through the policy
+	// engine; without one every prompted tool is refused. A path outside the run's directory is
+	// refused before the engine is asked.
+	Permitter Permitter
 }
 
 // Bounds on what one process run buffers between polls.
@@ -112,6 +117,13 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 	}
 	args := slices.Clip(p.Command[1:])
 	session := harness.Session{Goal: l.Goal}
+	if p.Permitter != nil {
+		var protected []string
+		if p.Harness != nil {
+			protected = p.Harness.Protected()
+		}
+		session.Permit = permitFor(dir, protected, l, p.Permitter, log)
+	}
 	if p.Harness != nil {
 		env = append(env, p.Harness.Env()...)
 		if err := checkHarness(p.Harness, p.Command, dir, env); err != nil {
@@ -420,4 +432,79 @@ func (pe *processExecution) Stop() {
 	if pe.cmd != nil && pe.cmd.Process != nil {
 		_ = killProcessGroup(pe.cmd) // an already exited program is fine
 	}
+}
+
+// permitFor returns the session's Permit: the path the tool names, or dir itself when it names
+// none, must resolve inside dir, the run's directory, a write must not reach a protected element
+// inside it, and the policy engine must clear the tool under the run's lease with that path.
+// Anything that goes wrong refuses the tool.
+func permitFor(dir string, protected []string, l Lease, pm Permitter, log *slog.Logger) harness.Permit {
+	return func(tool string, access harness.Access, path string) (bool, string) {
+		if harness.VarRef(path) {
+			return false, "the path contains a variable reference"
+		}
+		if path == "" {
+			path = dir
+		}
+		path, ok := insideDir(dir, path)
+		if !ok {
+			return false, "the path is outside the run's directory"
+		}
+		if access == harness.Write && holdsAny(strings.TrimPrefix(path, dir), protected) {
+			return false, "the path is the harness's own configuration"
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
+		defer cancel()
+		perm, err := pm.Permit(ctx, l.Runner, l.Run, l.Fence, PermitRequest{Tool: tool, Kind: policy.Kind(access), Path: path})
+		if err != nil {
+			log.Warn("runner could not ask the policy engine about a tool", "run", l.Run, "tool", tool, "err", err)
+			return false, "lucy could not ask its policy engine"
+		}
+		if perm.Outcome != policy.Cleared {
+			return false, perm.Reason
+		}
+		return true, ""
+	}
+}
+
+// holdsAny reports whether an element of path equals one of names, ignoring case.
+func holdsAny(path string, names []string) bool {
+	for _, e := range strings.Split(path, string(filepath.Separator)) {
+		for _, n := range names {
+			if strings.EqualFold(e, n) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// insideDir resolves path, relative to dir when it is not absolute, through any symlinks in its
+// existing part, and reports whether it is dir or inside it. A path that starts with "~" may be
+// expanded to the home directory, so it is refused.
+func insideDir(dir, path string) (string, bool) {
+	if strings.HasPrefix(path, "~") {
+		return "", false
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(dir, path)
+	}
+	path = filepath.Clean(path)
+	existing, rest := path, ""
+	for {
+		if r, err := filepath.EvalSymlinks(existing); err == nil {
+			path = filepath.Join(r, rest)
+			break
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return "", false
+		}
+		rest = filepath.Join(filepath.Base(existing), rest)
+		existing = parent
+	}
+	if path != dir && !strings.HasPrefix(path, dir+string(filepath.Separator)) {
+		return "", false
+	}
+	return path, true
 }

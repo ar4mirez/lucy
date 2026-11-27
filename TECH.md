@@ -2,7 +2,7 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 14
+version: 15
 owner: ar4mirez
 requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-001, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-009, LUCY-SIM-001, LUCY-SIM-002, LUCY-RUN-001, LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-013, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007, LUCY-SEC-002]
 ---
@@ -112,7 +112,7 @@ Operations: [daemon runbook](docs/runbooks/daemon.md).
   `status.get`, `events.list` (pages the event log), `rpc.discover`, `daemon.shutdown`,
   `policy.evaluate` and `policy.decisions` (section 5), `resources.list` and `audit.verify`
   (section 10), and the runner protocol's `runner.queued`, `runner.lease`, `runner.heartbeat`,
-  `runner.finish` and `runs.list` (section 6).
+  `runner.finish`, `runner.permit` and `runs.list` (section 6).
 - **Transport and identity.** `lucy daemon` listens on `$XDG_RUNTIME_DIR/lucy/lucy.sock` (0600 in a
   0700 dir, one daemon per dir by `flock`). Each connection's peer credentials (SO_PEERCRED on
   Linux, LOCAL_PEERCRED on macOS) must name the daemon's own uid, or it is closed unread; the
@@ -162,16 +162,16 @@ before returning it. The request model, facts, rule order, decision record and p
   an org container (`--placement container`) once berth mounts the socket and per-runner
   credentials exist (m1 slices 3, 4); a cloud runner later speaks the same protocol.
 - **Harness adapters** (LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-013), in `internal/harness`: an
-  `Adapter` gives a session's arguments, checks the program is its pinned version (any other is
-  refused: the upgrade is held) and decodes the program's structured output into tagged events.
-  `claudecode` runs `claude --print` over stream-json both ways with an empty MCP set, project
-  settings only, no saved session and every permission prompt sent to it; it allows only
-  AskUserQuestion, streamed as `asking` with the question's id on it and on every repeat. The
-  Tower's answer reaches the broker, which records `run.answered` (the id and a digest) and gives
-  the text in every heartbeat reply until the runner acknowledges the id (on `run.renewed`) once
-  its work took it. An asking event for an answered id is recorded as activity, so no buffer
-  re-opens the question; an answer a restart lost was never acknowledged, so the runner asks
-  again. The recorded transcripts in `testdata/<version>` are the contract, replayed in CI.
+  `Adapter` gives a session's arguments, refuses any but its pinned version (the upgrade is held)
+  and decodes the structured output into tagged events. `claudecode` runs `claude --print` over
+  stream-json both ways, with an empty MCP set, project settings only, no saved session and every
+  prompt sent to it: a file tool inside the run's dir goes to `runner.permit` (the engine decides,
+  the Pilot as a worker of the lease's org); AskUserQuestion streams as `asking` with the
+  question's id on every repeat; the rest are refused. The broker records `run.answered` (id and
+  digest) and resends the text in each heartbeat reply until the runner acknowledges the id; an
+  asking event for an answered id is activity, and an answer a restart lost was never
+  acknowledged, so the runner asks again. The transcripts in `testdata/<version>` are the
+  contract, replayed in CI.
 - **Sessions:** structured protocols first (Claude Code's stream-json, built; Codex app-server; ACP
   later). Leases with generation and heartbeat; reattach before spawn; fence, then replace.
 - **Worktree pool:** `git worktree` slots per org and repo, leased in SQLite, reset on acquire,
