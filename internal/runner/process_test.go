@@ -87,6 +87,16 @@ func helper(goal string) int {
 			fmt.Println("env", kv)
 		}
 		return 0
+	case "home":
+		// Note what HOME is and what an earlier run of the org left there, then leave a file.
+		home := os.Getenv("HOME")
+		b, _ := os.ReadFile(filepath.Join(home, "note"))
+		fmt.Println("home", home)
+		fmt.Println("found", strings.TrimSpace(string(b)))
+		if err := os.WriteFile(filepath.Join(home, "note"), []byte(os.Getenv("LUCY_RUN")), 0o600); err != nil {
+			return 8
+		}
+		return 0
 	case "fail":
 		fmt.Println("giving up")
 		return 3
@@ -145,6 +155,22 @@ func transcript(t *testing.T, name string) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// scratchLeft returns the runs' scratch directories left in root: what is there but the org's home.
+func scratchLeft(t *testing.T, root string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, e := range entries {
+		if e.Name() != "home" {
+			out = append(out, e.Name())
+		}
+	}
+	return out
 }
 
 type procFixture struct {
@@ -211,12 +237,110 @@ func TestProcessExecutorRunsAndCleansUp(t *testing.T) {
 	if strings.Contains(got, "lucy:pr=") {
 		t.Error("the pull request directive was streamed as output")
 	}
-	entries, err := os.ReadDir(pf.root)
-	if err != nil || len(entries) != 0 {
-		t.Fatalf("the run's scratch directory was kept: %v, %v", entries, err)
+	if left := scratchLeft(t, pf.root); len(left) != 0 {
+		t.Fatalf("the run's scratch directory was kept: %v", left)
 	}
 	if st, err := os.Stat(pf.root); err != nil || !st.IsDir() || st.Mode().Perm() != 0o700 {
 		t.Fatalf("root: %v, %v", st, err)
+	}
+}
+
+// Every run gets the org's synthetic HOME, never the user's: the same 0700 directory for each run
+// of the org, kept when the run's scratch directory is deleted (LUCY-RUN-006).
+func TestRunsGetTheOrgHome(t *testing.T) {
+	pf := newProc(t)
+	t.Setenv("HOME", pf.home)
+	var homes, found []string
+	for _, run := range []string{"f1#1", "f2#1"} {
+		l := procLease("home")
+		l.Run = run
+		x, err := pf.ex.Start(context.Background(), l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines, res := drain(t, x)
+		if res.Outcome != OutcomeDone {
+			t.Fatalf("%s: %+v %v", run, res, lines)
+		}
+		for _, line := range lines {
+			if h, ok := strings.CutPrefix(line, "home "); ok {
+				homes = append(homes, h)
+			}
+			if f, ok := strings.CutPrefix(line, "found "); ok {
+				found = append(found, f)
+			}
+		}
+	}
+	want, err := filepath.EvalSymlinks(pf.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = filepath.Join(want, "home")
+	if len(homes) != 2 || homes[0] != want || homes[1] != want {
+		t.Fatalf("HOME %v, want %s for every run", homes, want)
+	}
+	if homes[0] == pf.home {
+		t.Fatal("a run got the user's home")
+	}
+	if len(found) != 2 || found[0] != "" || found[1] != "f1#1" {
+		t.Fatalf("found %q; the second run should see what the first left", found)
+	}
+	if fi, err := os.Stat(want); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("org home %v, %v", fi, err)
+	}
+	if left := scratchLeft(t, pf.root); len(left) != 0 {
+		t.Fatalf("scratch left: %v", left)
+	}
+
+	// An org home that is the user's home, holds it, is open to others or is a symlink is refused.
+	open := filepath.Join(t.TempDir(), "open")
+	if err := os.Mkdir(open, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(open, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(t.TempDir(), link); err != nil {
+		t.Fatal(err)
+	}
+	for name, h := range map[string]string{"the user's home": pf.home, "a parent of it": filepath.Dir(pf.home),
+		"open to others": open, "a symlink": link, "relative": "home"} {
+		ex := *pf.ex
+		ex.OrgHome = h
+		if x, err := ex.Start(context.Background(), procLease("home")); err == nil {
+			x.Stop()
+			drain(t, x)
+			t.Errorf("%s: started", name)
+		}
+	}
+}
+
+// The scratch delete removes only a run's own directory: never the org's home, the root or
+// anything else inside it.
+func TestRemoveScratchSparesTheOrgHome(t *testing.T) {
+	pf := newProc(t)
+	home := filepath.Join(pf.root, "home")
+	other := filepath.Join(pf.root, "kept")
+	for _, d := range []string{home, other} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	guard, err := pathguard.New(pf.home, pathguard.Root{Kind: pathguard.Scratch, Path: pf.root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{home, other, filepath.Join(home, "run-x")} {
+		if err := os.MkdirAll(p, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := removeScratch(guard, p); err == nil {
+			t.Errorf("removed %s", p)
+		}
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s is gone: %v", p, err)
+		}
 	}
 }
 
@@ -339,7 +463,7 @@ func TestHarnessExecutorSpeaksTheProtocol(t *testing.T) {
 			if c.events != nil && strings.Join(lines, "|") != strings.Join(c.events, "|") {
 				t.Errorf("events %q, want %q", lines, c.events)
 			}
-			if left, _ := os.ReadDir(pf.root); len(left) != 0 {
+			if left := scratchLeft(t, pf.root); len(left) != 0 {
 				t.Errorf("scratch left behind: %v", left)
 			}
 		})
@@ -355,7 +479,7 @@ func TestHarnessExecutorHoldsAnUnpinnedHarness(t *testing.T) {
 	if !errors.Is(err, harness.ErrUnpinned) {
 		t.Fatalf("Start = %v, want ErrUnpinned", err)
 	}
-	if left, _ := os.ReadDir(pf.root); len(left) != 0 {
+	if left := scratchLeft(t, pf.root); len(left) != 0 {
 		t.Errorf("scratch left behind: %v", left)
 	}
 }

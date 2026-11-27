@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 6
+version: 7
 owner: ar4mirez
 requirements: []
 ---
@@ -137,6 +137,12 @@ slice table, requirement status and exit tests stay in the plan.
   `TestUpgradeFromV060` checks it against a
   store v0.6.0's own code wrote with a run leased (`internal/daemon/testdata/upgrade/v0.6.0.sql`).
   Slice 5 is done.
+- **6, worktrees and the run's environment.** Each run's scratch directory (its working directory
+  and TMPDIR, deleted through the path guard) and the org's synthetic HOME, `home/` under the
+  runner's root (`ProcessExecutor.OrgHome`), 0700, kept and shared by the org's runs and never the
+  user's home, so a Pilot reads nothing of it; the scratch delete removes only a direct `run-*`
+  child of the root, never the home. A harness's model login has to be set up in the org home
+  (D3c). Left: the worktree pool (LUCY-RUN-007) and the delete guard on every delete (LUCY-SEC-005).
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real

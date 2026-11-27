@@ -44,10 +44,10 @@ runner host-org <org> changes the host org, recorded, and is refused while any h
 --placement container is refused: a placement a runner declares is never trusted, and container
 placement needs a placement proof berth cannot issue yet (berth#216). --id defaults to one
 unique to the process, built from the org, the host name and the pid. Each run gets a fresh directory under --root ($XDG_DATA_HOME/lucy/runner/<org> by default) as its
-working directory and TMPDIR, and an
-environment of only PATH, HOME, TMPDIR and LUCY_RUN, LUCY_RUN_ORG, LUCY_RUN_PROJECT,
-LUCY_RUN_FLIGHT, LUCY_RUN_GENERATION, LUCY_RUN_GOAL and LUCY_RUN_BASE; the directory is
-deleted when the command exits. A lease not renewed within --ttl (60 s by default) expires:
+working directory and TMPDIR, as HOME the org's own home, home/ under --root (0700, kept and
+shared by the org's runs, never your home), and an environment of only PATH, HOME, TMPDIR and
+LUCY_RUN, LUCY_RUN_ORG, LUCY_RUN_PROJECT, LUCY_RUN_FLIGHT, LUCY_RUN_GENERATION, LUCY_RUN_GOAL
+and LUCY_RUN_BASE; the directory is deleted when the command exits, the home is kept. A lease not renewed within --ttl (60 s by default) expires:
 the run is lost and the daemon refuses anything sent under its fence afterwards.
 
 SIGTERM drains the runner: it leases nothing more, lets each run it holds carry on to its end

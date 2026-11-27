@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 19
+version: 20
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-RUN-005, LUCY-OPS-005, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -114,7 +114,9 @@ the pid, so two runners never share an id. Each run gets a fresh directory under
 `$XDG_DATA_HOME/lucy/runner/<org>`, created 0700; the runner refuses a root, symlinks resolved,
 too long for a run's gateway socket and names the longest it takes),
 deleted through the path guard when the command exits; the command sees only PATH, HOME, TMPDIR
-and the `LUCY_RUN_*` variables. The command runs in its own process group, killed when the run ends
+and the `LUCY_RUN_*` variables. Its HOME is the org's synthetic home, `home/` under `--root`
+(0700, kept across runs and shared by them), never yours, so a Pilot reads nothing of your home
+directory; whatever a harness needs there, such as its own login, is set up in that home. The command runs in its own process group, killed when the run ends
 or stops, so nothing it started outlives the run. To restart or upgrade a runner without losing
 work, drain it: SIGTERM, or `lucy runner drain` (which waits until it has exited), makes it lease
 nothing more and exit once its runs end; then start the new one. Ctrl-C, a second SIGTERM or
