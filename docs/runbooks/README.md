@@ -2,7 +2,7 @@
 id: runbooks
 title: Runbooks
 status: active
-version: 5
+version: 6
 owner: ar4mirez
 requirements: []
 ---
@@ -20,3 +20,4 @@ the result.
 | [security-scans.md](security-scans.md) | A red security check, a new suppression, or a scanner bump |
 | [daemon.md](daemon.md) | Running, checking or stopping the daemon; adding an API method |
 | [database.md](database.md) | Adding an event type or migration; upgrading, rolling back or inspecting the database |
+| [upgrade.md](upgrade.md) | Upgrading lucy in place while runs are live |

@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 5
+version: 6
 owner: ar4mirez
 requirements: []
 ---
@@ -131,7 +131,10 @@ slice table, requirement status and exit tests stay in the plan.
   work; runners register in `runners/` in lucy's runtime directory, a locked file each, so the
   drain signals only live ones. An unplanned crash still loses the runner's runs, each replaced
   once; a per-run keeper process is a later option, to weigh with #36's per-run OS boundary, as
-  both change how a run's process is owned. Left: a daemon upgrade in place with live runs.
+  both change how a run's process is owned. An in-place upgrade ([upgrade runbook](../runbooks/upgrade.md)) restarts the
+  daemon first, then drains and restarts the runners; `TestUpgradeFromV060` checks it against a
+  store v0.6.0's own code wrote with a run leased (`internal/daemon/testdata/upgrade/v0.6.0.sql`).
+  Slice 5 is done.
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real

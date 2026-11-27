@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 20
+version: 21
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,11 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Added
+
+- An upgrade runbook (`docs/runbooks/upgrade.md`) for upgrading lucy in place while runs are live:
+  back up, `lucy self-update`, restart the daemon (runners keep their runs and reattach), then
+  `lucy runner drain` and restart each runner and gateway. A runner from 0.6.0 keeps the runs it
+  holds after the daemon is upgraded but leases nothing new until it is restarted with `--org`.
 
 - The vault's org keys are wrapped at rest under a key derived from a vault passphrase
   (PBKDF2-HMAC-SHA256, 600,000 iterations, a random salt), so a copy of the whole vault opens
