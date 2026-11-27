@@ -301,9 +301,10 @@ type HeartbeatParams struct {
 
 // RunEvent is one event a runner streams.
 type RunEvent struct {
-	Seq  int64  `json:"seq" lucy:"min=1" doc:"The event's number in its run, from 1."`
-	Kind string `json:"kind" lucy:"required,maxlen=16" doc:"output, activity or asking."`
-	Text string `json:"text,omitempty" lucy:"maxlen=1024" doc:"The event's text: a line of output, a summary, or the question. Untrusted."`
+	Seq      int64  `json:"seq" lucy:"min=1" doc:"The event's number in its run, from 1."`
+	Kind     string `json:"kind" lucy:"required,maxlen=16" doc:"output, activity or asking."`
+	Text     string `json:"text,omitempty" lucy:"maxlen=1024" doc:"The event's text: a line of output, a summary, or the question. Untrusted."`
+	Question string `json:"question,omitempty" lucy:"maxlen=200" doc:"For asking: the question's id, the same on every repeat of the question. An asking event for an answered question is recorded as activity; a question without an id is given its event's own."`
 }
 
 // HeartbeatResult answers runner.heartbeat.

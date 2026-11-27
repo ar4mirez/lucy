@@ -224,7 +224,11 @@ func TestQuestionStaysOpen(t *testing.T) {
 		}
 		var b strings.Builder
 		for _, e := range evs {
-			fmt.Fprintf(&b, "%s %q|", e.Kind, e.Text)
+			fmt.Fprintf(&b, "%s %q", e.Kind, e.Text)
+			if e.Question != "" {
+				fmt.Fprintf(&b, " id=%s", e.Question)
+			}
+			b.WriteString("|")
 		}
 		return b.String()
 	}
@@ -232,18 +236,18 @@ func TestQuestionStaysOpen(t *testing.T) {
 		line []byte
 		want string
 	}{
-		{ask("req_1", open), `asking "Which account?"|`},
-		{ask("req_2", "Which region?"), `activity "refused a second question while one waits"|asking "Which account?"|`},
-		{[]byte(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","is_error":true}]}}`), `activity "tool result: error"|asking "Which account?"|`},
-		{[]byte(`not json`), `output "unparsed harness output: not json"|asking "Which account?"|`},
+		{ask("req_1", open), `asking "Which account?" id=req_1|`},
+		{ask("req_2", "Which region?"), `activity "refused a second question while one waits"|asking "Which account?" id=req_1|`},
+		{[]byte(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","is_error":true}]}}`), `activity "tool result: error"|asking "Which account?" id=req_1|`},
+		{[]byte(`not json`), `output "unparsed harness output: not json"|asking "Which account?" id=req_1|`},
 		{[]byte(`{"type":"keep_alive"}`), ``},
 	} {
 		if got := kinds(c.line); got != c.want {
 			t.Errorf("Decode(%s) = %s, want %s", c.line, got, c.want)
 		}
 	}
-	if q, ok := conn.Asking(); !ok || q != open {
-		t.Fatalf("Asking = %q, %v", q, ok)
+	if q, ok := conn.Asking(); !ok || q.Text != open || q.Question != "req_1" {
+		t.Fatalf("Asking = %+v, %v", q, ok)
 	}
 	if err := conn.Answer("staging"); err != nil {
 		t.Fatal(err)

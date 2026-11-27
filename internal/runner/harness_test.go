@@ -19,15 +19,28 @@ import (
 // TestPilotReachesTheOwnerOnlyThroughTheTower flies a flight whose Pilot is a recorded Claude Code
 // session that asks a question (LUCY-RUN-002, LUCY-RUN-013). The question reaches the owner only
 // as the Tower's record; the owner's answer reaches the session only through the Tower, the
-// broker and the runner's heartbeat; and the log keeps the answer's digest, never its text.
+// broker and the runner's heartbeat; and the log keeps the answer's digest, never its text. While
+// the question waits the harness writes to its standard error and sends a message the adapter does
+// not know, each repeating the question, and the owner is still asked once.
 func TestPilotReachesTheOwnerOnlyThroughTheTower(t *testing.T) {
 	w := newWorld(t, 0)
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	path, err := filepath.Abs(filepath.Join("..", "harness", "claudecode", "testdata", claudecode.Pinned, "ask.jsonl"))
+	recorded, err := os.ReadFile(filepath.Join("..", "harness", "claudecode", "testdata", claudecode.Pinned, "ask.jsonl"))
 	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, l := range strings.Split(strings.TrimSpace(string(recorded)), "\n") {
+		lines = append(lines, l)
+		if strings.Contains(l, `"control_request"`) {
+			lines = append(lines, `{"stderr":"warning: the network is slow"}`, `{"out":{"type":"mystery"}}`)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "ask-busy.jsonl")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	home := t.TempDir()
@@ -67,7 +80,7 @@ func TestPilotReachesTheOwnerOnlyThroughTheTower(t *testing.T) {
 		if err := w.tower.Step(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if answered && !w.runs()[0].Asking && w.runs()[0].Accepted == 3 {
+		if answered && !w.runs()[0].Asking && w.runs()[0].Accepted <= 7 { // the events before the session has its answer
 			// the answer waits for the runner's next renewal, at a third of its lease: move time
 			// on until the runner has collected it, and not past, so the Pilot timeout stays away
 			w.sim.Clock.Advance(20 * time.Second)
@@ -82,11 +95,18 @@ func TestPilotReachesTheOwnerOnlyThroughTheTower(t *testing.T) {
 		t.Fatal(err)
 	}
 	var types []string
+	asked := 0
 	for _, e := range evs {
+		if e.Type == "task.pilot_asked" {
+			asked++
+		}
 		if strings.Contains(string(e.Payload), answer) {
 			t.Errorf("seq %d (%s) holds the answer's text", e.Seq, e.Type)
 		}
 		types = append(types, e.Type)
+	}
+	if asked != 1 {
+		t.Errorf("the owner was asked %d times about one question", asked)
 	}
 	for _, want := range []string{"task.pilot_asked", "task.pilot_answered", "run.answered"} {
 		if !strings.Contains(strings.Join(types, " "), want) {

@@ -90,32 +90,88 @@ func TestAnswerRelay(t *testing.T) {
 	}
 }
 
-// TestRepeatedQuestionWhileAnswerWaits: a heartbeat that streams the question again while the
-// owner's answer to it waits for the runner gets the answer, and the run stays not asking, so the
-// Tower never asks the owner an answered question.
+// TestRepeatedQuestionWhileAnswerWaits: a heartbeat that streams the question again, by its id,
+// while the owner's answer to it waits gets the answer, and the run stays not asking; once the
+// answer is handed over, the question's id stays answered, across a daemon restart too, so the
+// Tower never asks the owner an answered question. A new question still asks.
 func TestRepeatedQuestionWhileAnswerWaits(t *testing.T) {
 	f := open(t)
 	ctx := context.Background()
 	f.submit("f1#1")
 	l := f.lease("r1", 0)
-	ask := Event{Kind: KindAsking, Text: "which account?"}
-	ask.Seq = 1
-	if _, err := f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, []Event{ask}); err != nil {
-		t.Fatal(err)
+	seq := int64(0)
+	beat := func(evs ...Event) Beat {
+		t.Helper()
+		for i := range evs {
+			seq++
+			evs[i].Seq = seq
+		}
+		b, err := f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, evs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
 	}
+	ask := Event{Kind: KindAsking, Text: "which account?", Question: "q1"}
+	beat(ask)
 	if err := f.b.Answer(ctx, "f1#1", "staging"); err != nil {
 		t.Fatal(err)
 	}
-	ask.Seq = 2
-	beat, err := f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, []Event{ask})
-	if err != nil || beat.Answer != "staging" || beat.Asking || beat.Accepted != 2 {
-		t.Fatalf("beat %+v, %v", beat, err)
+	if b := beat(ask); b.Answer != "staging" || b.Asking || b.Accepted != 2 {
+		t.Fatalf("beat %+v", b)
+	}
+	f.reopen()
+	if b := beat(Event{Kind: KindOutput, Text: "warning"}, ask); b.Asking || b.Answer != "" {
+		t.Fatalf("after the handover and a restart, beat %+v", b)
 	}
 	if ri := f.run("f1#1"); ri.Asking {
 		t.Fatalf("the answered question re-opened: %+v", ri)
 	}
 	if err := f.b.Answer(ctx, "f1#1", "again"); !errors.Is(err, ErrNotAsking) {
 		t.Fatalf("a second answer = %v", err)
+	}
+	if b := beat(Event{Kind: KindAsking, Text: "which region?", Question: "q2"}); !b.Asking {
+		t.Fatalf("a new question does not ask: %+v", b)
+	}
+}
+
+// TestRunnerNeverReopensAnAnsweredQuestion: whatever the work's buffers replay after the owner
+// answered, a repeat of the question with an event before it, or a backlog longer than one
+// heartbeat with repeats in its tail, the question's id is answered, the run is not asking, and
+// the owner can be asked about it only once.
+func TestRunnerNeverReopensAnAnsweredQuestion(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	ex := &answeringExecutor{execs: map[string]*answering{}}
+	r := newRunner(t, f, "r1", ex, live{f})
+	f.submit("f1#1")
+	step(t, r)
+	a := ex.execs["f1#1"]
+	ask := Event{Kind: KindAsking, Text: "which account?", Question: "req_1"}
+	a.queue = append(a.queue, Update{Events: []Event{ask}})
+	step(t, r)
+	if err := f.b.Answer(ctx, "f1#1", "staging"); err != nil {
+		t.Fatal(err)
+	}
+	var backlog []Event
+	for range MaxBatch {
+		backlog = append(backlog, Event{Kind: KindOutput, Text: "warning"}, ask)
+	}
+	a.queue = append(a.queue, Update{Events: backlog}, Update{Events: []Event{{Kind: KindActivity, Text: "tool result"}, ask}})
+	for range 2 {
+		step(t, r)
+		if ri := f.run("f1#1"); ri.Asking {
+			t.Fatalf("the answered question re-opened: %+v", ri)
+		}
+	}
+	if len(a.answers) != 1 || a.answers[0] != "staging" {
+		t.Fatalf("answers %q", a.answers)
+	}
+	if ri := f.run("f1#1"); ri.Accepted != int64(len(backlog)+3) {
+		t.Fatalf("accepted %d of %d events", ri.Accepted, len(backlog)+3)
+	}
+	if err := f.b.Answer(ctx, "f1#1", "again"); !errors.Is(err, ErrNotAsking) {
+		t.Fatalf("the owner could answer again: %v", err)
 	}
 }
 
@@ -131,7 +187,7 @@ func TestRunnerDeliversAndReasks(t *testing.T) {
 	r2 := newRunner(t, f, "r2", ex, live{f})
 	step(t, r2)
 	for _, run := range []string{"f1#1", "f2#1"} {
-		ex.execs[run].queue = append(ex.execs[run].queue, Update{Events: []Event{{Kind: KindAsking, Text: "which account?"}}})
+		ex.execs[run].queue = append(ex.execs[run].queue, Update{Events: []Event{{Kind: KindAsking, Text: "which account?", Question: "q1"}}})
 	}
 	step(t, r)
 	step(t, r2)
@@ -152,7 +208,7 @@ func TestRunnerDeliversAndReasks(t *testing.T) {
 	}
 	f.reopen()
 	f.clock.Advance(11 * time.Second)
-	step(t, r2) // no answer, and the broker no longer holds the question: ask again
+	step(t, r2) // no answer, and the broker no longer holds the question: ask again, by the same id
 	step(t, r2) // the second question is streamed
 	if got := ex.execs["f2#1"].answers; len(got) != 0 {
 		t.Fatalf("f2 got %q from a restarted daemon", got)

@@ -142,6 +142,9 @@ type Event struct {
 	Seq  int64     `json:"seq"`
 	Kind EventKind `json:"kind"`
 	Text string    `json:"text,omitempty"`
+	// Question, when asking, is the question's id: every repeat of a question carries the same
+	// one. A question without one is given its event's own.
+	Question string `json:"question,omitempty"`
 }
 
 // Result is how a run ended, as its runner reports it.

@@ -224,7 +224,7 @@ type conn struct {
 type question struct {
 	requestID string
 	input     map[string]any
-	text      string
+	event     harness.Event
 }
 
 func (c *conn) write(v any) error {
@@ -266,20 +266,20 @@ func (c *conn) Decode(line []byte) ([]harness.Event, *harness.Exit) {
 	evs, exit := c.decode(line)
 	if exit == nil && len(evs) > 0 && evs[len(evs)-1].Kind != harness.Asking {
 		if q, ok := c.Asking(); ok {
-			evs = append(evs, ev(harness.Asking, q))
+			evs = append(evs, q)
 		}
 	}
 	return evs, exit
 }
 
-// Asking implements harness.Conn.
-func (c *conn) Asking() (string, bool) {
+// Asking implements harness.Conn: the question's id is its permission prompt's request id.
+func (c *conn) Asking() (harness.Event, bool) {
 	c.qmu.Lock()
 	defer c.qmu.Unlock()
 	if c.pending == nil {
-		return "", false
+		return harness.Event{}, false
 	}
-	return c.pending.text, true
+	return c.pending.event, true
 }
 
 func (c *conn) decode(line []byte) ([]harness.Event, *harness.Exit) {
@@ -359,7 +359,8 @@ func (c *conn) control(m message) []harness.Event {
 		_ = c.respond(m.RequestID, permission{Behavior: "deny", Message: "lucy: " + tool + " needs a permission this run does not have"})
 		return []harness.Event{ev(harness.Activity, "refused tool: "+tool)}
 	}
-	q := &question{requestID: m.RequestID, input: m.Request.Input, text: strings.Join(questionTexts(m.Request.Input), "\n")}
+	q := &question{requestID: m.RequestID, input: m.Request.Input, event: ev(harness.Asking, strings.Join(questionTexts(m.Request.Input), "\n"))}
+	q.event.Question = capped(m.RequestID, 200)
 	c.qmu.Lock()
 	busy := c.pending != nil
 	if !busy {
@@ -370,7 +371,7 @@ func (c *conn) control(m message) []harness.Event {
 		_ = c.respond(m.RequestID, permission{Behavior: "deny", Message: "lucy: one question at a time; wait for the answer to the first"})
 		return []harness.Event{ev(harness.Activity, "refused a second question while one waits")}
 	}
-	return []harness.Event{ev(harness.Asking, q.text)}
+	return []harness.Event{q.event}
 }
 
 // questionTexts reads AskUserQuestion's questions: each question with its options' labels.

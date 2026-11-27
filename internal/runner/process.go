@@ -244,10 +244,7 @@ func (pe *processExecution) harnessLine(b []byte) {
 		if !kind.Valid() {
 			kind = KindActivity
 		}
-		if _, ok := pe.conn.Asking(); kind == KindAsking && !ok {
-			continue // answered while this message was decoded
-		}
-		pe.push(Event{Kind: kind, Text: capText(e.Text)})
+		pe.push(harnessEvent(kind, e))
 	}
 }
 
@@ -281,24 +278,21 @@ func (pe *processExecution) keepAsking() {
 		return
 	}
 	if q, ok := pe.conn.Asking(); ok {
-		pe.push(Event{Kind: KindAsking, Text: capText(q)})
+		pe.push(harnessEvent(KindAsking, q))
 	}
 }
 
-// Answer implements Answerer: it gives the harness the owner's answer to its question. The
-// question's repeats still buffered are dropped, so an answered question is never streamed again.
+// harnessEvent is one of the harness's events as kind, capped.
+func harnessEvent(kind EventKind, e harness.Event) Event {
+	return Event{Kind: kind, Text: capText(e.Text), Question: e.Question}
+}
+
+// Answer implements Answerer: it gives the harness the owner's answer to its question.
 func (pe *processExecution) Answer(text string) error {
 	if pe.conn == nil {
 		return ErrNoInput
 	}
-	if err := pe.conn.Answer(text); err != nil {
-		return err
-	}
-	pe.mu.Lock()
-	defer pe.mu.Unlock()
-	pe.lines = slices.DeleteFunc(pe.lines, func(e Event) bool { return e.Kind == KindAsking })
-	pe.asked = false
-	return nil
+	return pe.conn.Answer(text)
 }
 
 // Write implements io.Writer for the program's stdout and stderr.
@@ -403,7 +397,7 @@ func (pe *processExecution) Poll() Update {
 		pe.asked = false
 		if pe.conn != nil {
 			if q, ok := pe.conn.Asking(); ok {
-				u.Events = append(u.Events, Event{Kind: KindAsking, Text: capText(q)})
+				u.Events = append(u.Events, harnessEvent(KindAsking, q))
 				pe.asked = true
 			}
 		}

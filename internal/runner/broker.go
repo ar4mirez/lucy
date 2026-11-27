@@ -34,8 +34,9 @@ type Broker struct {
 
 // answer is an owner's answer waiting for the heartbeat of the lease it was given under.
 type answer struct {
-	fence int64
-	text  string
+	fence    int64
+	question string // the id of the question answered
+	text     string
 }
 
 // NewBroker returns a broker on store, reading time from now (time.Now when nil).
@@ -167,9 +168,10 @@ func (b *Broker) held(ctx context.Context, runner, run string, fence int64, fn f
 	return nil
 }
 
-// repeatedQuestion records a question the Pilot streamed again while the owner's answer to it
-// waited for its runner: the question is answered, so it does not re-open.
-const repeatedQuestion = "the Pilot repeated its question while its answer was on the way"
+// repeatedQuestion records a question the Pilot streamed again after the owner answered it: its
+// answer waits for the runner or was handed over, so the question does not re-open. An answer a
+// daemon restart lost was never handed over, so its question re-opens and the owner is asked again.
+const repeatedQuestion = "the Pilot repeated a question the owner answered"
 
 // Heartbeat renews runner's lease on run for another ttl and records the streamed events, in one
 // transaction. Events numbered at or below what the broker already recorded are a resent batch
@@ -179,7 +181,7 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 		return Beat{}, fmt.Errorf("%w: at most %d events per heartbeat", ErrInvalid, MaxBatch)
 	}
 	for _, ev := range events {
-		if !ev.Kind.Valid() || ev.Seq < 1 {
+		if !ev.Kind.Valid() || ev.Seq < 1 || len(ev.Question) > maxIDBytes {
 			return Beat{}, fmt.Errorf("%w: event %d of kind %q", ErrInvalid, ev.Seq, ev.Kind)
 		}
 	}
@@ -200,13 +202,18 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 				return fmt.Errorf("%w: got %d after %d", ErrSequence, ev.Seq, accepted)
 			}
 			accepted = ev.Seq
-			if ev.Kind == KindAsking && given.text != "" {
-				ev.Kind, ev.Text = KindActivity, repeatedQuestion
+			if ev.Kind != KindAsking {
+				ev.Question = ""
+			} else if ev.Question == "" {
+				ev.Question = fmt.Sprintf("seq-%d", ev.Seq)
 			}
-			payloads = append(payloads, Streamed{Fence: fence, Seq: ev.Seq, Kind: ev.Kind, Text: capText(ev.Text)})
+			if ev.Kind == KindAsking && (ev.Question == ri.Answered || ev.Question == given.question) {
+				ev.Kind, ev.Text, ev.Question = KindActivity, repeatedQuestion, ""
+			}
+			payloads = append(payloads, Streamed{Fence: fence, Seq: ev.Seq, Kind: ev.Kind, Text: capText(ev.Text), Question: ev.Question})
 		}
 		exp := b.now().Add(ttl).UTC()
-		payloads = append(payloads, Renewed{Fence: fence, ExpiresAt: exp})
+		payloads = append(payloads, Renewed{Fence: fence, ExpiresAt: exp, Answered: given.question})
 		if _, err := tx.Append(ctx, Stream(ri.Org, ri.Run), ri.Version, runnerActor(runner), payloads...); err != nil {
 			return err
 		}
@@ -246,11 +253,11 @@ func (b *Broker) Answer(ctx context.Context, run, text string) error {
 		}
 		sum := sha256.Sum256([]byte(text))
 		if _, err = tx.Append(ctx, Stream(ri.Org, ri.Run), ri.Version, ActorDaemon,
-			Answered{Fence: ri.Fence, AnswerSHA256: hex.EncodeToString(sum[:])}); err != nil {
+			Answered{Fence: ri.Fence, Question: ri.QuestionID, AnswerSHA256: hex.EncodeToString(sum[:])}); err != nil {
 			return err
 		}
 		b.mu.Lock()
-		b.answers[run] = answer{fence: ri.Fence, text: text}
+		b.answers[run] = answer{fence: ri.Fence, question: ri.QuestionID, text: text}
 		b.mu.Unlock()
 		held = true
 		return nil

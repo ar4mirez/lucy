@@ -72,7 +72,7 @@ func (s *Server) runnerHeartbeat(ctx context.Context, p *api.HeartbeatParams) (a
 	}
 	evs := make([]runner.Event, 0, len(p.Events))
 	for _, e := range p.Events {
-		evs = append(evs, runner.Event{Seq: e.Seq, Kind: runner.EventKind(e.Kind), Text: e.Text})
+		evs = append(evs, runner.Event{Seq: e.Seq, Kind: runner.EventKind(e.Kind), Text: e.Text, Question: e.Question})
 	}
 	beat, err := b.Heartbeat(ctx, p.Runner, p.Run, p.Fence, time.Duration(p.TTLSeconds)*time.Second, evs)
 	if err != nil {

@@ -26,10 +26,12 @@ type Leased struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// Renewed records a heartbeat: the lease under Fence now expires at ExpiresAt.
+// Renewed records a heartbeat: the lease under Fence now expires at ExpiresAt. Answered is the id
+// of the question whose answer the heartbeat handed to the runner, if any.
 type Renewed struct {
 	Fence     int64     `json:"fence"`
 	ExpiresAt time.Time `json:"expires_at"`
+	Answered  string    `json:"answered,omitempty"`
 }
 
 // Streamed records one event the runner streamed under Fence.
@@ -38,6 +40,9 @@ type Streamed struct {
 	Seq   int64     `json:"seq"`
 	Kind  EventKind `json:"kind"`
 	Text  string    `json:"text,omitempty"` // untrusted output of the work, capped
+	// Question, when asking, is the question's id. An asking event for a question already
+	// answered is recorded as activity, so an answered question never re-opens.
+	Question string `json:"question,omitempty"`
 }
 
 // StopRequested records that the Tower asked for the run to stop. A queued run finishes at once;
@@ -49,6 +54,7 @@ type StopRequested struct{}
 // never into the log.
 type Answered struct {
 	Fence        int64  `json:"fence"`
+	Question     string `json:"question"` // the id of the question answered
 	AnswerSHA256 string `json:"answer_sha256"`
 }
 

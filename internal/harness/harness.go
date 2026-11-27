@@ -31,9 +31,10 @@ type Source string
 
 // Event is one thing the harness reported.
 type Event struct {
-	Kind   Kind
-	Source Source
-	Text   string // untrusted
+	Kind     Kind
+	Source   Source
+	Text     string // untrusted
+	Question string // when asking: the question's id, the same on every repeat of it; untrusted
 }
 
 // Exit is how a session ended, as the harness's protocol reported it.
@@ -88,8 +89,8 @@ type Conn interface {
 	// session's end; the adapter then closes the program's input. While a question waits, the
 	// events end with it, so the last event streamed is always the open question.
 	Decode(line []byte) (events []Event, exit *Exit)
-	// Asking returns the question the session waits on, as its Asking event's text, if any.
-	Asking() (question string, ok bool)
+	// Asking returns the Asking event of the question the session waits on, if any.
+	Asking() (Event, bool)
 	// Answer replies to the session's waiting question with the owner's answer.
 	Answer(text string) error
 	// Close ends the program's input.

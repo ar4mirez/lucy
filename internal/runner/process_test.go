@@ -421,11 +421,10 @@ func askWhileWaiting(t *testing.T, extra ...string) string {
 	return path
 }
 
-// TestHarnessExecutorStreamsNoAnsweredQuestion: a question waits, and a stderr line and a
-// protocol message the adapter does not know are each buffered with the question repeated after
-// them. Once the answer is given, the buffered repeats are gone: nothing streamed afterwards asks
-// the answered question again.
-func TestHarnessExecutorStreamsNoAnsweredQuestion(t *testing.T) {
+// TestHarnessExecutorTagsEveryRepeat: while a question waits, a stderr line and a protocol message
+// the adapter does not know are each followed by the question again, and every repeat carries
+// the question's id, so the broker knows it as the question the owner answers once.
+func TestHarnessExecutorTagsEveryRepeat(t *testing.T) {
 	const stderr = "warning: the network is slow"
 	const unknown = "unrecognised harness message: mystery"
 	path := askWhileWaiting(t, `{"stderr":"`+stderr+`"}`, `{"out":{"type":"mystery"}}`)
@@ -435,35 +434,31 @@ func TestHarnessExecutorStreamsNoAnsweredQuestion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pe := x.(*processExecution)
-	buffered := func() bool {
-		pe.mu.Lock()
-		defer pe.mu.Unlock()
-		var texts []string
-		for _, e := range pe.lines {
-			texts = append(texts, e.Text)
-		}
-		return slices.Contains(texts, stderr) && slices.Contains(texts, unknown)
-	}
+	var texts []string
+	asks := 0
 	deadline := time.Now().Add(20 * time.Second)
-	for !buffered() {
+	for !slices.Contains(texts, stderr) || !slices.Contains(texts, unknown) {
 		if time.Now().After(deadline) {
-			t.Fatal("the harness's output while asking was never buffered")
+			t.Fatalf("events %q", texts)
+		}
+		for _, e := range x.Poll().Events {
+			texts = append(texts, e.Text)
+			if e.Kind == KindAsking {
+				asks++
+				if e.Question != "req_1" {
+					t.Errorf("the question is streamed as %q, want id req_1", e.Question)
+				}
+			} else if e.Question != "" {
+				t.Errorf("%s event %q carries a question id", e.Kind, e.Text)
+			}
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+	if asks < 2 {
+		t.Errorf("the question was streamed %d times, want it repeated after the other events: %q", asks, texts)
+	}
 	if err := x.(Answerer).Answer("use the staging account"); err != nil {
 		t.Fatal(err)
-	}
-	var texts []string
-	for _, e := range x.Poll().Events {
-		if e.Kind == KindAsking {
-			t.Errorf("an answered question is streamed: %+v", e)
-		}
-		texts = append(texts, e.Text)
-	}
-	if !slices.Contains(texts, stderr) || !slices.Contains(texts, unknown) {
-		t.Errorf("events %q lack the output buffered while asking", texts)
 	}
 	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7}) {
 		t.Fatalf("result %+v", res)

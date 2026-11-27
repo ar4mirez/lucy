@@ -1108,6 +1108,11 @@
                   "minLength": 1,
                   "type": "string"
                 },
+                "question": {
+                  "description": "For asking: the question's id, the same on every repeat of the question. An asking event for an answered question is recorded as activity; a question without an id is given its event's own.",
+                  "maxLength": 200,
+                  "type": "string"
+                },
                 "seq": {
                   "description": "The event's number in its run, from 1.",
                   "minimum": 1,

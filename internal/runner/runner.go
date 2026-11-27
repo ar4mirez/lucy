@@ -76,7 +76,7 @@ type held struct {
 	beatAt   time.Time
 	result   *Result
 	stopping bool
-	question string // the work's question, streamed and not yet answered
+	question *Event // the work's question, streamed and not yet answered
 	heard    bool   // the broker has reported question as asking
 }
 
@@ -170,9 +170,9 @@ func (r *Runner) tend(ctx context.Context, h *held) error {
 		}
 		switch {
 		case beat.Answer != "":
-			h.question, h.heard = "", false
+			h.question, h.heard = nil, false
 			r.answer(h, beat.Answer)
-		case len(h.pending) > 0 || h.question == "":
+		case len(h.pending) > 0 || h.question == nil:
 		case beat.Asking:
 			h.heard = true
 		case h.heard && h.result == nil:
@@ -180,7 +180,7 @@ func (r *Runner) tend(ctx context.Context, h *held) error {
 			// answered and the answer was lost, as when the daemon restarted before this
 			// heartbeat. Ask again.
 			r.cfg.Log.Warn("runner lost a run's answer; asking again", "run", h.lease.Run)
-			h.queue(Event{Kind: KindAsking, Text: h.question})
+			h.queue(*h.question)
 		}
 		if beat.Stop && !h.stopping {
 			h.exec.Stop()
@@ -216,9 +216,9 @@ func (h *held) queue(ev Event) {
 	ev.Seq, ev.Text = h.next, capText(ev.Text)
 	h.next++
 	h.pending = append(h.pending, ev)
-	h.question, h.heard = "", false
+	h.question, h.heard = nil, false
 	if ev.Kind == KindAsking {
-		h.question = ev.Text
+		h.question = &Event{Kind: KindAsking, Text: ev.Text, Question: ev.Question}
 	}
 }
 

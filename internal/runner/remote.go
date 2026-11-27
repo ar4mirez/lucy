@@ -53,7 +53,7 @@ func (r Remote) Lease(ctx context.Context, runner string, placement Placement, t
 func (r Remote) Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event) (Beat, error) {
 	p := api.HeartbeatParams{Runner: runner, Run: run, Fence: fence, TTLSeconds: seconds(ttl)}
 	for _, e := range events {
-		p.Events = append(p.Events, api.RunEvent{Seq: e.Seq, Kind: string(e.Kind), Text: e.Text})
+		p.Events = append(p.Events, api.RunEvent{Seq: e.Seq, Kind: string(e.Kind), Text: e.Text, Question: e.Question})
 	}
 	res, err := r.Client.RunnerHeartbeat(ctx, p)
 	if err != nil {
