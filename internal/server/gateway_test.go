@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -11,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -201,6 +203,27 @@ func TestGatewayRecordsEveryRequestThroughTheAPI(t *testing.T) {
 	}
 	if !decided {
 		t.Fatal("the long path's credential use has no decision")
+	}
+
+	conn, err := net.Dial("tcp", strings.TrimPrefix(front.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(conn, "GET http://gw HTTP/1.1\r\nHost: gw\r\nConnection: close\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	resp, err = http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	conn.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("an empty absolute-form path: status %d", resp.StatusCode)
+	}
+	evs = gatewayEvents()
+	if last := evs[len(evs)-1]; last.Type != (gateway.Denied{}).EventType() || !strings.Contains(string(last.Payload), `"(empty path)"`) {
+		t.Fatalf("an empty absolute-form path was not recorded as denied: %s %s", last.Type, last.Payload)
 	}
 
 	method := strings.Repeat("A", 20)

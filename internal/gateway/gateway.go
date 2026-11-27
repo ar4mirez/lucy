@@ -237,6 +237,9 @@ var workerShapeHeaders = []string{"Accept-Encoding", "Range", "If-Range"}
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	recorded := policy.RecordedResource(policy.KindFetch, r.URL.EscapedPath())
+	if recorded == "" {
+		recorded = "(empty path)"
+	}
 	deny := func(status int, routeName, reason string) {
 		// Recorded first; refused whether or not the record could be written.
 		_ = g.cfg.Recorder.Deny(ctx, g.cfg.Org, Denied{Route: routeName, Method: clip(r.Method, MaxMethod), Path: recorded, Reason: reason})

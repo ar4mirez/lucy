@@ -44,7 +44,7 @@ How a worker reaches a service without ever holding its credential (TECH.md sect
   the call failed). A refused request is a `gateway.denied` event with its reason. The gateway
   itself turns the worker's path into its recorded form before it calls its recorder, as
   `policy.RecordedResource` records a fetch: redacted, capped, with the SHA-256 of the whole path.
-  The recorder records it as given, so a path of any length is recorded and its hash covers all of
+  An empty path is recorded as `(empty path)`. The recorder records it as given, so a path of any length is recorded and its hash covers all of
   it. A method other than GET, HEAD, POST, PUT, PATCH, DELETE or OPTIONS is refused before
   anything else, recorded with the method clipped to 16 bytes. No event holds a credential, a
   query string or a body. Every event is in the audit chain.
