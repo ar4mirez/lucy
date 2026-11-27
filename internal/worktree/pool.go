@@ -676,8 +676,11 @@ func (p *Pool) Discard(ctx context.Context, org, repo string, slot int, by strin
 	if err := p.settle(ctx, r, s, Discarded{Slot: slot, Run: s.Run, Branch: s.Branch, Head: s.Head, By: by}); err != nil {
 		return SlotInfo{}, err
 	}
-	if _, err := os.Lstat(s.Path); err == nil {
-		if err := guard.RemoveAll(s.Path); err != nil {
+	// Spell the slot's directory under the guard's symlink-resolved root (on macOS /var is a
+	// symlink to /private/var), as the guard requires of the path it is asked to delete.
+	dir := filepath.Join(guard.Roots()[0].Path, org, repo, "slot-"+strconv.Itoa(slot))
+	if _, err := os.Lstat(dir); err == nil {
+		if err := guard.RemoveAll(dir); err != nil {
 			return SlotInfo{}, err
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {

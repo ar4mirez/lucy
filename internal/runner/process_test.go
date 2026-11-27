@@ -859,7 +859,11 @@ func TestRunsWorkInTheirWorktree(t *testing.T) {
 	if !strings.Contains(got, "cwd "+wt) {
 		t.Fatalf("the run did not work in its worktree:\n%s", got)
 	}
-	if strings.Contains(got, "tmpdir "+wt) || !strings.Contains(got, "tmpdir "+pf.root) {
+	root, err := filepath.EvalSymlinks(pf.root) // on macOS /var is a symlink to /private/var
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "tmpdir "+wt) || !strings.Contains(got, "tmpdir "+root) {
 		t.Fatalf("TMPDIR is not the run's scratch directory:\n%s", got)
 	}
 	if b, err := os.ReadFile(filepath.Join(wt, "README.md")); err != nil || string(b) != "checkout" {

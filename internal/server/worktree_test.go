@@ -360,15 +360,26 @@ func TestReadySlotStartsTheRunWithinASecond(t *testing.T) {
 	begun := time.Now()
 	go func() { done <- r.Run(rctx, time.Second) }()
 	defer func() { cancel(); <-done }()
+	var ready time.Time // when the test first saw the slot ready
 	for len(ex.started()) == 0 {
 		if time.Since(begun) > 10*time.Second {
 			t.Fatal("the run never started")
 		}
+		if st, _, err := src.State(ctx, "acme", "web", "f1#1"); ready.IsZero() && err == nil && st == worktree.PrepReady {
+			ready = time.Now()
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	// The slot's preparation (a local clone) takes a fraction of that; the polls start at 250 ms.
-	if took := time.Since(begun); took > 2*time.Second {
-		t.Fatalf("the run started %v after the lease; its slot was ready well before", took)
+	started := time.Now()
+	if ready.IsZero() {
+		ready = started
+	}
+	// How long the slot's preparation (a local clone) takes depends on the machine, so measure from
+	// when it was ready. The polls start at 250 ms and double, so the one after a slot is ready comes
+	// within the time the run has waited so far plus 250 ms: within about a second of a slot ready
+	// in under a second, and far sooner than the lease's next heartbeat, 20 s away.
+	if gap, bound := started.Sub(ready), max(time.Second, ready.Sub(begun))+500*time.Millisecond; gap > bound {
+		t.Fatalf("the run started %v after its slot was ready (%v after the lease); want within %v", gap, ready.Sub(begun), bound)
 	}
 	if l := ex.started()[0]; l.WorktreeState != runner.WorktreeReady {
 		t.Fatalf("the started lease %+v", l)
