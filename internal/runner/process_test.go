@@ -363,25 +363,11 @@ func TestHarnessExecutorAnswers(t *testing.T) {
 // the adapter refuses and a line on the harness's standard error are streamed, and the last event
 // is still the open question, so the Tower keeps the flight asking and takes the owner's answer.
 func TestHarnessExecutorKeepsTheQuestionOpen(t *testing.T) {
-	b, err := os.ReadFile(transcript(t, "ask"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	const stderr = "warning: the network is slow"
-	var lines []string
-	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-		lines = append(lines, l)
-		if strings.Contains(l, `"control_request"`) {
-			lines = append(lines,
-				`{"out":{"type":"control_request","request_id":"req_2","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which region?"}]}}}}`,
-				`{"in":{"type":"control_response","response":{"subtype":"success","request_id":"req_2","response":{"behavior":"deny"}}}}`,
-				`{"stderr":"`+stderr+`"}`)
-		}
-	}
-	path := filepath.Join(t.TempDir(), "ask-busy.jsonl")
-	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	path := askWhileWaiting(t,
+		`{"out":{"type":"control_request","request_id":"req_2","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which region?"}]}}}}`,
+		`{"in":{"type":"control_response","response":{"subtype":"success","request_id":"req_2","response":{"behavior":"deny"}}}}`,
+		`{"stderr":"`+stderr+`"}`)
 	pf := newProc(t)
 	pf.ex.Harness = claudecode.Adapter{}
 	x, err := pf.ex.Start(context.Background(), procLease("harness - "+path))
@@ -408,6 +394,76 @@ func TestHarnessExecutorKeepsTheQuestionOpen(t *testing.T) {
 	}
 	if err := x.(Answerer).Answer("use the staging account"); err != nil {
 		t.Fatal(err)
+	}
+	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7}) {
+		t.Fatalf("result %+v", res)
+	}
+}
+
+// askWhileWaiting writes the ask transcript with extra lines played while its question waits.
+func askWhileWaiting(t *testing.T, extra ...string) string {
+	t.Helper()
+	b, err := os.ReadFile(transcript(t, "ask"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		lines = append(lines, l)
+		if strings.Contains(l, `"control_request"`) {
+			lines = append(lines, extra...)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "ask-busy.jsonl")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestHarnessExecutorStreamsNoAnsweredQuestion: a question waits, and a stderr line and a
+// protocol message the adapter does not know are each buffered with the question repeated after
+// them. Once the answer is given, the buffered repeats are gone: nothing streamed afterwards asks
+// the answered question again.
+func TestHarnessExecutorStreamsNoAnsweredQuestion(t *testing.T) {
+	const stderr = "warning: the network is slow"
+	const unknown = "unrecognised harness message: mystery"
+	path := askWhileWaiting(t, `{"stderr":"`+stderr+`"}`, `{"out":{"type":"mystery"}}`)
+	pf := newProc(t)
+	pf.ex.Harness = claudecode.Adapter{}
+	x, err := pf.ex.Start(context.Background(), procLease("harness - "+path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pe := x.(*processExecution)
+	buffered := func() bool {
+		pe.mu.Lock()
+		defer pe.mu.Unlock()
+		var texts []string
+		for _, e := range pe.lines {
+			texts = append(texts, e.Text)
+		}
+		return slices.Contains(texts, stderr) && slices.Contains(texts, unknown)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for !buffered() {
+		if time.Now().After(deadline) {
+			t.Fatal("the harness's output while asking was never buffered")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := x.(Answerer).Answer("use the staging account"); err != nil {
+		t.Fatal(err)
+	}
+	var texts []string
+	for _, e := range x.Poll().Events {
+		if e.Kind == KindAsking {
+			t.Errorf("an answered question is streamed: %+v", e)
+		}
+		texts = append(texts, e.Text)
+	}
+	if !slices.Contains(texts, stderr) || !slices.Contains(texts, unknown) {
+		t.Errorf("events %q lack the output buffered while asking", texts)
 	}
 	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7}) {
 		t.Fatalf("result %+v", res)

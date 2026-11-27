@@ -145,12 +145,6 @@ func TestRunnerDeliversAndReasks(t *testing.T) {
 	if got := ex.execs["f1#1"].answers; len(got) != 1 || got[0] != "staging" {
 		t.Fatalf("f1 answers %q", got)
 	}
-	// the work repeats the question it was just given the answer to: it does not re-open
-	ex.execs["f1#1"].queue = append(ex.execs["f1#1"].queue, Update{Events: []Event{{Kind: KindAsking, Text: "which account?"}}})
-	step(t, r)
-	if ri := f.run("f1#1"); ri.Asking {
-		t.Fatalf("f1 asks an answered question again: %+v", ri)
-	}
 
 	// f2: answered, then the daemon restarts before the runner's heartbeat collects it.
 	if err := f.b.Answer(ctx, "f2#1", "production"); err != nil {

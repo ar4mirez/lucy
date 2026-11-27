@@ -78,7 +78,6 @@ type held struct {
 	stopping bool
 	question string // the work's question, streamed and not yet answered
 	heard    bool   // the broker has reported question as asking
-	answered string // the question just answered, until the work streams something else
 }
 
 // New returns a Runner.
@@ -171,7 +170,7 @@ func (r *Runner) tend(ctx context.Context, h *held) error {
 		}
 		switch {
 		case beat.Answer != "":
-			h.answered, h.question, h.heard = h.question, "", false
+			h.question, h.heard = "", false
 			r.answer(h, beat.Answer)
 		case len(h.pending) > 0 || h.question == "":
 		case beat.Asking:
@@ -208,19 +207,13 @@ func (r *Runner) answer(h *held, text string) {
 		return
 	}
 	if err := a.Answer(text); err != nil {
-		h.answered = ""
 		r.cfg.Log.Warn("runner could not give a run its answer", "run", h.lease.Run, "err", err)
 	}
 }
 
 // queue numbers one of the work's events for streaming and tracks its open question.
 func (h *held) queue(ev Event) {
-	ev.Text = capText(ev.Text)
-	if ev.Kind == KindAsking && h.answered != "" && ev.Text == h.answered {
-		return // the work repeated a question whose answer it is being given
-	}
-	h.answered = ""
-	ev.Seq = h.next
+	ev.Seq, ev.Text = h.next, capText(ev.Text)
 	h.next++
 	h.pending = append(h.pending, ev)
 	h.question, h.heard = "", false

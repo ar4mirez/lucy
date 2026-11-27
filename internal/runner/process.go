@@ -244,6 +244,9 @@ func (pe *processExecution) harnessLine(b []byte) {
 		if !kind.Valid() {
 			kind = KindActivity
 		}
+		if _, ok := pe.conn.Asking(); kind == KindAsking && !ok {
+			continue // answered while this message was decoded
+		}
 		pe.push(Event{Kind: kind, Text: capText(e.Text)})
 	}
 }
@@ -282,12 +285,20 @@ func (pe *processExecution) keepAsking() {
 	}
 }
 
-// Answer implements Answerer: it gives the harness the owner's answer to its question.
+// Answer implements Answerer: it gives the harness the owner's answer to its question. The
+// question's repeats still buffered are dropped, so an answered question is never streamed again.
 func (pe *processExecution) Answer(text string) error {
 	if pe.conn == nil {
 		return ErrNoInput
 	}
-	return pe.conn.Answer(text)
+	if err := pe.conn.Answer(text); err != nil {
+		return err
+	}
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	pe.lines = slices.DeleteFunc(pe.lines, func(e Event) bool { return e.Kind == KindAsking })
+	pe.asked = false
+	return nil
 }
 
 // Write implements io.Writer for the program's stdout and stderr.
