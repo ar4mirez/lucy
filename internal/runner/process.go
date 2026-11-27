@@ -162,8 +162,8 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 			pe.cleanup()
 			return nil, err
 		}
-		// TODO(LUCY-RUN-006): the run's directory is an empty scratch dir until slice 6 checks the
-		// repository out into it; slice 6 must point the reader at that checkout.
+		// TODO(LUCY-RUN-007): the run's directory is an empty scratch dir until runs are placed in
+		// their worktree slot; the reader then reads that checkout.
 		if session.Instructions, err = harness.Instructions(dir); err != nil {
 			pe.cleanup()
 			return nil, err
@@ -447,7 +447,7 @@ func removeScratch(guard *pathguard.Guard, dir string) error {
 	if filepath.Dir(resolved) != root.Path || !strings.HasPrefix(filepath.Base(resolved), "run-") {
 		return fmt.Errorf("runner: %s is not a run's scratch directory in %s", resolved, root.Path)
 	}
-	return os.RemoveAll(resolved)
+	return guard.RemoveAll(resolved)
 }
 
 // prepareOrgHome makes the org's synthetic home, home/ in root, 0700, and returns it. It refuses

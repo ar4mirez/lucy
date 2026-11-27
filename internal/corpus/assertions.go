@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -204,6 +205,40 @@ func AnswersDelivered(n int) Assertion {
 // FixtureIntact asserts nothing the delete fixture holds was removed.
 func FixtureIntact() Assertion {
 	return Assertion{"fixture intact", func(_ context.Context, e *Env) error { return e.Fixture.Intact() }}
+}
+
+// Refused asserts whether the delete executor refused the Remove named name.
+func Refused(name string, want bool) Assertion {
+	return Assertion{fmt.Sprintf("remove %s refused=%v", name, want), func(_ context.Context, e *Env) error {
+		err, ok := e.removed[name]
+		switch {
+		case !ok:
+			return fmt.Errorf("no remove %q", name)
+		case want && err == nil:
+			return errors.New("the delete executor removed it")
+		case !want && err != nil:
+			return fmt.Errorf("the delete executor refused it: %w", err)
+		}
+		return nil
+	}}
+}
+
+// Gone asserts that path (with fixture placeholders) no longer exists, not even as a symlink.
+func Gone(path string) Assertion {
+	return Assertion{"gone " + path, func(_ context.Context, e *Env) error {
+		if _, err := os.Lstat(e.Fixture.Expand(path)); !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("still there (%v)", err)
+		}
+		return nil
+	}}
+}
+
+// Present asserts that path (with fixture placeholders) still exists, following symlinks.
+func Present(path string) Assertion {
+	return Assertion{"present " + path, func(_ context.Context, e *Env) error {
+		_, err := os.Stat(e.Fixture.Expand(path))
+		return err
+	}}
 }
 
 // Holds is a scenario-specific assertion.

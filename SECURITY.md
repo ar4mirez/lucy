@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 14
+version: 15
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-SEC-002, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -119,6 +119,22 @@ until the Sandbox provider can issue a placement proof (berth#216), and no daemo
 for one yet. Every runner names its org (`--org`, required for every placement; a runner without
 one refuses to start), and its root defaults to that org's own, so no runner root spans orgs. One
 org's runs are therefore the only runs on the host at any time.
+
+## Deletes
+
+Every delete lucy makes refuses `/`, `$HOME` and anything outside lucy's managed roots
+(LUCY-SEC-005, incident 1). A recursive delete goes through the path guard's executor
+(`pathguard.Guard.RemoveAll`): the path as asked for, and its parent resolved through symlinks
+with the last component kept, must both be strictly inside a declared root and never a root
+itself, and it is deleted through an `os.Root` on that root, so a symlink, the requested one or one
+inside, is removed rather than followed, and none swapped in after the check takes the delete out
+of the root. The only recursive delete lucy makes is a run's scratch directory, a
+`run-*` directory directly in the runner's root, never the org's home beside it. Every other delete
+removes one file lucy made and names: a stale socket of its own (checked to be a socket first), a
+runner's registry entry, a temporary file it created, or a vault file through the vault's own
+`os.Root`. The worktree pool deletes no directory: resetting a free slot, whose work has landed,
+lets git remove that slot's changes and untracked files, and `git worktree prune` removes only
+base.git's stale registrations.
 
 ## Audit and log data
 

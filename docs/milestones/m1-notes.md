@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 9
+version: 10
 owner: ar4mirez
 requirements: []
 ---
@@ -148,8 +148,9 @@ slice table, requirement status and exit tests stay in the plan.
   (D3c). The worktree pool ([worktree](../tech/worktree.md), `internal/worktree`) has its core:
   slots of a bare clone per org and repository, leased in the store, reset on acquire and freed
   only once the work landed, including a squash merge the forge reports. Left: runs placed in their
-  slot and the Tower releasing it at takeoff, `lucy worktree ls`, and the delete guard on every
-  delete (LUCY-SEC-005).
+  slot and the Tower releasing it at takeoff (which also points the harness's instruction reader at
+  the checkout), and `lucy worktree ls`. The path guard's delete executor (`Guard.RemoveAll`,
+  through an `os.Root`) takes every recursive delete; the inventory of deletes is in SECURITY.md.
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real

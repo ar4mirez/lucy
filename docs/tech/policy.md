@@ -2,7 +2,7 @@
 id: tech-policy
 title: "lucy: the policy engine"
 status: active
-version: 3
+version: 4
 owner: ar4mirez
 requirements: [LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-006, LUCY-POL-007, LUCY-SBX-003]
 ---
@@ -68,5 +68,5 @@ LUCY-SPEC-010) feed them data, not code.
   lookalike characters, and anything not strictly inside a declared root, checking both the
   requested spelling and the symlink-resolved path; roots that are `/`, home or contain home are
   refused when declared. A delete inside the task's scratch root is cleared; inside a project it
-  needs the owner. TODO(LUCY-SEC-005): every delete lucy makes goes through it, deleting the
-  resolved path without following links (m1).
+  needs the owner. Its delete executor, `Guard.RemoveAll`, takes every recursive delete lucy
+  makes (LUCY-SEC-005); SECURITY.md (Deletes) owns how it deletes and the inventory of deletes.

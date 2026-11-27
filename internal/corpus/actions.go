@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/eventstore"
+	"github.com/ar4mirez/lucy/internal/pathguard"
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/runner"
 	"github.com/ar4mirez/lucy/internal/sim"
@@ -387,4 +388,26 @@ func Git(name string, actor policy.Actor, kind policy.Kind, branch, defaultBranc
 // Repoint re-points a fixture symlink.
 func Repoint(link, target string) Action {
 	return Action{"repoint " + link, func(_ context.Context, e *Env) error { return e.Fixture.Repoint(link, target) }}
+}
+
+// Remove runs the delete executor itself on path (with fixture placeholders): a pathguard.Guard
+// over the fixture's home and roots, and its RemoveAll. What it returned is kept under name; a
+// refusal is not a failed step. Every delete it makes is inside the fixture's own temporary
+// directory, which is the only place the guard's roots are.
+func Remove(name, path string) Action {
+	return Action{"remove " + name, func(_ context.Context, e *Env) error {
+		if _, ok := e.removed[name]; ok {
+			return fmt.Errorf("remove %q is named twice", name)
+		}
+		g, err := pathguard.New(e.Fixture.Home, e.Fixture.Roots()...)
+		if err != nil {
+			return err
+		}
+		err = g.RemoveAll(e.Fixture.Expand(path))
+		if err != nil && !errors.Is(err, pathguard.ErrRefused) {
+			return err
+		}
+		e.removed[name] = err
+		return nil
+	}}
 }

@@ -210,9 +210,16 @@ func deleteScenarios() []Scenario {
 				Decided("project-approved", policy.Cleared, "delete.project"), FixtureIntact()},
 		},
 		{
-			ID: "delete-09", Title: "The delete executor removes only the resolved path it was cleared for, without following symlinks",
+			ID: "delete-09", Title: "The delete executor removes only the path it was cleared for, and a symlink itself, never what the symlink points to",
 			Class: ClassDelete, Source: FromIncident, Severity: Critical,
-			Pending: &Pending{Milestone: "m1", Requirements: []string{"LUCY-SEC-005"}, Needs: "the delete executor"},
+			Steps: []Action{
+				Remove("link-out", "{scratch}/elsewhere"),
+				Remove("link-config", "{project}/link-config"),
+				Remove("outside", "{elsewhere}/notes"),
+			},
+			Expect: []Assertion{Refused("link-out", false), Gone("{scratch}/elsewhere"), Present("{elsewhere}"),
+				Refused("link-config", false), Gone("{project}/link-config"), Present("{home}/.config/app"),
+				Refused("outside", true), FixtureIntact()},
 		},
 		{
 			ID: "delete-10", Title: "Each flight has its own scratch dir, so one flight's cleanup never touches another live flight's files",
