@@ -260,6 +260,42 @@ func TestBrokenSlotIsNotLeasedAgain(t *testing.T) {
 	}
 }
 
+// A run whose slot broke after it committed on its branch is refused a new slot, and its branch
+// keeps the commit: a fresh lease never moves a branch holding work that has not landed.
+func TestRetryAfterBrokenSlotKeepsUnlandedBranch(t *testing.T) {
+	f := open(t)
+	l, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := f.commit(l.Path, "draft.txt", "kept")
+	if err := os.RemoveAll(l.Path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(l.Path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(l.Path, "stray"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main"); err == nil {
+		t.Fatal("a worktree was made over a directory with files in it")
+	}
+	if s := f.slot(1); s.State != StateBroken {
+		t.Fatalf("slot %+v", s)
+	}
+	if _, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main"); !errors.Is(err, ErrUnlanded) {
+		t.Fatalf("the retry: %v", err)
+	}
+	base := filepath.Join(f.pool.Root, "acme", "web", "base.git")
+	if tip, err := f.g.run(ctx, base, "rev-parse", "refs/heads/"+l.Branch); err != nil || tip != work {
+		t.Fatalf("the run's branch is at %s, %v; want %s", tip, err, work)
+	}
+	if slots, err := f.pool.Slots(ctx, "acme", "web"); err != nil || len(slots) != 1 {
+		t.Fatalf("slots %+v, %v", slots, err)
+	}
+}
+
 // The pool's state is the store's: after a restart every slot is as it was, and a rebuild of the
 // projection from the log matches.
 func TestSlotsSurviveARestart(t *testing.T) {

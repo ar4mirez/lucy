@@ -147,6 +147,19 @@ func (p *Pool) Acquire(ctx context.Context, repo Repo, run, base string) (Lease,
 	if err != nil {
 		return Lease{}, fmt.Errorf("%w: base %q is not a branch of the remote", ErrInvalid, base)
 	}
+	tip, err := branchTip(ctx, g, baseDir, branch)
+	if err != nil {
+		return Lease{}, err
+	}
+	if tip != "" && tip != baseSHA {
+		landed, err := g.isAncestor(ctx, baseDir, tip, "refs/remotes/origin/"+base)
+		if err != nil {
+			return Lease{}, err
+		}
+		if !landed {
+			return Lease{}, fmt.Errorf("%w: run %q's branch %s holds commits that have not landed on %q", ErrUnlanded, run, branch, base)
+		}
+	}
 	var l Lease
 	how := resetSlot
 	err = p.Store.Update(ctx, func(tx *eventstore.Tx) error {
@@ -212,20 +225,27 @@ func (p *Pool) heldPrep(ctx context.Context, baseDir string, l Lease) (int, erro
 	if err != nil || how == keepSlot {
 		return how, err
 	}
-	tip, err := p.git().run(ctx, baseDir, "rev-parse", "--verify", "--quiet", "refs/heads/"+l.Branch+"^{commit}")
-	var ee *exec.ExitError
+	tip, err := branchTip(ctx, p.git(), baseDir, l.Branch)
 	switch {
-	case errors.As(err, &ee) && ee.ExitCode() == 1:
-		return how, nil
 	case err != nil:
 		return 0, err
-	case tip == l.BaseSHA:
+	case tip == "" || tip == l.BaseSHA:
 		return how, nil
 	case how == remakeSlot:
 		return remakeOnBranch, nil
 	default:
 		return checkoutBranch, nil
 	}
+}
+
+// branchTip is the commit branch is at in baseDir, or "" when there is no such branch.
+func branchTip(ctx context.Context, g git, baseDir, branch string) (string, error) {
+	tip, err := g.run(ctx, baseDir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}")
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && ee.ExitCode() == 1 {
+		return "", nil
+	}
+	return tip, err
 }
 
 // heldWorktree is heldPrep for the worktree alone: remakeSlot, resetSlot or keepSlot.
