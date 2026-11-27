@@ -21,7 +21,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -231,14 +233,44 @@ var fileTools = map[string]harness.Access{
 	"Edit": harness.Write, "MultiEdit": harness.Write, "Write": harness.Write, "NotebookEdit": harness.Write,
 }
 
-// toolPath reads the path a file tool's input names; empty when it names none.
-func toolPath(input map[string]any) string {
+// patternFields are the glob inputs of the search tools; a glob that is absolute or climbs with
+// ".." reaches past the tool's path.
+var patternFields = map[string]string{"Glob": "pattern", "Grep": "glob"}
+
+// toolPath reads the path a file tool's input names; empty when it names none. For a search tool
+// whose glob is absolute or holds a ".." element, it is the farthest directory the glob can reach:
+// its static part, everything before the first element with a glob metacharacter, climbed once
+// more for every ".." after it.
+func toolPath(tool string, input map[string]any) string {
+	var base string
 	for _, k := range []string{"file_path", "notebook_path", "path"} {
 		if p, _ := input[k].(string); p != "" {
-			return p
+			base = p
+			break
 		}
 	}
-	return ""
+	glob, _ := input[patternFields[tool]].(string)
+	elems := strings.Split(glob, "/")
+	if glob == "" || !strings.HasPrefix(glob, "/") && !slices.Contains(elems, "..") {
+		return base
+	}
+	for i, e := range elems {
+		if strings.ContainsAny(e, "*?[{") {
+			rest := elems[i:]
+			elems = elems[:i:i]
+			for _, e := range rest {
+				if e == ".." {
+					elems = append(elems, "..")
+				}
+			}
+			break
+		}
+	}
+	static := strings.Join(elems, "/")
+	if strings.HasPrefix(glob, "/") {
+		return path.Clean("/" + static)
+	}
+	return path.Join(base, static)
 }
 
 type question struct {
@@ -376,7 +408,7 @@ func (c *conn) control(m message) []harness.Event {
 	}
 	tool := capped(m.Request.ToolName, 64)
 	if access, ok := fileTools[m.Request.ToolName]; ok && c.permit != nil {
-		if allowed, why := c.permit(m.Request.ToolName, access, toolPath(m.Request.Input)); !allowed {
+		if allowed, why := c.permit(m.Request.ToolName, access, toolPath(m.Request.ToolName, m.Request.Input)); !allowed {
 			_ = c.respond(m.RequestID, permission{Behavior: "deny", Message: "lucy: " + tool + " was refused: " + why})
 			return []harness.Event{ev(harness.Activity, "refused tool: "+tool+": "+capped(why, 200))}
 		}

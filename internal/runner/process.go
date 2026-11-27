@@ -430,17 +430,17 @@ func (pe *processExecution) Stop() {
 	}
 }
 
-// permitFor returns the session's Permit: a path the tool names must resolve inside dir, the run's
-// directory, and the policy engine must clear the tool under the run's lease. Anything that goes
-// wrong refuses the tool.
+// permitFor returns the session's Permit: the path the tool names, or dir itself when it names
+// none, must resolve inside dir, the run's directory, and the policy engine must clear the tool
+// under the run's lease with that path. Anything that goes wrong refuses the tool.
 func permitFor(dir string, l Lease, pm Permitter, log *slog.Logger) harness.Permit {
 	return func(tool string, access harness.Access, path string) (bool, string) {
-		if path != "" {
-			resolved, ok := insideDir(dir, path)
-			if !ok {
-				return false, "the path is outside the run's directory"
-			}
-			path = resolved
+		if path == "" {
+			path = dir
+		}
+		path, ok := insideDir(dir, path)
+		if !ok {
+			return false, "the path is outside the run's directory"
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
 		defer cancel()

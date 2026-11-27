@@ -6,11 +6,13 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/harness"
+	"github.com/ar4mirez/lucy/internal/harness/claudecode"
 	"github.com/ar4mirez/lucy/internal/policy"
 )
 
@@ -71,8 +73,8 @@ func (p *fakePermitter) Permit(_ context.Context, _, _ string, _ int64, r Permit
 }
 
 // TestPermitForStaysInsideTheRun: a path outside the run's directory, also through a symlink, is
-// refused without asking the engine; one inside is asked about, resolved; the engine's denial and
-// an unreachable engine both refuse.
+// refused without asking the engine; one inside is asked about, resolved, and a pathless tool is
+// asked about as the run's directory; the engine's denial and an unreachable engine both refuse.
 func TestPermitForStaysInsideTheRun(t *testing.T) {
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -96,12 +98,15 @@ func TestPermitForStaysInsideTheRun(t *testing.T) {
 	if ok, why := permit("Edit", harness.Write, "src/main.go"); !ok {
 		t.Fatalf("inside path refused: %q", why)
 	}
-	if ok, _ := permit("Grep", harness.Read, ""); !ok {
-		t.Fatal("a pathless read was refused")
+	if ok, why := permit("Glob", harness.Read, ""); !ok {
+		t.Fatalf("a pathless read was refused: %q", why)
 	}
-	want := PermitRequest{Tool: "Edit", Kind: policy.KindWrite, Path: filepath.Join(dir, "src", "main.go")}
-	if len(pm.asked) != 2 || pm.asked[0] != want || pm.asked[1].Kind != policy.KindRead {
-		t.Fatalf("asked %+v", pm.asked)
+	want := []PermitRequest{
+		{Tool: "Edit", Kind: policy.KindWrite, Path: filepath.Join(dir, "src", "main.go")},
+		{Tool: "Glob", Kind: policy.KindRead, Path: dir},
+	}
+	if !slices.Equal(pm.asked, want) {
+		t.Fatalf("asked %+v, want %+v", pm.asked, want)
 	}
 	pm.perm = Permission{Outcome: policy.Denied, Reason: "no"}
 	if ok, why := permit("Edit", harness.Write, "a"); ok || why != "no" {
@@ -112,3 +117,42 @@ func TestPermitForStaysInsideTheRun(t *testing.T) {
 		t.Error("an unreachable engine allowed the tool")
 	}
 }
+
+// TestPermitForSearchGlobs: through the Claude Code adapter, a Glob or Grep whose glob reaches past
+// the run's directory is refused without asking the engine, and a relative Glob with no path is
+// asked about with the run's directory as its path.
+func TestPermitForSearchGlobs(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pm := &fakePermitter{perm: Permission{Outcome: policy.Cleared}}
+	session := harness.Session{Permit: permitFor(dir, Lease{Task: Task{Run: "f1#1"}, Runner: "r1", Fence: 3}, pm, slog.New(slog.DiscardHandler))}
+	for _, c := range []struct {
+		tool, input string
+		allowed     bool
+	}{
+		{"Glob", `{"pattern":"/home/someone/.ssh/*"}`, false},
+		{"Grep", `{"pattern":"secret","glob":"../../*"}`, false},
+		{"Glob", `{"pattern":"**/*.go"}`, true},
+	} {
+		in := &recorder{}
+		conn, err := claudecode.Adapter{}.Open(in, session)
+		if err != nil {
+			t.Fatal(err)
+		}
+		evs, _ := conn.Decode([]byte(`{"type":"control_request","request_id":"req_1","request":{"subtype":"can_use_tool","tool_name":"` +
+			c.tool + `","input":` + c.input + `}}`))
+		if len(evs) != 1 || strings.HasPrefix(evs[0].Text, "allowed tool") != c.allowed || strings.Contains(in.String(), `"allow"`) != c.allowed {
+			t.Errorf("%s %s: %+v, wrote %s", c.tool, c.input, evs, in.String())
+		}
+	}
+	want := []PermitRequest{{Tool: "Glob", Kind: policy.KindRead, Path: dir}}
+	if !slices.Equal(pm.asked, want) {
+		t.Fatalf("asked %+v, want %+v", pm.asked, want)
+	}
+}
+
+type recorder struct{ strings.Builder }
+
+func (*recorder) Close() error { return nil }
