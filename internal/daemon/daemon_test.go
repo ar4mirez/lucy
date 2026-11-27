@@ -122,7 +122,7 @@ func TestRunServesThenStopsThroughTheAPI(t *testing.T) {
 	if q, err := c.RunnerQueued(ctx, api.QueuedParams{}); err != nil || q.Queued != 0 {
 		t.Fatalf("runner.queued = %+v, %v", q, err)
 	}
-	if l, err := c.RunnerLease(ctx, api.LeaseParams{Runner: "local"}); err != nil || l.Leased {
+	if l, err := c.RunnerLease(ctx, api.LeaseParams{Runner: "local", Org: "acme"}); err != nil || l.Leased {
 		t.Fatalf("runner.lease = %+v, %v", l, err)
 	}
 

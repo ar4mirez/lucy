@@ -359,7 +359,7 @@ func pilotPermit(ctx context.Context, e *Env) error {
 	if err := b.Submit(ctx, runner.Task{Run: "f1#1", Org: Org, Project: Project, Flight: "f1", Generation: 1, Goal: "fix it"}); err != nil {
 		return err
 	}
-	l, ok, err := b.Lease(ctx, "local", runner.PlacementHost, 0)
+	l, ok, err := b.Lease(ctx, "local", runner.PlacementHost, Org, "", 0)
 	if err != nil || !ok {
 		return fmt.Errorf("lease: %v %v", ok, err)
 	}

@@ -77,6 +77,7 @@ func (f *fixture) reopen() {
 		f.t.Fatal(err)
 	}
 	f.store, f.b = st, runner.NewBroker(st, func() time.Time { return time.Now().Add(f.skew) })
+	f.b.VerifyPlacementWith(testPlacement{})
 	if f.sb, err = sandbox.New(st, provider{Provider: c, f: f}, f.b); err != nil {
 		f.t.Fatal(err)
 	}
@@ -90,7 +91,7 @@ func (f *fixture) live(org, flight string, placement runner.Placement) runner.Le
 		Generation: 1, Goal: "fix the build"}); err != nil {
 		f.t.Fatal(err)
 	}
-	l, ok, err := f.b.Lease(ctx, "r1", placement, time.Minute)
+	l, ok, err := f.b.Lease(ctx, "r1", placement, org, "test-proof", time.Minute)
 	if err != nil || !ok {
 		f.t.Fatalf("lease: %v %v", ok, err)
 	}
@@ -363,7 +364,7 @@ func (f *fixture) leaseIn(ctx context.Context, org, flight string) error {
 		Generation: 1, Goal: "fix the build"}); err != nil && !errors.Is(err, runner.ErrExists) {
 		return err
 	}
-	_, ok, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, time.Minute)
+	_, ok, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, org, "test-proof", time.Minute)
 	if err == nil && !ok {
 		return errors.New("nothing to lease")
 	}
@@ -429,7 +430,7 @@ func TestHostSessionsAndOtherOrgsAreNotHeld(t *testing.T) {
 			Generation: 1, Goal: "fix the build"}); err != nil {
 			t.Fatal(err)
 		}
-		if _, ok, err := f.b.Lease(ctx, "r3", runner.PlacementHost, time.Minute); err != nil || !ok {
+		if _, ok, err := f.b.Lease(ctx, "r3", runner.PlacementHost, "acme", "", time.Minute); err != nil || !ok {
 			t.Errorf("a host lease while acme restarts: %v, %v", ok, err)
 		}
 	}
@@ -483,17 +484,17 @@ func TestAHeldOrgDoesNotHoldUpAnotherOrgsRun(t *testing.T) {
 	if held, err := f.b.HoldContainer(ctx, "acme", nil, sandbox.HoldTTL); err != nil || !held {
 		t.Fatalf("hold: %v, %v", held, err)
 	}
-	l, ok, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, time.Minute)
+	if _, _, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, "acme", "test-proof", time.Minute); !errors.Is(err, runner.ErrSandboxBusy) {
+		t.Fatalf("acme's container lease with acme held: %v, want ErrSandboxBusy", err)
+	}
+	l, ok, err := f.b.Lease(ctx, "r4", runner.PlacementContainer, "beta", "test-proof", time.Minute)
 	if err != nil || !ok || l.Org != "beta" {
-		t.Fatalf("a container lease with acme held: %+v, %v, %v; want beta's run", l, ok, err)
+		t.Fatalf("beta's container lease with acme held: %+v, %v, %v; want beta's run", l, ok, err)
 	}
-	if _, _, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, time.Minute); !errors.Is(err, runner.ErrSandboxBusy) {
-		t.Fatalf("a container lease with only acme's run queued: %v, want ErrSandboxBusy", err)
-	}
-	if l, ok, err := f.b.Lease(ctx, "r3", runner.PlacementHost, time.Minute); err != nil || !ok || l.Org != "acme" {
+	if l, ok, err := f.b.Lease(ctx, "r3", runner.PlacementHost, "acme", "", time.Minute); err != nil || !ok || l.Org != "acme" {
 		t.Fatalf("a host lease with acme held: %+v, %v, %v", l, ok, err)
 	}
-	if _, ok, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, time.Minute); err != nil || ok {
+	if _, ok, err := f.b.Lease(ctx, "r4", runner.PlacementContainer, "beta", "test-proof", time.Minute); err != nil || ok {
 		t.Fatalf("a container lease with nothing queued: %v, %v", ok, err)
 	}
 }
@@ -542,4 +543,15 @@ func TestHeldListsWhatWaitsOnTheOwner(t *testing.T) {
 	if held, _ := f.sb.Held(ctx); len(held) != 1 {
 		t.Errorf("held after the confirmed restart ran: %+v", held)
 	}
+}
+
+// testPlacement is a test-only PlacementVerifier standing in for the Sandbox provider's: it
+// accepts the proof "test-proof" and nothing else.
+type testPlacement struct{}
+
+func (testPlacement) VerifyPlacement(_ context.Context, _, _, proof string) error {
+	if proof != "test-proof" {
+		return errors.New("not a placement proof")
+	}
+	return nil
 }

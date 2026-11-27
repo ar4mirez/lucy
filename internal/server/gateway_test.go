@@ -68,7 +68,7 @@ func leaseCapability(t *testing.T, f *fixture) string {
 	if err := f.srv.opts.Runs.Submit(ctx, runner.Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}); err != nil {
 		t.Fatal(err)
 	}
-	l, err := f.client.RunnerLease(ctx, api.LeaseParams{Runner: "r1", Placement: "container", TTLSeconds: 300})
+	l, err := f.client.RunnerLease(ctx, api.LeaseParams{Runner: "r1", Org: "acme", TTLSeconds: 300})
 	if err != nil || !l.Leased || !strings.HasPrefix(l.Run.Capability, capability.Prefix) {
 		t.Fatalf("lease %+v, %v", l, err)
 	}

@@ -43,7 +43,10 @@ const Version = 1
 // Revision 11 added capability tokens: runner.lease's and runner.heartbeat's capability,
 // gateway.use's capability, gateway.verify, capabilities.list and capability.revoke.
 // Revision 12 added vault.record.
-const SchemaRevision = 12
+// Revision 13 bound host placement to one org: runner.lease's and runner.queued's org, the
+// runner_org, host_org and placement_proof errors, runner.lease's placement_proof, and
+// runner.host_org.
+const SchemaRevision = 13
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"

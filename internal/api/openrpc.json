@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.12.0"
+    "version": "1.13.0"
   },
   "servers": [
     {
@@ -917,7 +917,7 @@
     },
     {
       "name": "runner.queued",
-      "summary": "How many runs wait for a runner placed at placement. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log. A runner placed in a container is not counted the runs of an org whose container is being restarted or stopped.",
+      "summary": "How many runs wait for a runner placed at placement, of the runner's org when it names one. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log. A runner placed in a container is not counted the runs of an org whose container is being restarted or stopped.",
       "paramStructure": "by-name",
       "params": [
         {
@@ -926,6 +926,15 @@
           "required": false,
           "schema": {
             "maxLength": 16,
+            "type": "string"
+          }
+        },
+        {
+          "name": "org",
+          "description": "The asking runner's org: when set, only that org's runs are counted.",
+          "required": false,
+          "schema": {
+            "maxLength": 200,
             "type": "string"
           }
         }
@@ -952,7 +961,7 @@
     },
     {
       "name": "runner.lease",
-      "summary": "Lease the oldest queued run under a new fencing token. A runner placed in a container is never leased a run whose org's container is being restarted or stopped; when every queued run is such a run, it is refused with sandbox_busy and leases again later.",
+      "summary": "Lease the oldest queued run of the runner's org under a new fencing token. A runner names its org, or is refused with runner_org. On the host that org must be the host org (the first host lease sets it; runner.host_org changes it), or the lease is refused with host_org. A runner placed in a container is leased only with a placement proof the daemon accepts, or is refused with placement_proof, and while its org's container is being restarted or stopped it is refused with sandbox_busy and leases again later.",
       "paramStructure": "by-name",
       "params": [
         {
@@ -971,6 +980,24 @@
           "required": false,
           "schema": {
             "maxLength": 16,
+            "type": "string"
+          }
+        },
+        {
+          "name": "org",
+          "description": "The one org whose runs the runner leases. Required: a lease without one is refused with runner_org. On the host it must be the host org, or the lease is refused with host_org.",
+          "required": false,
+          "schema": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        {
+          "name": "placement_proof",
+          "description": "A runner placed in a container: the Sandbox provider's proof of that placement. A placement a runner declares is never trusted; until berth can issue a proof (berth#216) no daemon accepts one, and every container lease is refused with placement_proof.",
+          "required": false,
+          "schema": {
+            "maxLength": 4096,
             "type": "string"
           }
         },
@@ -2455,6 +2482,42 @@
       "x-lucy-scope": "admin",
       "x-lucy-mutating": true,
       "x-lucy-group": "command"
+    },
+    {
+      "name": "runner.host_org",
+      "summary": "Make org the host org: the one org whose runs runners placed on the host lease, since every process on the host runs as one uid and can reach the others' sockets. The first host lease sets it; only this owner command changes it, recorded, and it is refused with host_org while any host run is live.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "org",
+          "description": "The org whose runs runners placed on the host lease from now on.",
+          "required": true,
+          "schema": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "org": {
+              "description": "The host org.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "org"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "admin",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
     }
   ],
   "components": {
@@ -2466,6 +2529,10 @@
       "forbidden": {
         "code": -32001,
         "message": "forbidden"
+      },
+      "host_org": {
+        "code": -32009,
+        "message": "host placement serves another org"
       },
       "internal": {
         "code": -32603,
@@ -2486,6 +2553,14 @@
       "parse_error": {
         "code": -32700,
         "message": "parse error"
+      },
+      "placement_proof": {
+        "code": -32010,
+        "message": "container placement not proven"
+      },
+      "runner_org": {
+        "code": -32008,
+        "message": "a runner leases for one org"
       },
       "sandbox_busy": {
         "code": -32007,

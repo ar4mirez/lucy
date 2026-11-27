@@ -52,6 +52,12 @@ type ProcessExecutor struct {
 	// engine; without one every prompted tool is refused. A path outside the run's directory is
 	// refused before the engine is asked.
 	Permitter Permitter
+	// GatewayDir, when set, is the directory holding each org's credential gateway socket,
+	// <org>.sock (lucy gateway's default). A run whose lease carries a capability token then gets
+	// its own gateway socket in its scratch directory, named in LUCY_RUN_GATEWAY, through which
+	// the runner forwards to its org's gateway with the token added; the token itself never
+	// reaches the work (LUCY-CRED-003, LUCY-CRED-005).
+	GatewayDir string
 
 	prepare func(dir string) error // tests: seeds a run's directory before the harness reads it
 }
@@ -123,6 +129,18 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 		"LUCY_RUN_GOAL=" + l.Goal,
 		"LUCY_RUN_BASE=" + l.Base,
 	}
+	if p.GatewayDir != "" && l.Capability != "" {
+		if l.Org == "" || l.Org != filepath.Base(l.Org) || strings.HasPrefix(l.Org, ".") {
+			pe.cleanup()
+			return nil, fmt.Errorf("runner: org %q cannot name a gateway socket", l.Org)
+		}
+		upstream := filepath.Join(p.GatewayDir, l.Org+".sock")
+		if pe.gw, err = startRunGateway(dir, upstream, l.Capability, log); err != nil {
+			pe.cleanup()
+			return nil, err
+		}
+		env = append(env, "LUCY_RUN_GATEWAY="+pe.gw.socket)
+	}
 	args := slices.Clip(p.Command[1:])
 	session := harness.Session{Goal: l.Goal}
 	if p.Permitter != nil {
@@ -184,6 +202,7 @@ type processExecution struct {
 	dir   string
 	log   *slog.Logger
 	cmd   *exec.Cmd
+	gw    *runGateway    // the run's gateway socket, when it has one
 	conn  harness.Conn   // with a harness: the session's protocol
 	proto *protocolLines // with a harness: its standard output, split into messages
 
@@ -394,8 +413,18 @@ func (pe *processExecution) wait() {
 	pe.mu.Unlock()
 }
 
+// Renew implements Renewer: the run's gateway socket adds the renewed token from now on.
+func (pe *processExecution) Renew(capability string) {
+	if pe.gw != nil {
+		pe.gw.renew(capability)
+	}
+}
+
 // cleanup deletes the run's scratch directory through the path guard.
 func (pe *processExecution) cleanup() {
+	if pe.gw != nil {
+		pe.gw.close()
+	}
 	if err := removeScratch(pe.guard, pe.dir); err != nil {
 		pe.log.Warn("runner kept a run's scratch directory", "dir", pe.dir, "err", err)
 	}

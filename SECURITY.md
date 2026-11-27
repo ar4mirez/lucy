@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 11
+version: 12
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-SEC-002, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -92,8 +92,24 @@ run, or its lease running out, revokes its tokens. The daemon stores only the to
 compares it in constant time; a token is refused once revoked, past its expiry, for another org or
 route, or once its run's lease has ended or been replaced. The daemon checks it before the gateway
 reads any credential or resolves any upstream, and again when deciding. The gateway never
-forwards it. Until the owner
-decides how a Pilot's tools get it, no token is in a Pilot's environment.
+forwards it. A Pilot reaches the gateway through a socket the runner opens in its scratch
+directory, which adds the token on the Pilot's behalf, so the runner never puts a token in a
+Pilot's process, environment or files ([D13](docs/decisions/D13-run-gateway-socket.md)). That is
+not a boundary against the Pilot itself: a Pilot on the host runs as the daemon's uid, which the
+daemon grants every scope, so it can reach the daemon API with full authority for its own org,
+`runner.lease` and the token it returns included, until runs get an OS boundary of their own
+([#36](https://github.com/ar4mirez/lucy/issues/36), LUCY-RUN-006, berth#216). No Pilot runs real work on the host before then. Any process of the run can
+still act with its token, through that socket, for the run's life and within its org, routes and
+lease. Isolation between orgs holds across containers or uids, not within one: the socket's modes
+keep out other users, but every process of the same uid can reach every other's socket. So the
+daemon serves one host org: the first run leased to a runner on the host sets it, recorded as
+`runner.host_org_set`, and a host lease for any other org is refused (`host_org`). Only the owner
+changes it (`lucy runner host-org <org>`, recorded), and not while any host run is live. A
+placement a runner declares is never trusted: container placement is refused (`placement_proof`)
+until the Sandbox provider can issue a placement proof (berth#216), and no daemon has a verifier
+for one yet. Every runner names its org (`--org`, required for every placement; a runner without
+one refuses to start), and its root defaults to that org's own, so no runner root spans orgs. One
+org's runs are therefore the only runs on the host at any time.
 
 ## Audit and log data
 

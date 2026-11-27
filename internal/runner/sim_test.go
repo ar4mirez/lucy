@@ -85,7 +85,7 @@ func newWorld(t *testing.T, runners int) *world {
 	w := &world{t: t, sim: sw, dir: t.TempDir(), silent: map[int]bool{}}
 	w.open()
 	for i := range runners {
-		r, err := runner.New(runner.Config{ID: []string{"alpha", "bravo"}[i], Protocol: socket{w},
+		r, err := runner.New(runner.Config{ID: []string{"alpha", "bravo"}[i], Org: "acme", Protocol: socket{w},
 			Executor: simExecutor{rt: sw.Runtime}, Now: sw.Clock.Now, TTL: 3 * time.Minute,
 			Log: slog.New(slog.DiscardHandler)})
 		if err != nil {
@@ -123,12 +123,12 @@ func (w *world) open() {
 // socket is the runners' connection to whichever daemon is up, as the unix socket is.
 type socket struct{ w *world }
 
-func (s socket) Queued(ctx context.Context, pl runner.Placement) (int, error) {
-	return s.w.broker.Queued(ctx, pl)
+func (s socket) Queued(ctx context.Context, pl runner.Placement, org string) (int, error) {
+	return s.w.broker.Queued(ctx, pl, org)
 }
 
-func (s socket) Lease(ctx context.Context, id string, p runner.Placement, ttl time.Duration) (runner.Lease, bool, error) {
-	return s.w.broker.Lease(ctx, id, p, ttl)
+func (s socket) Lease(ctx context.Context, id string, p runner.Placement, org, proof string, ttl time.Duration) (runner.Lease, bool, error) {
+	return s.w.broker.Lease(ctx, id, p, org, proof, ttl)
 }
 
 func (s socket) Heartbeat(ctx context.Context, id, run string, fence int64, ttl time.Duration, evs []runner.Event, acked string) (runner.Beat, error) {

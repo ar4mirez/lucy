@@ -289,6 +289,13 @@ func (c *Client) VaultRecord(ctx context.Context, p api.VaultRecordParams) (api.
 	return r, err
 }
 
+// RunnerHostOrg calls runner.host_org.
+func (c *Client) RunnerHostOrg(ctx context.Context, p api.HostOrgParams) (api.HostOrgResult, error) {
+	var r api.HostOrgResult
+	err := c.Call(ctx, api.MethodHostOrg, p, &r)
+	return r, err
+}
+
 // RunnerPermit calls runner.permit.
 func (c *Client) RunnerPermit(ctx context.Context, p api.PermitParams) (api.PermitResult, error) {
 	var r api.PermitResult

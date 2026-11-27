@@ -48,7 +48,7 @@ func newRunner(t *testing.T, f *fixture, id string, ex Executor, p Protocol) *Ru
 	if p == nil {
 		p = f.b
 	}
-	r, err := New(Config{ID: id, Protocol: p, Executor: ex, Now: f.clock.Now, TTL: 30 * time.Second,
+	r, err := New(Config{ID: id, Org: "acme", Protocol: p, Executor: ex, Now: f.clock.Now, TTL: 30 * time.Second,
 		Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)

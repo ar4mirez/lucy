@@ -12,8 +12,8 @@ import (
 // Protocol is the runner's view of the broker: the Broker itself in the daemon's process, or the
 // API client (Remote) from `lucy runner`.
 type Protocol interface {
-	Queued(ctx context.Context, placement Placement) (int, error)
-	Lease(ctx context.Context, runner string, placement Placement, ttl time.Duration) (Lease, bool, error)
+	Queued(ctx context.Context, placement Placement, org string) (int, error)
+	Lease(ctx context.Context, runner string, placement Placement, org, proof string, ttl time.Duration) (Lease, bool, error)
 	Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event, acked string) (Beat, error)
 	Finish(ctx context.Context, runner, run string, fence int64, res Result) error
 }
@@ -51,12 +51,17 @@ type Update struct {
 type Config struct {
 	ID        string    // the runner's id, CheckRunnerID; required
 	Placement Placement // PlacementHost when empty
-	Protocol  Protocol  // required
-	Executor  Executor  // required
-	Now       func() time.Time
-	TTL       time.Duration // the lease life asked for; DefaultTTL when zero
-	MaxRuns   int           // runs held at once; 1 when zero
-	Log       *slog.Logger
+	// Org is the one org whose runs the runner leases; required (ErrRunnerOrg).
+	Org string
+	// PlacementProof is a runner placed in a container's proof of that placement, which the
+	// broker's PlacementVerifier checks on every lease.
+	PlacementProof string
+	Protocol       Protocol // required
+	Executor       Executor // required
+	Now            func() time.Time
+	TTL            time.Duration // the lease life asked for; DefaultTTL when zero
+	MaxRuns        int           // runs held at once; 1 when zero
+	Log            *slog.Logger
 }
 
 // Runner is the runner's loop: it leases queued runs, starts their work, streams the work's events
@@ -92,6 +97,12 @@ func New(cfg Config) (*Runner, error) {
 	}
 	if !cfg.Placement.Valid() || cfg.Protocol == nil || cfg.Executor == nil {
 		return nil, errors.New("runner: Config needs a valid placement, a Protocol and an Executor")
+	}
+	if cfg.Org == "" {
+		return nil, fmt.Errorf("%w: Config names no org", ErrRunnerOrg)
+	}
+	if err := checkOrg(cfg.Org); err != nil {
+		return nil, err
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -173,6 +184,9 @@ func (r *Runner) tend(ctx context.Context, h *held) error {
 		h.lease.Expires, h.beatAt = beat.Expires, now.Add(r.cfg.TTL/3)
 		if beat.Capability != "" {
 			h.lease.Capability = beat.Capability
+			if rn, ok := h.exec.(Renewer); ok {
+				rn.Renew(beat.Capability)
+			}
 		}
 		if len(batch) > 0 && len(h.pending) == before {
 			return fmt.Errorf("the broker recorded none of events %d..%d", batch[0].Seq, batch[len(batch)-1].Seq)
@@ -245,11 +259,11 @@ func (r *Runner) drop(h *held, why string) {
 // take leases the oldest queued run and starts its work. A run whose work cannot start is
 // finished as failed.
 func (r *Runner) take(ctx context.Context) error {
-	n, err := r.cfg.Protocol.Queued(ctx, r.cfg.Placement)
+	n, err := r.cfg.Protocol.Queued(ctx, r.cfg.Placement, r.cfg.Org)
 	if err != nil || n == 0 {
 		return err
 	}
-	l, ok, err := r.cfg.Protocol.Lease(ctx, r.cfg.ID, r.cfg.Placement, r.cfg.TTL)
+	l, ok, err := r.cfg.Protocol.Lease(ctx, r.cfg.ID, r.cfg.Placement, r.cfg.Org, r.cfg.PlacementProof, r.cfg.TTL)
 	if errors.Is(err, ErrSandboxBusy) {
 		return nil // the next Step leases again
 	}
@@ -304,7 +318,9 @@ func (r *Runner) Shutdown(ctx context.Context, grace time.Duration) error {
 }
 
 // Run calls Step every interval until ctx ends, then shuts down with a 5 s grace. A Step's error
-// is logged, not fatal: the daemon may be restarting, and a lease outlives a short outage.
+// is logged, not fatal: the daemon may be restarting, and a lease outlives a short outage. The one
+// exceptions are ErrHostOrg and ErrPlacementProof, which no retry clears: Run shuts down and
+// returns them.
 func (r *Runner) Run(ctx context.Context, interval time.Duration) error {
 	if interval <= 0 {
 		interval = time.Second
@@ -313,6 +329,11 @@ func (r *Runner) Run(ctx context.Context, interval time.Duration) error {
 	defer t.Stop()
 	for {
 		if err := r.Step(ctx); err != nil && ctx.Err() == nil {
+			if errors.Is(err, ErrHostOrg) || errors.Is(err, ErrPlacementProof) {
+				sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+				defer cancel()
+				return errors.Join(err, r.Shutdown(sctx, 5*time.Second))
+			}
 			r.cfg.Log.Warn("runner step failed", "err", err)
 		}
 		select {
