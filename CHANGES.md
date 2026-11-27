@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 7
+version: 8
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -36,3 +36,10 @@ Changes since the last release. When a version is cut, its section moves to
   is refused, so the owner confirms only what was shown. The API gains `sandbox.held` (read) and
   `sandbox.confirm` (decide) (OpenRPC revision 9). Until the daemon opens an org's Sandbox
   binding, nothing is held and a confirmation is reported unavailable.
+- Idle org containers are stopped: an org's container that is running with no run queued or live
+  in it, and no work for 30 minutes, is stopped by the daemon's ordinary guarded `down`, so a
+  session that starts in the meantime holds the stop for the owner. Only orgs lucy holds a Sandbox
+  binding for are checked, and only a container lucy started itself (lucy's latest successful `up`
+  or `down` of it is an `up`) is stopped; one someone else started is left alone, and a failed
+  stop is tried again on the next check. Noticing a restart made outside lucy needs berth to
+  report the container's start time (a berth follow-up). The daemon does not run it yet.

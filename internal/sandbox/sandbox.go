@@ -299,11 +299,14 @@ var (
 )
 
 // history is what an org's container stream says: its version, the latest holding request per
-// operation, and the owner's confirmations no cleared request has retired.
+// operation, the owner's confirmations no cleared request has retired, and when lucy last started
+// the container: its latest successful `up`, zero when there is none or a successful `down`
+// followed it. A failed operation, or a successful restart, leaves it as it was.
 type history struct {
 	version   int64
 	holding   map[Op]Requested
 	confirmed []Confirmed
+	started   time.Time
 }
 
 func (h history) unspent() []policy.Approval {
@@ -349,6 +352,18 @@ func (s *Sandbox) history(ctx context.Context, org string) (history, error) {
 				}
 				h.confirmed = append(h.confirmed, c)
 				delete(h.holding, c.Op)
+			case Acted{}.EventType():
+				a, err := eventstore.DecodeAs[Acted](s.store.Registry(), e)
+				if err != nil {
+					return history{}, err
+				}
+				switch {
+				case a.Error != "":
+				case a.Op == OpUp:
+					h.started = e.Time
+				case a.Op == OpDown:
+					h.started = time.Time{}
+				}
 			}
 		}
 		if len(evs) < 500 {
