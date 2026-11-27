@@ -124,10 +124,11 @@ org's runs are therefore the only runs on the host at any time.
 
 Every delete lucy makes refuses `/`, `$HOME` and anything outside lucy's managed roots
 (LUCY-SEC-005, incident 1). A recursive delete goes through the path guard's executor
-(`pathguard.Guard.RemoveAll`): the path must resolve, symlinks and all, to a path strictly inside a
-declared root and never a root itself, and it is deleted through an `os.Root` on that root, so a
-symlink inside is removed rather than followed, and none swapped in after the check takes the
-delete out of the root. The only recursive delete lucy makes is a run's scratch directory, a
+(`pathguard.Guard.RemoveAll`): the path as asked for, and its parent resolved through symlinks
+with the last component kept, must both be strictly inside a declared root and never a root
+itself, and it is deleted through an `os.Root` on that root, so a symlink, the requested one or one
+inside, is removed rather than followed, and none swapped in after the check takes the delete out
+of the root. The only recursive delete lucy makes is a run's scratch directory, a
 `run-*` directory directly in the runner's root, never the org's home beside it. Every other delete
 removes one file lucy made and names: a stale socket of its own (checked to be a socket first), a
 runner's registry entry, a temporary file it created, or a vault file through the vault's own

@@ -15,11 +15,12 @@
 //   - checks the path after resolving every symlink, and checks the requested spelling too: both
 //     must be inside a root, and the resolved path decides which one.
 //
-// Lexical checks are pure (CheckResolved); Resolve reads the filesystem but never writes. Remove
-// and RemoveAll are the delete executor every recursive delete lucy makes goes through
-// (LUCY-SEC-005): they delete the resolved path through an os.Root opened on the root that holds
-// it, so nothing, not even a symlink swapped in between the check and the delete, takes the delete
-// out of that root, and a symlink met inside is removed, never followed.
+// Lexical checks are pure (CheckResolved); Resolve reads the filesystem but never writes. RemoveAll
+// is the delete executor every recursive delete lucy makes goes through (LUCY-SEC-005): it
+// resolves only the path's parent, never the entry itself, and deletes through an os.Root opened
+// on the root that holds it, so a symlink, requested or met inside, is removed and never followed,
+// and nothing, not even a symlink swapped in between the check and the delete, takes the delete
+// out of that root.
 package pathguard
 
 import (
@@ -260,26 +261,41 @@ func resolveDir(p string) (string, error) {
 	return r, nil
 }
 
-// RemoveAll deletes path and everything under it, once Resolve accepts it: the resolved path,
-// relative to the root that holds it, through an os.Root on that root. A symlink inside is
-// removed itself, and no symlink, including one put in place of a directory after the check,
-// leads the delete outside the root (LUCY-SEC-005).
+// RemoveAll deletes path and everything under it, and never follows a symlink, in or out of a
+// root: if path is a symlink, the link itself is removed. Only path's parent directory is
+// resolved; the requested spelling and the resolved parent joined with path's last component
+// must both be strictly inside a declared root, never a root itself, "/", the home or an ancestor
+// of it, and the entry must exist. It is then deleted relative to the root that holds it, through
+// an os.Root on that root, so no symlink, including one put in place of a directory after the
+// check, leads the delete outside the root (LUCY-SEC-005).
 func (g *Guard) RemoveAll(path string) error {
-	return g.remove(path, true)
-}
-
-// Remove deletes path, a file, a symlink or an empty directory, as RemoveAll does.
-func (g *Guard) Remove(path string) error {
-	return g.remove(path, false)
-}
-
-func (g *Guard) remove(path string, all bool) error {
-	resolved, root, err := g.Resolve(path)
+	if err := CheckSpelling(path); err != nil {
+		return err
+	}
+	clean := filepath.Clean(path)
+	base := filepath.Base(clean)
+	if base == "" || base == "." || base == ".." || base == string(filepath.Separator) {
+		return fmt.Errorf("%w: %s: no final component", ErrRefused, path)
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(clean))
+	if err != nil {
+		return fmt.Errorf("%w: %s: cannot resolve its parent: %v", ErrRefused, path, err)
+	}
+	target := filepath.Join(parent, base)
+	root, err := CheckResolved(g.home, g.roots, clean, target)
 	if err != nil {
 		return err
 	}
-	rel, err := filepath.Rel(root.Path, resolved)
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+	for _, r := range g.roots {
+		if r.Path == target {
+			return fmt.Errorf("%w: %s is a declared root", ErrRefused, path)
+		}
+	}
+	if _, err := os.Lstat(target); err != nil {
+		return fmt.Errorf("%w: %s: %v", ErrRefused, path, err)
+	}
+	rel, err := filepath.Rel(root.Path, target)
+	if err != nil {
 		return fmt.Errorf("%w: %s: %v", ErrRefused, path, errNotInRoot)
 	}
 	r, err := os.OpenRoot(root.Path)
@@ -287,8 +303,5 @@ func (g *Guard) remove(path string, all bool) error {
 		return fmt.Errorf("%w: %s: open root: %v", ErrRefused, path, err)
 	}
 	defer r.Close() //nolint:errcheck // nothing was written through it that a close could lose
-	if all {
-		return r.RemoveAll(rel)
-	}
-	return r.Remove(rel)
+	return r.RemoveAll(rel)
 }

@@ -16,9 +16,9 @@ Changes since the last release. When a version is cut, its section moves to
 
 ### Added
 
-- The path guard's delete executor: every recursive delete lucy makes now deletes only a path that
-  resolves strictly inside a declared root, never `/`, your home or a root itself, through an
-  `os.Root` on that root, so a symlink inside is removed and none can lead the delete outside. A
+- The path guard's delete executor: every recursive delete lucy makes now deletes only a path
+  strictly inside a declared root, never `/`, your home or a root itself, through an `os.Root` on
+  that root, so a symlink, the one asked for or one inside, is removed and never followed. A
   run's scratch directory, the one recursive delete, goes through it. SECURITY.md lists every
   delete lucy makes.
 
