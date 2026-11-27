@@ -296,6 +296,38 @@ func TestRetryAfterBrokenSlotKeepsUnlandedBranch(t *testing.T) {
 	}
 }
 
+// A slot broken with its directory gone leaves no registration holding the run's branch: the
+// retry leases a new slot on the branch, and no further slot is broken.
+func TestRetryAfterBrokenSlotReusesTheBranch(t *testing.T) {
+	f := open(t)
+	l, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(l.Path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(l.Path, []byte("stray"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main"); err == nil {
+		t.Fatal("a worktree was made over a file")
+	}
+	if s := f.slot(1); s.State != StateBroken {
+		t.Fatalf("slot %+v", s)
+	}
+	retry, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main")
+	if err != nil || retry.Slot != 2 || retry.Branch != l.Branch {
+		t.Fatalf("the retry: %+v, %v", retry, err)
+	}
+	if br, _ := f.g.run(ctx, retry.Path, "branch", "--show-current"); br != l.Branch {
+		t.Fatalf("the new slot's branch %q", br)
+	}
+	if s := f.slot(2); s.State != StateLeased {
+		t.Fatalf("slot %+v", s)
+	}
+}
+
 // The pool's state is the store's: after a restart every slot is as it was, and a rebuild of the
 // projection from the log matches.
 func TestSlotsSurviveARestart(t *testing.T) {

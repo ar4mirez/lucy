@@ -121,6 +121,9 @@ func (p *Pool) Acquire(ctx context.Context, repo Repo, run, base string) (Lease,
 	if err := checkBase(ctx, g, baseDir, base); err != nil {
 		return Lease{}, err
 	}
+	if _, err := g.run(ctx, baseDir, "worktree", "prune"); err != nil {
+		return Lease{}, err
+	}
 	held, err := scanSlot(p.Store.QueryRowContext(ctx, `SELECT `+slotColumns+` FROM worktree_slots WHERE org = ? AND repo = ? AND state = ? AND run = ?
 		ORDER BY slot LIMIT 1`, repo.Org, repo.Name, StateLeased, run))
 	switch {

@@ -59,6 +59,9 @@ Where a run's checkout of its repository comes from (TECH.md section 6). The cod
   base must be a branch name (`git check-ref-format --branch`), a remote may not start with `-` or
   name a `::` transport, a release's proof must name full object ids (40 or 64 hex digits) and is
   passed after `--end-of-options`, and every path is passed after `--`. The pool deletes no file or directory.
+  Before every lease it runs `git worktree prune` in `base.git`, which removes only `base.git`'s
+  own registration entries for worktrees whose directory is gone (so they no longer hold their
+  branch), never a directory.
 
 ## Not built yet
 
