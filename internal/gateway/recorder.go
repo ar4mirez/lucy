@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ar4mirez/lucy/internal/capability"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/policy"
 )
@@ -20,6 +21,14 @@ type Use struct {
 	Method   string
 	Path     string // the gateway's recorded form, policy.RecordedResource of the worker's path; recorded as given
 	Upstream string // the host the gateway will call, which must be the route's
+	// Capability is the token the worker presented (LUCY-CRED-003). The recorder verifies it
+	// before anything else; it is never recorded, only its id.
+	Capability string
+}
+
+// Verifier checks a capability token for a use of an org's route. *capability.Issuer is one.
+type Verifier interface {
+	Verify(ctx context.Context, token, org, route string) (capability.Capability, error)
 }
 
 // Decision is what a recorder decided on a Use.
@@ -52,6 +61,8 @@ var ErrUnknownRoute = errors.New("gateway: no such route for the org")
 // from config. It is safe for concurrent use.
 type StoreRecorder struct {
 	Store *eventstore.Store // must register Payloads() and policy.DecisionRecord
+	// Capabilities verifies the token each request carries. Nil refuses every request.
+	Capabilities Verifier
 
 	mu     sync.RWMutex
 	routes map[string]map[string]Route // org -> name -> route
@@ -123,9 +134,27 @@ func (s *StoreRecorder) Decide(ctx context.Context, org string, u Use) (Decision
 		return Decision{}, fmt.Errorf("%w: %s/%s", ErrUnknownRoute, org, u.Route)
 	}
 	a := actor(org)
+	// The capability comes first: without a valid one for this org, route and a live run,
+	// nothing is decided and the refusal is recorded (LUCY-CRED-003).
+	var c capability.Capability
+	var cerr error
+	if s.Capabilities == nil {
+		cerr = errors.New("this daemon verifies no capabilities")
+	} else {
+		c, cerr = s.Capabilities.Verify(ctx, u.Capability, org, rt.Name)
+	}
+	if cerr != nil {
+		reason := "capability refused: " + capabilityReason(cerr)
+		d := Denied{Route: rt.Name, Method: u.Method, Path: u.Path, Reason: reason, Run: c.Run, Capability: c.ID}
+		if _, err := s.Store.Append(ctx, Stream(org), eventstore.AnyVersion, a.ID, d); err != nil {
+			return Decision{}, err
+		}
+		return Decision{Rule: "capability", Reason: reason}, nil
+	}
 	req := policy.Request{Actor: a, Kind: policy.KindCredentialUse,
 		Target: policy.Target{Org: org, Resource: rt.Credential},
-		Inputs: []policy.Input{{Source: policy.SourceConfig, Ref: "route/" + rt.Name}, {Source: policy.SourceAgent, Ref: "gateway/" + rt.Name}}}
+		Inputs: []policy.Input{{Source: policy.SourceConfig, Ref: "route/" + rt.Name}, {Source: policy.SourceTask, Ref: "run/" + c.Run},
+			{Source: policy.SourceAgent, Ref: "gateway/" + rt.Name}}}
 	facts := policy.Facts{CredentialScope: rt.Scope}
 	d := policy.Evaluate(req, facts)
 	out := Decision{Cleared: d.Outcome == policy.Cleared, Rule: d.Rule, Reason: d.Reason}
@@ -135,9 +164,11 @@ func (s *StoreRecorder) Decide(ctx context.Context, org string, u Use) (Decision
 			return err
 		}
 		out.Seq = evs[0].Seq
-		var p eventstore.Payload = Forwarded{Route: rt.Name, Method: u.Method, Path: u.Path, Upstream: rt.upstream.Host, DecisionSeq: out.Seq}
+		var p eventstore.Payload = Forwarded{Route: rt.Name, Method: u.Method, Path: u.Path, Upstream: rt.upstream.Host, DecisionSeq: out.Seq,
+			Run: c.Run, Capability: c.ID}
 		if !out.Cleared {
-			p = Denied{Route: rt.Name, Method: u.Method, Path: u.Path, Reason: "the policy engine did not clear the credential: " + d.Rule}
+			p = Denied{Route: rt.Name, Method: u.Method, Path: u.Path, Reason: "the policy engine did not clear the credential: " + d.Rule,
+				Run: c.Run, Capability: c.ID}
 		}
 		_, err = tx.Append(ctx, Stream(org), eventstore.AnyVersion, a.ID, p)
 		return err
@@ -171,4 +202,14 @@ func (s *StoreRecorder) Complete(ctx context.Context, org string, c Completed) e
 // capText caps text a gateway sends for the log.
 func capText(s string) string {
 	return clip(s, 256)
+}
+
+// capabilityReason says why a capability was refused, in words that never hold the token.
+func capabilityReason(err error) string {
+	for _, e := range []error{capability.ErrInvalid, capability.ErrRevoked, capability.ErrExpired, capability.ErrScope, capability.ErrRunEnded} {
+		if errors.Is(err, e) {
+			return strings.TrimPrefix(e.Error(), "capability: ")
+		}
+	}
+	return "it could not be checked"
 }

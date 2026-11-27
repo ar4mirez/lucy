@@ -37,7 +37,8 @@ func (s *Server) gatewayUse(ctx context.Context, p *api.GatewayUseParams) (api.G
 	if s.opts.Gateways == nil {
 		return api.GatewayDecision{}, s.noGateway()
 	}
-	d, err := s.opts.Gateways.Decide(ctx, p.Org, gateway.Use{Route: p.Route, Method: p.Method, Path: p.Path, Upstream: p.Upstream})
+	d, err := s.opts.Gateways.Decide(ctx, p.Org, gateway.Use{Route: p.Route, Method: p.Method, Path: p.Path, Upstream: p.Upstream,
+		Capability: p.Capability})
 	if errors.Is(err, gateway.ErrUnknownRoute) {
 		return api.GatewayDecision{}, api.FieldError(api.CodeInvalidParams, "route",
 			"the daemon's config has no such route for the org, or not with that upstream")

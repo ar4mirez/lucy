@@ -144,6 +144,9 @@ type Lease struct {
 	Runner  string    `json:"runner"`
 	Fence   int64     `json:"fence"`
 	Expires time.Time `json:"expires"`
+	// Capability is the run's capability token for its org's gateway (LUCY-CRED-003), when the
+	// daemon issued one. It is never serialized, logged or given to the work's environment.
+	Capability string `json:"-"`
 }
 
 // Event is one streamed event. Seq numbers a run's events from 1, without gaps.

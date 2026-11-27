@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/api"
+	"github.com/ar4mirez/lucy/internal/capability"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/gateway"
 	"github.com/ar4mirez/lucy/internal/policy"
@@ -90,6 +91,9 @@ type Options struct {
 	// methods serve. Nil means this daemon records none: the routes are empty and recording is
 	// unavailable, so a gateway forwards nothing. Its store must be Store.
 	Gateways *gateway.StoreRecorder
+	// Capabilities issues each leased run its capability token and serves capabilities.list and
+	// capability.revoke. Nil means no tokens are issued, so the gateway refuses every request.
+	Capabilities *capability.Issuer
 }
 
 // Server is the API's HTTP handler.

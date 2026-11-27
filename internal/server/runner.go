@@ -65,10 +65,27 @@ func (s *Server) runnerLease(ctx context.Context, p *api.LeaseParams) (api.Lease
 	if !ok {
 		return api.LeaseResult{}, nil
 	}
-	return api.LeaseResult{Leased: true, Run: api.RunLease{
+	res := api.LeaseResult{Leased: true, Run: api.RunLease{
 		Run: l.Run, Org: l.Org, Project: l.Project, Flight: l.Flight, Generation: l.Generation, Goal: l.Goal,
 		Base: l.Base, Fence: l.Fence, ExpiresAt: l.Expires,
-	}}, nil
+	}}
+	if s.opts.Capabilities != nil {
+		// The run's token for its org's gateway, for the org's routes, bound to this lease. If it
+		// cannot be issued the lease is not handed out; it expires unrenewed.
+		var routes []string
+		if s.opts.Gateways != nil {
+			rs, _ := s.opts.Gateways.Routes(l.Org)
+			for _, r := range rs {
+				routes = append(routes, r.Name)
+			}
+		}
+		tok, _, err := s.opts.Capabilities.Issue(ctx, l.Org, l.Run, l.Fence, routes, 0)
+		if err != nil {
+			return api.LeaseResult{}, err
+		}
+		res.Run.Capability = tok
+	}
+	return res, nil
 }
 
 func (s *Server) runnerHeartbeat(ctx context.Context, p *api.HeartbeatParams) (api.HeartbeatResult, error) {

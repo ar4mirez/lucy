@@ -20,6 +20,7 @@ import (
 
 	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/audit"
+	"github.com/ar4mirez/lucy/internal/capability"
 	"github.com/ar4mirez/lucy/internal/config"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/gateway"
@@ -62,6 +63,7 @@ func (Stopped) EventVersion() int { return 1 }
 func Registry() (*eventstore.Registry, error) {
 	payloads := append(spec.Payloads(), Started{}, Stopped{}, server.CommandEvent{}, policy.DecisionRecord{})
 	payloads = append(append(append(payloads, runner.Payloads()...), sandbox.Payloads()...), gateway.Payloads()...)
+	payloads = append(payloads, capability.Payloads()...)
 	return eventstore.NewRegistry(payloads...)
 }
 
@@ -69,7 +71,7 @@ func Registry() (*eventstore.Registry, error) {
 // protocol's runs and leases, the container operations that wait on the owner, and the audit hash
 // chain, which every event extends in its own append transaction.
 func Projectors() []eventstore.Projector {
-	return []eventstore.Projector{spec.StatusProjector{}, runner.Projector{}, sandbox.Projector{}, audit.Projector{}}
+	return []eventstore.Projector{spec.StatusProjector{}, runner.Projector{}, sandbox.Projector{}, capability.Projector{}, audit.Projector{}}
 }
 
 // ExpiryInterval is how often the daemon expires runner leases that were not renewed in time.
@@ -152,14 +154,17 @@ func Run(ctx context.Context, opts Options) error {
 		log.Warn("socket connection refused", "uid", cred.UID, "pid", cred.PID, "err", err)
 	}
 	broker := runner.NewBroker(store, nil)
+	caps := &capability.Issuer{Store: store, Leases: broker}
+	gateways.Capabilities = caps
 	srv, err := server.New(server.Options{
-		Store:      store,
-		Version:    opts.Version,
-		Log:        log,
-		OnShutdown: func() { stop(errAPIStop) },
-		Refused:    pl.Refused,
-		Runs:       broker,
-		Gateways:   gateways,
+		Store:        store,
+		Version:      opts.Version,
+		Log:          log,
+		OnShutdown:   func() { stop(errAPIStop) },
+		Refused:      pl.Refused,
+		Runs:         broker,
+		Gateways:     gateways,
+		Capabilities: caps,
 	})
 	if err != nil {
 		return err

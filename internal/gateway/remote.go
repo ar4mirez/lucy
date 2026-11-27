@@ -35,7 +35,8 @@ func (r Remote) Routes(ctx context.Context, org string) ([]Route, error) {
 
 // Decide implements Recorder (gateway.use).
 func (r Remote) Decide(ctx context.Context, org string, u Use) (Decision, error) {
-	d, err := r.Client.GatewayUse(ctx, api.GatewayUseParams{Org: org, Route: u.Route, Method: u.Method, Path: u.Path, Upstream: u.Upstream})
+	d, err := r.Client.GatewayUse(ctx, api.GatewayUseParams{Org: org, Route: u.Route, Method: u.Method, Path: u.Path, Upstream: u.Upstream,
+		Capability: u.Capability})
 	var ae *api.Error
 	if errors.As(err, &ae) && ae.Code == api.CodeInvalidParams && ae.Data != nil && ae.Data.Field == "route" {
 		return Decision{}, errors.Join(ErrUnknownRoute, err)

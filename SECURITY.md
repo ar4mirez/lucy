@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 9
+version: 10
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-SEC-002, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -80,6 +80,16 @@ nothing of another's and a sealed file moved or changed does not open (LUCY-CRED
   published can leave `keys/<org>.key.tmp-<hex>`, a second copy of the live key, so erasing an org
   deletes `keys/<org>.key` and every `keys/<org>.key.tmp-*` beside it.
 - **Tests** use keys and credentials they generate; nothing reads a real credential.
+
+## Capability tokens
+
+A run proves to its org's gateway that it may use a route with a capability token
+([capabilities](docs/tech/capability.md), LUCY-CRED-003): 32 random bytes, issued by the daemon on
+the run's lease and given only to its runner, scoped to the org, the run under that lease, the
+org's routes, and an hour at most four. The daemon stores only the token's SHA-256 and compares it
+in constant time; a token is refused once revoked, past its expiry, for another org or route, or
+once its run's lease has ended or been replaced. The gateway never forwards it. Until the owner
+decides how a Pilot's tools get it, no token is in a Pilot's environment.
 
 ## Audit and log data
 

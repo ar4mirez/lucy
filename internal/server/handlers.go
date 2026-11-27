@@ -41,6 +41,8 @@ func (s *Server) bindAll() map[string]handler {
 		api.MethodGwUse:     bind(s.gatewayUse),
 		api.MethodGwDeny:    bind(s.gatewayDeny),
 		api.MethodGwDone:    bind(s.gatewayComplete),
+		api.MethodCaps:      bind(s.capabilities),
+		api.MethodRevoke:    bind(s.capabilityRevoke),
 	}
 }
 

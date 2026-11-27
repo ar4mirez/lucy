@@ -261,6 +261,20 @@ func (c *Client) GatewayComplete(ctx context.Context, p api.GatewayCompleteParam
 	return c.Call(ctx, api.MethodGwDone, p, &r)
 }
 
+// Capabilities calls capabilities.list.
+func (c *Client) Capabilities(ctx context.Context, all bool) (api.CapabilitiesList, error) {
+	var r api.CapabilitiesList
+	err := c.Call(ctx, api.MethodCaps, api.CapabilitiesParams{All: all}, &r)
+	return r, err
+}
+
+// CapabilityRevoke calls capability.revoke.
+func (c *Client) CapabilityRevoke(ctx context.Context, p api.RevokeParams) (api.CapabilityInfo, error) {
+	var r api.CapabilityInfo
+	err := c.Call(ctx, api.MethodRevoke, p, &r)
+	return r, err
+}
+
 // RunnerPermit calls runner.permit.
 func (c *Client) RunnerPermit(ctx context.Context, p api.PermitParams) (api.PermitResult, error) {
 	var r api.PermitResult

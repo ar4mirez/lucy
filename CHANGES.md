@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 11
+version: 12
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -16,6 +16,14 @@ Changes since the last release. When a version is cut, its section moves to
 
 ### Added
 
+- Capability tokens: when a runner leases a run, the daemon issues it a token for its org's
+  gateway, scoped to the run under that lease, the org's routes and an hour (never more than four),
+  and keeps only the token's digest. The gateway requires the token on every request, never
+  forwards it, and the daemon checks it before deciding a credential use: a token that is
+  unknown, revoked, expired, for another org or route, or whose run's lease has ended is refused
+  and recorded. `lucy capability ls` lists them by id, never a token, and `lucy capability revoke`
+  ends one. The API gains `runner.lease`'s and `gateway.use`'s capability, `capabilities.list`
+  and `capability.revoke` (OpenRPC revision 11). No token reaches a Pilot's environment.
 - The per-org credential vault: `lucy vault set --org <org> <name>` stores a credential, read from
   stdin only (never an argument, the environment or a terminal), sealed with AES-256-GCM under
   that org's own key and bound to its org and name; `lucy vault ls` lists names and when each was

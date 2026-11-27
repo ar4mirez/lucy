@@ -21,9 +21,11 @@ import (
 	"testing"
 
 	"github.com/ar4mirez/lucy/internal/api"
+	"github.com/ar4mirez/lucy/internal/capability"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/gateway"
 	"github.com/ar4mirez/lucy/internal/policy"
+	"github.com/ar4mirez/lucy/internal/runner"
 )
 
 // A gateway process records through the API: the daemon decides each credential use from its own
@@ -49,6 +51,41 @@ func (r gwResolver) LookupNetIP(_ context.Context, _, host string) ([]netip.Addr
 	return nil, errors.New("no such host")
 }
 
+// withCapabilities gives the server a broker and a capability issuer the gateway recorder checks
+// with, the way the daemon wires them.
+func withCapabilities(o *Options) {
+	o.Runs = runner.NewBroker(o.Store, nil)
+	o.Capabilities = &capability.Issuer{Store: o.Store, Leases: o.Runs}
+	o.Gateways.Capabilities = o.Capabilities
+}
+
+// leaseCapability queues a run of acme and leases it through the API, as a runner does, and
+// returns the capability token the lease carries.
+func leaseCapability(t *testing.T, f *fixture) string {
+	t.Helper()
+	if err := f.srv.opts.Runs.Submit(ctx, runner.Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	l, err := f.client.RunnerLease(ctx, api.LeaseParams{Runner: "r1", Placement: "container", TTLSeconds: 300})
+	if err != nil || !l.Leased || !strings.HasPrefix(l.Run.Capability, capability.Prefix) {
+		t.Fatalf("lease %+v, %v", l, err)
+	}
+	return l.Run.Capability
+}
+
+// withToken is an HTTP client that presents tok to the gateway, as a run's tools would.
+func withToken(tok string) *http.Client {
+	return &http.Client{Transport: tokenTransport{tok}}
+}
+
+type tokenTransport struct{ tok string }
+
+func (t tokenTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.Header.Set(gateway.CapabilityHeader, t.tok)
+	return http.DefaultTransport.RoundTrip(r)
+}
+
 func TestGatewayRecordsThroughTheAPI(t *testing.T) {
 	up := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "ok "+r.URL.Path+" auth="+r.Header.Get("Authorization"))
@@ -62,7 +99,10 @@ func TestGatewayRecordsThroughTheAPI(t *testing.T) {
 		if err := o.Gateways.SetRoutes(map[string][]gateway.Route{"acme": routes}); err != nil {
 			t.Fatal(err)
 		}
+		withCapabilities(o)
 	})
+	tok := leaseCapability(t, f)
+	hc := withToken(tok)
 	rec := gateway.Remote{Client: f.client}
 	got, err := rec.Routes(ctx, "acme")
 	if err != nil || len(got) != 1 || got[0].Name != "github" || got[0].Upstream != routes[0].Upstream || got[0].Credential != "github" {
@@ -76,11 +116,11 @@ func TestGatewayRecordsThroughTheAPI(t *testing.T) {
 	if _, err := rand.Read(b); err != nil {
 		t.Fatal(err)
 	}
-	tok := []byte("test_" + hex.EncodeToString(b))
+	cred := []byte("test_" + hex.EncodeToString(b))
 	pool := x509.NewCertPool()
 	pool.AddCert(up.Certificate())
 	loop := netip.MustParseAddr("127.0.0.1")
-	g, err := gateway.New(gateway.Config{Org: "acme", Recorder: rec, Routes: got, Credentials: gwCreds{"acme/github": tok},
+	g, err := gateway.New(gateway.Config{Org: "acme", Recorder: rec, Routes: got, Credentials: gwCreds{"acme/github": cred},
 		Resolver: gwResolver{"example.com": {loop}}, TLS: &tls.Config{RootCAs: pool},
 		Addresses: func(a netip.Addr) error {
 			if a == loop {
@@ -94,7 +134,7 @@ func TestGatewayRecordsThroughTheAPI(t *testing.T) {
 	t.Cleanup(g.Close)
 	front := httptest.NewServer(g)
 	t.Cleanup(front.Close)
-	resp, err := http.Get(front.URL + "/github/repos/acme/web/pulls")
+	resp, err := hc.Get(front.URL + "/github/repos/acme/web/pulls")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +143,7 @@ func TestGatewayRecordsThroughTheAPI(t *testing.T) {
 	if resp.StatusCode != 200 || string(body) != "ok /repos/acme/web/pulls auth=Bearer "+gateway.Redacted {
 		t.Fatalf("status %d body %q", resp.StatusCode, body)
 	}
-	resp, err = http.Get(front.URL + "/github/repos/acme/other")
+	resp, err = hc.Get(front.URL + "/github/repos/acme/other")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,8 +158,8 @@ func TestGatewayRecordsThroughTheAPI(t *testing.T) {
 	}
 	var types []string
 	for _, e := range evs {
-		if bytes.Contains(e.Payload, tok) {
-			t.Fatalf("event %s holds the credential", e.Type)
+		if bytes.Contains(e.Payload, cred) || bytes.Contains(e.Payload, []byte(tok)) {
+			t.Fatalf("event %s holds the credential or the capability token", e.Type)
 		}
 		if e.Stream == gateway.Stream("acme") {
 			types = append(types, e.Type)
@@ -133,7 +173,7 @@ func TestGatewayRecordsThroughTheAPI(t *testing.T) {
 	}
 
 	// The daemon decides from its own routes: a route it does not have, or another upstream, is refused.
-	if _, err := rec.Decide(ctx, "acme", gateway.Use{Route: "github", Method: "GET", Path: "/x", Upstream: "evil.example:443"}); !errors.Is(err, gateway.ErrUnknownRoute) {
+	if _, err := rec.Decide(ctx, "acme", gateway.Use{Route: "github", Method: "GET", Path: "/x", Upstream: "evil.example:443", Capability: tok}); !errors.Is(err, gateway.ErrUnknownRoute) {
 		t.Fatalf("another upstream: %v", err)
 	}
 }
@@ -149,7 +189,10 @@ func TestGatewayRecordsEveryRequestThroughTheAPI(t *testing.T) {
 		if err := o.Gateways.SetRoutes(map[string][]gateway.Route{"acme": routes}); err != nil {
 			t.Fatal(err)
 		}
+		withCapabilities(o)
 	})
+	tok := leaseCapability(t, f)
+	hc := withToken(tok)
 	loop := netip.MustParseAddr("127.0.0.1")
 	g, err := gateway.New(gateway.Config{Org: "acme", Recorder: gateway.Remote{Client: f.client}, Routes: routes,
 		Credentials: gwCreds{"acme/github": []byte("test_made_up_credential")}, Resolver: gwResolver{"example.com": {loop}},
@@ -176,7 +219,7 @@ func TestGatewayRecordsEveryRequestThroughTheAPI(t *testing.T) {
 	}
 
 	long := "/repos/acme/web/" + strings.Repeat("a/", 2100) + "z"
-	resp, err := http.Get(front.URL + "/github" + long)
+	resp, err := hc.Get(front.URL + "/github" + long)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +274,7 @@ func TestGatewayRecordsEveryRequestThroughTheAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err = http.DefaultClient.Do(req)
+	resp, err = hc.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,5 +299,50 @@ func TestGatewayMethodsWithoutARecorder(t *testing.T) {
 		t.Fatalf("routes %+v, %v", r, err)
 	}
 	_, err := f.client.GatewayUse(ctx, api.GatewayUseParams{Org: "acme", Route: "github", Method: "GET", Path: "/x", Upstream: "example.com"})
+	wantCode(t, err, api.CodeUnavailable)
+}
+
+// The owner sees the capabilities issued, by id and never the token, and revokes one; the gateway's
+// recorder then refuses it.
+func TestCapabilitiesListAndRevoke(t *testing.T) {
+	routes := []gateway.Route{{Name: "github", Upstream: "https://example.com", Credential: "github",
+		Allow: []gateway.Rule{{Methods: []string{"GET"}, Path: "/"}}}}
+	f := start(t, os.Geteuid(), 0, func(o *Options) {
+		o.Gateways = &gateway.StoreRecorder{Store: o.Store}
+		if err := o.Gateways.SetRoutes(map[string][]gateway.Route{"acme": routes}); err != nil {
+			t.Fatal(err)
+		}
+		withCapabilities(o)
+	})
+	tok := leaseCapability(t, f)
+	list, err := f.client.Capabilities(ctx, false)
+	if err != nil || len(list.Capabilities) != 1 {
+		t.Fatalf("list %+v, %v", list, err)
+	}
+	c := list.Capabilities[0]
+	if c.ID != capability.ID(tok) || c.Org != "acme" || c.Run != "f1#1" || strings.Join(c.Routes, ",") != "github" || c.Revoked {
+		t.Fatalf("capability %+v", c)
+	}
+	use := gateway.Use{Route: "github", Method: "GET", Path: "/x", Upstream: "example.com", Capability: tok}
+	if d, err := f.srv.opts.Gateways.Decide(ctx, "acme", use); err != nil || !d.Cleared {
+		t.Fatalf("before revoking: %+v, %v", d, err)
+	}
+	rev, err := f.client.CapabilityRevoke(ctx, api.RevokeParams{ID: c.ID, Reason: "test"})
+	if err != nil || !rev.Revoked || rev.RevokedReason != "test" {
+		t.Fatalf("revoke %+v, %v", rev, err)
+	}
+	if d, err := f.srv.opts.Gateways.Decide(ctx, "acme", use); err != nil || d.Cleared || !strings.Contains(d.Reason, "revoked") {
+		t.Fatalf("after revoking: %+v, %v", d, err)
+	}
+	_, err = f.client.CapabilityRevoke(ctx, api.RevokeParams{ID: "0000000000000000"})
+	if ae := wantCode(t, err, api.CodeInvalidParams); ae.Data.Field != "id" {
+		t.Fatalf("an unknown id: %+v", ae)
+	}
+
+	bare := start(t, os.Geteuid(), 0, nil)
+	if l, err := bare.client.Capabilities(ctx, true); err != nil || len(l.Capabilities) != 0 {
+		t.Fatalf("no issuer: %+v, %v", l, err)
+	}
+	_, err = bare.client.CapabilityRevoke(ctx, api.RevokeParams{ID: c.ID})
 	wantCode(t, err, api.CodeUnavailable)
 }

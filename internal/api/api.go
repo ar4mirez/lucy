@@ -40,7 +40,9 @@ const Version = 1
 // Revision 9 added sandbox.held and sandbox.confirm.
 // Revision 10 added the gateway scope and gateway.routes, gateway.use, gateway.deny and
 // gateway.complete.
-const SchemaRevision = 10
+// Revision 11 added capability tokens: runner.lease's capability, gateway.use's capability,
+// capabilities.list and capability.revoke.
+const SchemaRevision = 11
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"
