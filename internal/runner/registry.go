@@ -31,8 +31,8 @@ type Registration struct {
 var ErrRegistered = errors.New("runner: a live runner already uses this id")
 
 // Register records this process as runner id of org in dir (created 0700; refused when it or its
-// parent is a symlink, another user's, or open to others) until release, which removes the entry. A second live runner with
-// the same id is refused (ErrRegistered).
+// parent is a symlink, another user's, or open to others) until release, which removes the entry.
+// A second live runner with the same id is refused (ErrRegistered).
 func Register(dir, id, org string) (release func() error, err error) {
 	if err := CheckRunnerID(id); err != nil {
 		return nil, err
@@ -44,16 +44,9 @@ func Register(dir, id, org string) (release func() error, err error) {
 		return nil, err
 	}
 	path := filepath.Join(dir, id+".pid")
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600) // #nosec G304 -- a checked runner id in the checked 0700 registry
+	f, err := lockEntry(path, id)
 	if err != nil {
 		return nil, err
-	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = f.Close() // the lock error is what matters
-		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, fmt.Errorf("%w: %q", ErrRegistered, id)
-		}
-		return nil, fmt.Errorf("runner: lock %s: %w", path, err)
 	}
 	if err := writeRegistration(f, os.Getpid(), org); err != nil {
 		_ = f.Close() // the write error is what matters
@@ -63,6 +56,34 @@ func Register(dir, id, org string) (release func() error, err error) {
 		// Removed while still locked, so no other process's entry of the same id is removed.
 		return errors.Join(os.Remove(path), f.Close())
 	}, nil
+}
+
+// lockEntry opens and locks the entry at path, retrying when the file it locked is no longer the
+// one at path (its previous runner removed it between the open and the lock).
+func lockEntry(path, id string) (*os.File, error) {
+	for range 5 {
+		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600) // #nosec G304 -- a checked runner id in the checked 0700 registry
+		if err != nil {
+			return nil, err
+		}
+		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+			_ = f.Close() // the lock error is what matters
+			if errors.Is(err, syscall.EWOULDBLOCK) {
+				return nil, fmt.Errorf("%w: %q", ErrRegistered, id)
+			}
+			return nil, fmt.Errorf("runner: lock %s: %w", path, err)
+		}
+		held, err := f.Stat()
+		if err != nil {
+			_ = f.Close() // the stat error is what matters
+			return nil, err
+		}
+		if cur, err := os.Lstat(path); err == nil && os.SameFile(held, cur) {
+			return f, nil
+		}
+		_ = f.Close() // a removed or replaced entry; open the current one
+	}
+	return nil, fmt.Errorf("runner: the entry %s kept changing while being locked", path)
 }
 
 func writeRegistration(f *os.File, pid int, org string) error {
