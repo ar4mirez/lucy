@@ -594,3 +594,40 @@ func TestHarnessExecutorStreamsHooks(t *testing.T) {
 	}
 	t.Fatal("the session did not finish")
 }
+
+// TestHarnessExecutorKeepsTheQuestionAfterAHook: a Notification hook that fires while the
+// session's question waits is streamed as a hook event, the last event is still the open question
+// with its id, and the owner's answer then reaches the harness.
+func TestHarnessExecutorKeepsTheQuestionAfterAHook(t *testing.T) {
+	path := askWhileWaiting(t,
+		`{"out":{"type":"control_request","request_id":"req_2","request":{"subtype":"hook_callback","callback_id":"lucy_hook_Notification","input":{"session_id":"5f0c7d1e-0000-4000-8000-000000000001","hook_event_name":"Notification","message":"Claude needs your input"}}}}`,
+		`{"in":{"type":"control_response","response":{"subtype":"success","request_id":"req_2","response":{}}}}`)
+	pf := newProc(t)
+	pf.ex.Harness = claudecode.Adapter{}
+	x, err := pf.ex.Start(context.Background(), procLease("harness - "+path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var last Event
+	hooked := false
+	deadline := time.Now().Add(20 * time.Second)
+	for !hooked {
+		if time.Now().After(deadline) {
+			t.Fatal("the Notification hook was never streamed")
+		}
+		for _, e := range x.Poll().Events {
+			hooked = hooked || e.Kind == KindHook && e.Hook == "Notification"
+			last = e
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if last.Kind != KindAsking || last.Question != "req_1" {
+		t.Fatalf("the last event is %+v, want the open question req_1", last)
+	}
+	if err := x.(Answerer).Answer("use the staging account"); err != nil {
+		t.Fatal(err)
+	}
+	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7}) {
+		t.Fatalf("result %+v", res)
+	}
+}
