@@ -42,6 +42,10 @@ const (
 	MethodRuns      = "runs.list"
 	MethodHeld      = "sandbox.held"
 	MethodConfirm   = "sandbox.confirm"
+	MethodGwRoutes  = "gateway.routes"
+	MethodGwUse     = "gateway.use"
+	MethodGwDeny    = "gateway.deny"
+	MethodGwDone    = "gateway.complete"
 )
 
 var methods = []Method{
@@ -65,6 +69,10 @@ var methods = []Method{
 	{MethodRuns, "Runs and their leases, in the order they were queued.", "query", ScopeRead, false, typeOf[RunsParams](), typeOf[RunsPage]()},
 	{MethodHeld, "Operations on an org's container that wait on the owner: each would stop the sessions live in it, oldest first.", "query", ScopeRead, false, typeOf[NoParams](), typeOf[HeldList]()},
 	{MethodConfirm, "Confirm stopping the live sessions a waiting container operation names; the daemon's next request for it is then cleared, while those sessions are unchanged.", "command", ScopeDecide, true, typeOf[ConfirmParams](), typeOf[ConfirmResult]()},
+	{MethodGwRoutes, "An org's credential gateway routes, as the daemon loaded them from the org's SecretStore binding. No credential is in them.", "query", ScopeGateway, false, typeOf[GatewayRoutesParams](), typeOf[GatewayRoutes]()},
+	{MethodGwUse, "Decide an org gateway's use of a route's credential through the policy engine, and record the decision and the request, before the gateway forwards it.", "command", ScopeGateway, true, typeOf[GatewayUseParams](), typeOf[GatewayDecision]()},
+	{MethodGwDeny, "Record a request an org's gateway refused before any credential was involved.", "command", ScopeGateway, true, typeOf[GatewayDenyParams](), typeOf[GatewayRecorded]()},
+	{MethodGwDone, "Record how a forwarded gateway request ended.", "command", ScopeGateway, true, typeOf[GatewayCompleteParams](), typeOf[GatewayRecorded]()},
 }
 
 // NewParams returns a pointer to a new, zero params value for the method, ready for DecodeParams.
@@ -454,4 +462,72 @@ type ConfirmResult struct {
 	Org      string `json:"org" doc:"The org confirmed."`
 	Op       string `json:"op" doc:"The operation confirmed."`
 	Approval string `json:"approval" doc:"The confirmation's own decision id, which the cleared request will name."`
+}
+
+// GatewayRoutesParams names the org whose gateway routes to read.
+type GatewayRoutesParams struct {
+	Org string `json:"org" lucy:"required,maxlen=63" doc:"The org."`
+}
+
+// GatewayRoutes answers gateway.routes.
+type GatewayRoutes struct {
+	Org    string         `json:"org" doc:"The org."`
+	Routes []GatewayRoute `json:"routes" doc:"Its routes, by name; empty when the org has no gateway binding."`
+}
+
+// GatewayRoute is one route of an org's gateway.
+type GatewayRoute struct {
+	Name       string        `json:"name" doc:"What a worker calls it by: the first path element."`
+	Upstream   string        `json:"upstream" doc:"The https:// service it reaches."`
+	Credential string        `json:"credential" doc:"The credential's name in the org's vault; never its value."`
+	Scope      string        `json:"scope,omitempty" doc:"What the credential grants, as policy records it."`
+	Header     string        `json:"header,omitempty" doc:"The header the credential goes in; Authorization when empty."`
+	Prefix     string        `json:"prefix,omitempty" doc:"Put before the credential in the header."`
+	Allow      []GatewayRule `json:"allow" doc:"What a worker may ask for."`
+}
+
+// GatewayRule allows methods on a path prefix.
+type GatewayRule struct {
+	Methods []string `json:"methods" doc:"HTTP methods."`
+	Path    string   `json:"path" doc:"A clean absolute path prefix that ends at a segment."`
+}
+
+// GatewayUseParams is a credential use an org's gateway asks to have decided.
+type GatewayUseParams struct {
+	Org      string `json:"org" lucy:"required,maxlen=63" doc:"The org."`
+	Route    string `json:"route" lucy:"required,maxlen=32" doc:"The route, which must be in the daemon's config for the org."`
+	Method   string `json:"method" lucy:"required,maxlen=16" doc:"The worker's HTTP method."`
+	Path     string `json:"path" lucy:"required,maxlen=600" doc:"The path the worker sent, in the form the gateway records it: redacted, capped, with the SHA-256 of the whole path."`
+	Upstream string `json:"upstream" lucy:"required,maxlen=300" doc:"The host the gateway will call, which must be the route's."`
+}
+
+// GatewayDecision answers gateway.use.
+type GatewayDecision struct {
+	Decision int64  `json:"decision" doc:"The recorded policy decision."`
+	Cleared  bool   `json:"cleared" doc:"Whether the gateway may forward the request with the credential."`
+	Rule     string `json:"rule" doc:"The rule that decided."`
+	Reason   string `json:"reason" doc:"Why, in one line."`
+}
+
+// GatewayDenyParams records a refused gateway request.
+type GatewayDenyParams struct {
+	Org    string `json:"org" lucy:"required,maxlen=63" doc:"The org."`
+	Route  string `json:"route,omitempty" lucy:"maxlen=32" doc:"The route, when the request named a known one."`
+	Method string `json:"method" lucy:"required,maxlen=16" doc:"The worker's HTTP method."`
+	Path   string `json:"path" lucy:"required,maxlen=600" doc:"The path the worker sent, in the form the gateway records it: redacted, capped, with the SHA-256 of the whole path."`
+	Reason string `json:"reason" lucy:"required,maxlen=256" doc:"Why it was refused."`
+}
+
+// GatewayCompleteParams records how a forwarded request ended.
+type GatewayCompleteParams struct {
+	Org      string `json:"org" lucy:"required,maxlen=63" doc:"The org."`
+	Decision int64  `json:"decision" lucy:"min=1" doc:"The decision it was forwarded on."`
+	Status   int    `json:"status,omitempty" lucy:"min=0,max=999" doc:"The upstream's HTTP status."`
+	Scrubbed int    `json:"scrubbed,omitempty" lucy:"min=0" doc:"How many echoed copies of the credential were scrubbed from the answer."`
+	Error    string `json:"error,omitempty" lucy:"maxlen=256" doc:"Why it failed, when it did."`
+}
+
+// GatewayRecorded answers gateway.deny and gateway.complete.
+type GatewayRecorded struct {
+	Recorded bool `json:"recorded" doc:"Always true: an unrecorded request is an error."`
 }

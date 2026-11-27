@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 7
+version: 8
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-SEC-002, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -43,7 +43,8 @@ The controls that answer most of those threats:
   token is ever inside a container (LUCY-CRED-005). The gateway adds a token only to an allowlisted
   method and path on an `https://` upstream, refuses private, link-local and metadata addresses,
   never follows a redirect, scrubs an echoed token from the answer (asking only for unencoded,
-  whole answers and refusing an encoded one) and fails closed
+  whole answers and refusing an encoded one) and fails closed. It runs as its own process and
+  records every request through the daemon, which decides each credential use from its own routes
   ([gateway](docs/tech/gateway.md)).
 - **A container per org**, default-deny egress, delete guards, a synthetic HOME per org.
 - **Tamper-evident audit:** a hash chain (RFC 8785 + SHA-256) of every privileged action, naming the

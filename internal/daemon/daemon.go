@@ -22,6 +22,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/audit"
 	"github.com/ar4mirez/lucy/internal/config"
 	"github.com/ar4mirez/lucy/internal/eventstore"
+	"github.com/ar4mirez/lucy/internal/gateway"
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/runner"
 	"github.com/ar4mirez/lucy/internal/sandbox"
@@ -60,7 +61,8 @@ func (Stopped) EventVersion() int { return 1 }
 // Registry returns the event registry the daemon opens the store with.
 func Registry() (*eventstore.Registry, error) {
 	payloads := append(spec.Payloads(), Started{}, Stopped{}, server.CommandEvent{}, policy.DecisionRecord{})
-	return eventstore.NewRegistry(append(append(payloads, runner.Payloads()...), sandbox.Payloads()...)...)
+	payloads = append(append(append(payloads, runner.Payloads()...), sandbox.Payloads()...), gateway.Payloads()...)
+	return eventstore.NewRegistry(payloads...)
 }
 
 // Projectors returns the projections the daemon's store maintains: resource status, the runner
@@ -124,7 +126,12 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer store.Close() //nolint:errcheck // reported through the log by the store's callers
 
-	if err := loadResources(ctx, store, opts.ResourcesDir, log); err != nil {
+	set, err := loadResources(ctx, store, opts.ResourcesDir, log)
+	if err != nil {
+		return err
+	}
+	gateways, err := gatewayRoutes(store, set, log)
+	if err != nil {
 		return err
 	}
 
@@ -152,6 +159,7 @@ func Run(ctx context.Context, opts Options) error {
 		OnShutdown: func() { stop(errAPIStop) },
 		Refused:    pl.Refused,
 		Runs:       broker,
+		Gateways:   gateways,
 	})
 	if err != nil {
 		return err
@@ -241,11 +249,11 @@ func openStore(ctx context.Context, opts Options) (*eventstore.Store, error) {
 // (spec.LoadDir) and records each resource's status in the event store, never in the files
 // (LUCY-SPEC-003). Refused resources do not stop the daemon: they are recorded as Valid=False
 // and are not admitted. A directory that cannot be read at all is an error.
-func loadResources(ctx context.Context, store *eventstore.Store, dir string, log *slog.Logger) error {
+func loadResources(ctx context.Context, store *eventstore.Store, dir string, log *slog.Logger) (spec.Set, error) {
 	if dir == "" {
 		var err error
 		if dir, err = config.ResourcesDir(); err != nil {
-			return err
+			return spec.Set{}, err
 		}
 	}
 	set, err := spec.LoadDir(dir)
@@ -253,11 +261,11 @@ func loadResources(ctx context.Context, store *eventstore.Store, dir string, log
 	case errors.Is(err, fs.ErrNotExist):
 		set = spec.Set{Dir: dir}
 	case err != nil:
-		return fmt.Errorf("daemon: %w", err)
+		return spec.Set{}, fmt.Errorf("daemon: %w", err)
 	}
 	sum, err := spec.Record(ctx, store, "daemon", set)
 	if err != nil {
-		return fmt.Errorf("daemon: record config status: %w", err)
+		return spec.Set{}, fmt.Errorf("daemon: record config status: %w", err)
 	}
 	level := slog.LevelInfo
 	if set.Invalid() > 0 {
@@ -265,7 +273,21 @@ func loadResources(ctx context.Context, store *eventstore.Store, dir string, log
 	}
 	log.Log(ctx, level, "config loaded", "dir", dir, "resources", len(set.Results), "refused", set.Invalid(),
 		"changed", sum.Changed, "removed", sum.Removed)
-	return nil
+	return set, nil
+}
+
+// gatewayRoutes reads each org's credential gateway routes from its SecretStore binding. A binding
+// that does not read is logged and left out whole, so that org's gateway forwards nothing.
+func gatewayRoutes(store *eventstore.Store, set spec.Set, log *slog.Logger) (*gateway.StoreRecorder, error) {
+	byOrg, errs := gateway.Bindings(set.Admitted())
+	for _, err := range errs {
+		log.Warn("gateway binding refused", "error", err)
+	}
+	rec := &gateway.StoreRecorder{Store: store}
+	if err := rec.SetRoutes(byOrg); err != nil {
+		return nil, fmt.Errorf("daemon: %w", err)
+	}
+	return rec, nil
 }
 
 // listen creates the socket and makes it 0600. The runtime dir is 0700, so nobody else can reach

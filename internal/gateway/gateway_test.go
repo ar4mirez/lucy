@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -124,6 +125,7 @@ func (u *upstream) last() *http.Request {
 type fixture struct {
 	t     *testing.T
 	store *eventstore.Store
+	rec   *gateway.StoreRecorder
 	up    *upstream
 	res   *resolver
 	tok   string
@@ -158,15 +160,19 @@ func open(t *testing.T, tweak func(*gateway.Config)) *fixture {
 		res: &resolver{hosts: map[string][]netip.Addr{"example.com": {loopback}}}}
 	pool := x509.NewCertPool()
 	pool.AddCert(f.up.srv.Certificate())
+	routes := []gateway.Route{{
+		Name: "github", Upstream: "https://example.com:" + f.up.port(), Credential: "github", Scope: "repo:acme/web",
+		Prefix: "Bearer ",
+		Allow: []gateway.Rule{{Methods: []string{"GET"}, Path: "/repos/acme/web"}, {Methods: []string{"GET", "POST"}, Path: "/echo"},
+			{Methods: []string{"GET"}, Path: "/redirect"}},
+	}}
+	f.rec = &gateway.StoreRecorder{Store: st}
+	if err := f.rec.SetRoutes(map[string][]gateway.Route{"acme": routes}); err != nil {
+		t.Fatal(err)
+	}
 	cfg := gateway.Config{
-		Org: "acme", Store: st, Resolver: f.res, Addresses: testAddresses, TLS: &tls.Config{RootCAs: pool},
-		Credentials: creds{"acme/github": f.tok},
-		Routes: []gateway.Route{{
-			Name: "github", Upstream: "https://example.com:" + f.up.port(), Credential: "github", Scope: "repo:acme/web",
-			Prefix: "Bearer ",
-			Allow: []gateway.Rule{{Methods: []string{"GET"}, Path: "/repos/acme/web"}, {Methods: []string{"GET", "POST"}, Path: "/echo"},
-				{Methods: []string{"GET"}, Path: "/redirect"}},
-		}},
+		Org: "acme", Recorder: f.rec, Resolver: f.res, Addresses: testAddresses, TLS: &tls.Config{RootCAs: pool},
+		Credentials: creds{"acme/github": f.tok}, Routes: routes,
 	}
 	if tweak != nil {
 		tweak(&cfg)
@@ -521,17 +527,89 @@ func TestConfigIsChecked(t *testing.T) {
 	for name, mod := range bad {
 		r := ok
 		mod(&r)
-		if _, err := gateway.New(gateway.Config{Org: "acme", Store: f.store, Credentials: creds{}, Routes: []gateway.Route{r}}); err == nil {
+		if _, err := gateway.New(gateway.Config{Org: "acme", Recorder: f.rec, Credentials: creds{}, Routes: []gateway.Route{r}}); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	if _, err := gateway.New(gateway.Config{Org: "acme", Store: f.store, Credentials: creds{}, Routes: []gateway.Route{ok, ok}}); err == nil {
+	if _, err := gateway.New(gateway.Config{Org: "acme", Recorder: f.rec, Credentials: creds{}, Routes: []gateway.Route{ok, ok}}); err == nil {
 		t.Error("a duplicate route was accepted")
 	}
-	if _, err := gateway.New(gateway.Config{Org: "Acme", Store: f.store, Credentials: creds{}}); err == nil {
+	if _, err := gateway.New(gateway.Config{Org: "Acme", Recorder: f.rec, Credentials: creds{}}); err == nil {
 		t.Error("a bad org was accepted")
 	}
 	if _, err := url.Parse(ok.Upstream); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The recorder takes the route's credential, scope and upstream from its own config: a gateway
+// cannot name a route the daemon does not have, or point a route at another host.
+func TestRecorderTrustsOnlyItsOwnRoutes(t *testing.T) {
+	f := open(t, nil)
+	ctx := context.Background()
+	for name, u := range map[string]gateway.Use{
+		"unknown route":    {Route: "other", Method: "GET", Path: "/x", Upstream: "example.com:" + f.up.port()},
+		"another upstream": {Route: "github", Method: "GET", Path: "/x", Upstream: "evil.example:443"},
+	} {
+		if _, err := f.rec.Decide(ctx, "acme", u); !errors.Is(err, gateway.ErrUnknownRoute) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, err := f.rec.Decide(ctx, "beta", gateway.Use{Route: "github", Method: "GET", Path: "/x", Upstream: "example.com:" + f.up.port()}); !errors.Is(err, gateway.ErrUnknownRoute) {
+		t.Errorf("another org's route: %v", err)
+	}
+	if n := len(f.events()); n != 0 {
+		t.Errorf("%d events for refused decisions", n)
+	}
+	// A denial's path is recorded redacted, as the policy engine records a fetch.
+	tok := "ghp_" + strings.Repeat("Ab1", 12)
+	if status, _, _ := f.call("GET", "/nope/x/"+tok, nil); status != http.StatusNotFound {
+		t.Fatalf("an unknown route: status %d", status)
+	}
+	ev := f.lastGateway()
+	if bytes.Contains(ev.Payload, []byte(tok)) {
+		t.Errorf("a denial recorded the path's token: %s", ev.Payload)
+	}
+	if rs, ok := f.rec.Routes("acme"); !ok || len(rs) != 1 || rs[0].Name != "github" {
+		t.Errorf("routes %+v %v", rs, ok)
+	}
+	if _, ok := f.rec.Routes("beta"); ok {
+		t.Error("an org without a gateway config has routes")
+	}
+}
+
+func TestListenUnixRefusesUnsafePlaces(t *testing.T) {
+	dir, err := os.MkdirTemp("", "gw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	if _, err := gateway.ListenUnix("relative.sock"); err == nil {
+		t.Error("a relative path")
+	}
+	open := filepath.Join(dir, "open")
+	if err := os.Mkdir(open, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gateway.ListenUnix(filepath.Join(open, "g.sock")); err == nil {
+		t.Error("a directory others can open")
+	}
+	safe := filepath.Join(dir, "safe")
+	if err := os.Mkdir(safe, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(safe, "g.sock")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gateway.ListenUnix(file); err == nil {
+		t.Error("a regular file in the socket's place")
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(safe, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gateway.ListenUnix(filepath.Join(link, "x.sock")); err == nil {
+		t.Error("a directory reached through a symlink")
 	}
 }

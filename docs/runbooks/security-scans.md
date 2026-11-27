@@ -2,7 +2,7 @@
 id: runbook-security-scans
 title: lucy's own security scans
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-SEC-002, LUCY-REPO-008]
 ---
@@ -53,8 +53,11 @@ host's OS. Dependency review and Scorecard run only on GitHub.
   the same pull request; `internal/seccheck` fails until both agree. Never add exclusion flags to
   the workflow or `nolint:gosec`.
 - **gitleaks:** treat the secret as leaked: revoke and rotate it first, then remove it from the
-  branch. A false positive is not suppressed in the workflow; it needs a reviewed `.gitleaksignore`
-  entry (the finding's fingerprint) in its own pull request.
+  branch. A false positive is not suppressed in the workflow; it needs a reviewed entry in the
+  allowlist of [`.gitleaks.toml`](../../.gitleaks.toml): the exact made-up value, anchored, never a
+  line number, a path or a pattern wider than that value, so it cannot drift when the line moves
+  and allows nothing else. Check it with a full-history `gitleaks git` run and say so in the pull
+  request.
 - **dependency review:** pick another version or module. Widening `allow-licenses` is a reviewed
   change to `security.yml`.
 

@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 9
+version: 10
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -136,6 +136,21 @@ A confirmation lapses if a session starts or ends before lucy asks again, and a 
 replaces the one shown; run `lucy sandbox held` again. The daemon does not open an org's Sandbox
 binding yet (m1 slice 3): until it does, nothing is held and a confirmation is refused as
 `unavailable`.
+
+## An org's credential gateway
+
+An org's gateway is configured by an `AdapterBinding` in the resources directory
+([gateway](../tech/gateway.md)) and runs as its own process, next to the daemon:
+
+```sh
+lucy gateway --org acme                 # routes from the daemon; socket gateway/acme.sock, 0600
+lucy events                             # each request: gateway.forwarded / gateway.denied / gateway.completed
+```
+
+A binding the daemon cannot read is logged at start (`gateway binding refused`) and that org's
+gateway gets no routes: `lucy gateway` says the daemon has no gateway binding for the org. The
+org's vault is not built yet (m1 slice 4b), so for now the gateway refuses every request that
+needs a credential, and records it.
 
 ## When something is wrong
 

@@ -235,6 +235,32 @@ func (c *Client) SandboxConfirm(ctx context.Context, p api.ConfirmParams) (api.C
 	return r, err
 }
 
+// GatewayRoutes calls gateway.routes.
+func (c *Client) GatewayRoutes(ctx context.Context, org string) (api.GatewayRoutes, error) {
+	var r api.GatewayRoutes
+	err := c.Call(ctx, api.MethodGwRoutes, api.GatewayRoutesParams{Org: org}, &r)
+	return r, err
+}
+
+// GatewayUse calls gateway.use.
+func (c *Client) GatewayUse(ctx context.Context, p api.GatewayUseParams) (api.GatewayDecision, error) {
+	var r api.GatewayDecision
+	err := c.Call(ctx, api.MethodGwUse, p, &r)
+	return r, err
+}
+
+// GatewayDeny calls gateway.deny.
+func (c *Client) GatewayDeny(ctx context.Context, p api.GatewayDenyParams) error {
+	var r api.GatewayRecorded
+	return c.Call(ctx, api.MethodGwDeny, p, &r)
+}
+
+// GatewayComplete calls gateway.complete.
+func (c *Client) GatewayComplete(ctx context.Context, p api.GatewayCompleteParams) error {
+	var r api.GatewayRecorded
+	return c.Call(ctx, api.MethodGwDone, p, &r)
+}
+
 // RunnerPermit calls runner.permit.
 func (c *Client) RunnerPermit(ctx context.Context, p api.PermitParams) (api.PermitResult, error) {
 	var r api.PermitResult

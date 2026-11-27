@@ -29,9 +29,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/policy"
 )
+
+// Methods are the HTTP methods the gateway forwards; any other is refused before anything else.
+var Methods = []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+
+// MaxMethod is the longest method a refusal records; a longer one is recorded clipped.
+const MaxMethod = 16
 
 // Route is one service the gateway reaches for an org's workers.
 type Route struct {
@@ -56,10 +61,10 @@ type Credentials interface {
 	Credential(ctx context.Context, org, name string) ([]byte, error)
 }
 
-// Config configures a Gateway. Org, Store, Routes and Credentials are required.
+// Config configures a Gateway. Org, Recorder, Routes and Credentials are required.
 type Config struct {
 	Org         string
-	Store       *eventstore.Store // must register Payloads() and policy.DecisionRecord
+	Recorder    Recorder // the daemon's log, in process (StoreRecorder) or over the API (Remote)
 	Routes      []Route
 	Credentials Credentials
 	// Resolver looks upstream hosts up; net.DefaultResolver when nil.
@@ -78,7 +83,6 @@ type Gateway struct {
 	cfg       Config
 	routes    map[string]route
 	transport *http.Transport
-	actor     policy.Actor
 }
 
 type route struct {
@@ -89,8 +93,8 @@ type route struct {
 
 // New checks cfg and returns its gateway.
 func New(cfg Config) (*Gateway, error) {
-	if cfg.Org == "" || cfg.Store == nil || cfg.Credentials == nil {
-		return nil, errors.New("gateway: Config needs an org, a store and the org's credentials")
+	if cfg.Org == "" || cfg.Recorder == nil || cfg.Credentials == nil {
+		return nil, errors.New("gateway: Config needs an org, a recorder and the org's credentials")
 	}
 	if e := orgLabel(cfg.Org); e != "" {
 		return nil, fmt.Errorf("gateway: org %q %s", cfg.Org, e)
@@ -104,8 +108,7 @@ func New(cfg Config) (*Gateway, error) {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 5 * time.Minute
 	}
-	g := &Gateway{cfg: cfg, routes: map[string]route{},
-		actor: policy.Actor{ID: "org/" + cfg.Org + "/gateway", Role: policy.RoleGateway, Org: cfg.Org}}
+	g := &Gateway{cfg: cfg, routes: map[string]route{}}
 	for _, r := range cfg.Routes {
 		rt, err := checkRoute(r)
 		if err != nil {
@@ -234,10 +237,17 @@ var workerShapeHeaders = []string{"Accept-Encoding", "Range", "If-Range"}
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	recorded := policy.RecordedResource(policy.KindFetch, r.URL.EscapedPath())
+	if recorded == "" {
+		recorded = "(empty path)"
+	}
 	deny := func(status int, routeName, reason string) {
 		// Recorded first; refused whether or not the record could be written.
-		_ = g.append(ctx, Denied{Route: routeName, Method: r.Method, Path: recorded, Reason: reason}) // refused whether or not this is recorded
+		_ = g.cfg.Recorder.Deny(ctx, g.cfg.Org, Denied{Route: routeName, Method: clip(r.Method, MaxMethod), Path: recorded, Reason: reason})
 		http.Error(w, "lucy gateway: "+reason, status)
+	}
+	if !slices.Contains(Methods, r.Method) {
+		deny(http.StatusMethodNotAllowed, "", "the method is not an HTTP method lucy forwards")
+		return
 	}
 	name, rest, err := workerPath(r)
 	if err != nil {
@@ -271,33 +281,16 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer clear(secret)
 
 	// The credential's use is decided and recorded before anything is sent (LUCY-POL-002).
-	req := policy.Request{Actor: g.actor, Kind: policy.KindCredentialUse,
-		Target: policy.Target{Org: g.cfg.Org, Resource: rt.Credential},
-		Inputs: []policy.Input{{Source: policy.SourceConfig, Ref: "route/" + name}, {Source: policy.SourceAgent, Ref: "gateway/" + name}}}
-	facts := policy.Facts{CredentialScope: rt.Scope}
-	d := policy.Evaluate(req, facts)
-	var seq int64
-	err = g.cfg.Store.Update(ctx, func(tx *eventstore.Tx) error {
-		evs, err := tx.Append(ctx, policy.Stream, eventstore.AnyVersion, g.actor.ID, policy.NewRecord(req, facts, d))
-		if err != nil {
-			return err
-		}
-		seq = evs[0].Seq
-		var p eventstore.Payload = Forwarded{Route: name, Method: r.Method, Path: recorded, Upstream: rt.upstream.Host, DecisionSeq: seq}
-		if d.Outcome != policy.Cleared {
-			p = Denied{Route: name, Method: r.Method, Path: recorded, Reason: "the policy engine did not clear the credential: " + d.Rule}
-		}
-		_, err = tx.Append(ctx, Stream(g.cfg.Org), eventstore.AnyVersion, g.actor.ID, p)
-		return err
-	})
+	d, err := g.cfg.Recorder.Decide(ctx, g.cfg.Org, Use{Route: name, Method: r.Method, Path: recorded, Upstream: rt.upstream.Host})
 	if err != nil {
-		http.Error(w, "lucy gateway: the request could not be recorded", http.StatusServiceUnavailable)
+		http.Error(w, "lucy gateway: the request could not be decided and recorded", http.StatusServiceUnavailable)
 		return
 	}
-	if d.Outcome != policy.Cleared {
+	if !d.Cleared {
 		http.Error(w, "lucy gateway: the credential's use was not cleared", http.StatusForbidden)
 		return
 	}
+	seq := d.Seq
 
 	out := g.outgoing(ctx, r, rt, rest, addrs, port, secret)
 	resp, err := g.transport.RoundTrip(out) // RoundTrip, not a client: a redirect is never followed
@@ -374,13 +367,19 @@ func encoded(h http.Header) bool {
 func (g *Gateway) complete(ctx context.Context, c Completed) {
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	_ = g.append(rctx, c) // the decision before it was recorded; this is only the outcome
+	_ = g.cfg.Recorder.Complete(rctx, g.cfg.Org, c) // the decision before it was recorded; this is only the outcome
 }
 
-// append appends one event to the org's gateway stream.
-func (g *Gateway) append(ctx context.Context, p eventstore.Payload) error {
-	_, err := g.cfg.Store.Append(ctx, Stream(g.cfg.Org), eventstore.AnyVersion, g.actor.ID, p)
-	return err
+// clip shortens s to at most max bytes, at a rune boundary.
+func clip(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	cut := max
+	for cut > 0 && s[cut]&0xC0 == 0x80 {
+		cut--
+	}
+	return s[:cut]
 }
 
 func nameLabel(s string) string { return label(s, 32) }
