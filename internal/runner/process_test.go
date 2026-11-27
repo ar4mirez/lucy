@@ -7,10 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ar4mirez/lucy/internal/harness"
+	"github.com/ar4mirez/lucy/internal/harness/claudecode"
+	"github.com/ar4mirez/lucy/internal/harness/harnesstest"
 	"github.com/ar4mirez/lucy/internal/pathguard"
 )
 
@@ -24,6 +28,17 @@ func TestMain(m *testing.M) {
 }
 
 func helper(goal string) int {
+	if rest, ok := strings.CutPrefix(goal, "harness "); ok {
+		return fakeHarness(rest)
+	}
+	if rest, ok := strings.CutPrefix(goal, "harness-on "); ok {
+		// a harness that carries on after its input closes, as Claude Code finishes a queued turn
+		code := fakeHarness(rest)
+		if !slices.Contains(os.Args[1:], "--version") {
+			time.Sleep(time.Minute)
+		}
+		return code
+	}
 	switch goal {
 	case "work":
 		wd, _ := os.Getwd()
@@ -60,6 +75,35 @@ func helper(goal string) int {
 		return 0
 	}
 	return 9
+}
+
+// fakeHarness plays a recorded harness transcript: the goal is "harness <version> <path>", where
+// a version of "-" keeps the transcript's own.
+func fakeHarness(spec string) int {
+	version, path, _ := strings.Cut(spec, " ")
+	f, err := os.Open(path)
+	if err != nil {
+		return 8
+	}
+	tr, err := harnesstest.Parse(f)
+	_ = f.Close()
+	if err != nil {
+		return 8
+	}
+	if version != "-" {
+		tr.Header.Version = version
+	}
+	return harnesstest.Replay(tr, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
+}
+
+// transcript returns the absolute path of one of the Claude Code adapter's recorded transcripts.
+func transcript(t *testing.T, name string) string {
+	t.Helper()
+	p, err := filepath.Abs(filepath.Join("..", "harness", "claudecode", "testdata", claudecode.Pinned, name+".jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 type procFixture struct {
@@ -219,5 +263,204 @@ func TestRemoveScratchStaysInsideRoot(t *testing.T) {
 	}
 	if _, err := os.Stat(inside); !os.IsNotExist(err) {
 		t.Fatalf("inside the root was not deleted: %v", err)
+	}
+}
+
+// TestHarnessExecutorSpeaksTheProtocol runs recorded Claude Code sessions through the executor:
+// the protocol on the program's output becomes events and the session's result, not lines, and
+// the run's directory is still deleted afterwards.
+func TestHarnessExecutorSpeaksTheProtocol(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		goal   string // the fake harness's mode: "harness" plays the transcript, "harness-on" then carries on
+		want   Result
+		events []string
+	}{
+		{"done", "harness", Result{Outcome: OutcomeDone, PR: 42}, []string{"session started: claude-code " + claudecode.Pinned + ", model claude-opus-5-5",
+			"I will fix the failing test.", "tool: Bash", "tool result", "Opened the pull request.\nlucy:pr=42", "session ended: success after 3 turns"}},
+		{"refused", "harness", Result{Outcome: OutcomeDone}, nil},
+		{"error", "harness", Result{Outcome: OutcomeFailed, Reason: "error_max_turns: Reached maximum number of turns (50)"}, nil},
+		// the drifted session is killed, not left to carry out the goal: drain gives up long
+		// before the harness would stop on its own
+		{"drift", "harness-on", Result{Outcome: OutcomeFailed, Reason: "claude-code reported version 2.1.400, lucy supports " + claudecode.Pinned}, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			pf := newProc(t)
+			pf.ex.Harness = claudecode.Adapter{}
+			x, err := pf.ex.Start(context.Background(), procLease(c.goal+" - "+transcript(t, c.name)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines, res := drain(t, x)
+			if res != c.want {
+				t.Fatalf("result %+v, want %+v; events %q", res, c.want, lines)
+			}
+			if c.events != nil && strings.Join(lines, "|") != strings.Join(c.events, "|") {
+				t.Errorf("events %q, want %q", lines, c.events)
+			}
+			if left, _ := os.ReadDir(pf.root); len(left) != 0 {
+				t.Errorf("scratch left behind: %v", left)
+			}
+		})
+	}
+}
+
+// TestHarnessExecutorHoldsAnUnpinnedHarness: a harness that reports any version but the pinned one
+// never starts a session (LUCY-RUN-003).
+func TestHarnessExecutorHoldsAnUnpinnedHarness(t *testing.T) {
+	pf := newProc(t)
+	pf.ex.Harness = claudecode.Adapter{}
+	_, err := pf.ex.Start(context.Background(), procLease("harness 2.1.400 "+transcript(t, "done")))
+	if !errors.Is(err, harness.ErrUnpinned) {
+		t.Fatalf("Start = %v, want ErrUnpinned", err)
+	}
+	if left, _ := os.ReadDir(pf.root); len(left) != 0 {
+		t.Errorf("scratch left behind: %v", left)
+	}
+}
+
+// TestPlainProcessTakesNoAnswer: a plain program has no input channel at all.
+func TestPlainProcessTakesNoAnswer(t *testing.T) {
+	pf := newProc(t)
+	x, err := pf.ex.Start(context.Background(), procLease("work"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := x.(Answerer).Answer("yes"); !errors.Is(err, ErrNoInput) {
+		t.Fatalf("Answer = %v, want ErrNoInput", err)
+	}
+	drain(t, x)
+}
+
+// TestHarnessExecutorAnswers: the session's question is streamed as asking, and the answer given
+// to the execution goes back to the harness on its input.
+func TestHarnessExecutorAnswers(t *testing.T) {
+	pf := newProc(t)
+	pf.ex.Harness = claudecode.Adapter{}
+	x, err := pf.ex.Start(context.Background(), procLease("harness - "+transcript(t, "ask")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for asked := false; !asked; {
+		if time.Now().After(deadline) {
+			t.Fatal("the session never asked")
+		}
+		for _, e := range x.Poll().Events {
+			asked = asked || e.Kind == KindAsking
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := x.(Answerer).Answer("use the staging account"); err != nil {
+		t.Fatal(err)
+	}
+	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7}) {
+		t.Fatalf("result %+v", res)
+	}
+}
+
+// TestHarnessExecutorKeepsTheQuestionOpen: while the session's question waits, a second question
+// the adapter refuses and a line on the harness's standard error are streamed, and the last event
+// is still the open question, so the Tower keeps the flight asking and takes the owner's answer.
+func TestHarnessExecutorKeepsTheQuestionOpen(t *testing.T) {
+	const stderr = "warning: the network is slow"
+	path := askWhileWaiting(t,
+		`{"out":{"type":"control_request","request_id":"req_2","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which region?"}]}}}}`,
+		`{"in":{"type":"control_response","response":{"subtype":"success","request_id":"req_2","response":{"behavior":"deny"}}}}`,
+		`{"stderr":"`+stderr+`"}`)
+	pf := newProc(t)
+	pf.ex.Harness = claudecode.Adapter{}
+	x, err := pf.ex.Start(context.Background(), procLease("harness - "+path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const question = "Which account should the migration run against? (staging | production)"
+	var last Event
+	refused, warned := false, false
+	deadline := time.Now().Add(20 * time.Second)
+	for !refused || !warned {
+		if time.Now().After(deadline) {
+			t.Fatalf("refused %v, warned %v", refused, warned)
+		}
+		for _, e := range x.Poll().Events {
+			refused = refused || e.Text == "refused a second question while one waits"
+			warned = warned || e.Text == stderr
+			last = e
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if last.Kind != KindAsking || last.Text != question {
+		t.Fatalf("the last event is %+v, want the open question", last)
+	}
+	if err := x.(Answerer).Answer("use the staging account"); err != nil {
+		t.Fatal(err)
+	}
+	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7}) {
+		t.Fatalf("result %+v", res)
+	}
+}
+
+// askWhileWaiting writes the ask transcript with extra lines played while its question waits.
+func askWhileWaiting(t *testing.T, extra ...string) string {
+	t.Helper()
+	b, err := os.ReadFile(transcript(t, "ask"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		lines = append(lines, l)
+		if strings.Contains(l, `"control_request"`) {
+			lines = append(lines, extra...)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "ask-busy.jsonl")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestHarnessExecutorTagsEveryRepeat: while a question waits, a stderr line and a protocol message
+// the adapter does not know are each followed by the question again, and every repeat carries
+// the question's id, so the broker knows it as the question the owner answers once.
+func TestHarnessExecutorTagsEveryRepeat(t *testing.T) {
+	const stderr = "warning: the network is slow"
+	const unknown = "unrecognised harness message: mystery"
+	path := askWhileWaiting(t, `{"stderr":"`+stderr+`"}`, `{"out":{"type":"mystery"}}`)
+	pf := newProc(t)
+	pf.ex.Harness = claudecode.Adapter{}
+	x, err := pf.ex.Start(context.Background(), procLease("harness - "+path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var texts []string
+	asks := 0
+	deadline := time.Now().Add(20 * time.Second)
+	for !slices.Contains(texts, stderr) || !slices.Contains(texts, unknown) {
+		if time.Now().After(deadline) {
+			t.Fatalf("events %q", texts)
+		}
+		for _, e := range x.Poll().Events {
+			texts = append(texts, e.Text)
+			if e.Kind == KindAsking {
+				asks++
+				if e.Question != "req_1" {
+					t.Errorf("the question is streamed as %q, want id req_1", e.Question)
+				}
+			} else if e.Question != "" {
+				t.Errorf("%s event %q carries a question id", e.Kind, e.Text)
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if asks < 2 {
+		t.Errorf("the question was streamed %d times, want it repeated after the other events: %q", asks, texts)
+	}
+	if err := x.(Answerer).Answer("use the staging account"); err != nil {
+		t.Fatal(err)
+	}
+	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7}) {
+		t.Fatalf("result %+v", res)
 	}
 }

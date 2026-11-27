@@ -2,8 +2,11 @@ package runner
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/eventstore"
@@ -16,13 +19,24 @@ const ActorDaemon = "daemon"
 func runnerActor(id string) string { return "runner/" + id }
 
 // Broker is the daemon's side of the runner protocol. Its state is the runner_runs projection,
-// so it holds nothing in memory and is safe for concurrent use: every call reads and appends in
-// one store transaction, and the store has one writer.
+// and every call reads and appends in one store transaction (the store has one writer), so it is
+// safe for concurrent use. The one thing it holds in memory is an answer on its way to a runner:
+// the log keeps only the answer's digest, so the text waits here until the runner acknowledges it.
 //
 // The store must register Payloads() and the Projector.
 type Broker struct {
 	store *eventstore.Store
 	now   func() time.Time
+
+	mu      sync.Mutex
+	answers map[string]answer // by run
+}
+
+// answer is an owner's answer waiting for the heartbeat of the lease it was given under.
+type answer struct {
+	fence    int64
+	question string // the id of the question answered
+	text     string
 }
 
 // NewBroker returns a broker on store, reading time from now (time.Now when nil).
@@ -30,7 +44,7 @@ func NewBroker(store *eventstore.Store, now func() time.Time) *Broker {
 	if now == nil {
 		now = time.Now
 	}
-	return &Broker{store: store, now: now}
+	return &Broker{store: store, now: now, answers: map[string]answer{}}
 }
 
 // Submit queues a run. Its Base is "main" when empty. A run id is unique across every org and
@@ -139,6 +153,7 @@ func (b *Broker) held(ctx context.Context, runner, run string, fence int64, fn f
 		}
 		if !b.now().Before(ri.Expires) {
 			fenced = true
+			b.dropAnswer(run)
 			_, err := tx.Append(ctx, Stream(ri.Org, ri.Run), ri.Version, ActorDaemon, Expired{Fence: ri.Fence, ExpiresAt: ri.Expires})
 			return err
 		}
@@ -153,21 +168,43 @@ func (b *Broker) held(ctx context.Context, runner, run string, fence int64, fn f
 	return nil
 }
 
+// repeatedQuestion records a question the Pilot streamed again after the owner answered it: its
+// answer waits for the runner or the runner acknowledged it, so the question does not re-open. An
+// answer a daemon restart lost was never acknowledged, so its question re-opens and the owner is
+// asked again.
+const repeatedQuestion = "the Pilot repeated a question the owner answered"
+
 // Heartbeat renews runner's lease on run for another ttl and records the streamed events, in one
 // transaction. Events numbered at or below what the broker already recorded are a resent batch
-// and are skipped; the rest must continue the numbering without a gap.
-func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event) (Beat, error) {
+// and are skipped; the rest must continue the numbering without a gap. Every asking event names
+// its question's id. acked, when set, is the id of the question whose answer the runner gave its
+// work: only then is the question answered for good, and until then each reply carries the answer.
+// An acked id the owner did not answer under fence is ignored.
+func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event, acked string) (Beat, error) {
 	if len(events) > MaxBatch {
 		return Beat{}, fmt.Errorf("%w: at most %d events per heartbeat", ErrInvalid, MaxBatch)
 	}
+	if len(acked) > maxIDBytes {
+		return Beat{}, fmt.Errorf("%w: an acknowledged question id is at most %d bytes", ErrInvalid, maxIDBytes)
+	}
 	for _, ev := range events {
-		if !ev.Kind.Valid() || ev.Seq < 1 {
-			return Beat{}, fmt.Errorf("%w: event %d of kind %q", ErrInvalid, ev.Seq, ev.Kind)
+		if !ev.Kind.Valid() || ev.Seq < 1 || len(ev.Question) > maxIDBytes || (ev.Kind == KindAsking) != (ev.Question != "") {
+			return Beat{}, fmt.Errorf("%w: event %d of kind %q with question id %q; a question, and only a question, names its id", ErrInvalid, ev.Seq, ev.Kind, ev.Question)
 		}
 	}
 	ttl = clampTTL(ttl)
 	var beat Beat
+	var given answer
 	err := b.held(ctx, runner, run, fence, func(tx *eventstore.Tx, ri RunInfo) error {
+		// The answer is read inside the transaction, which no Answer can interleave with, so the
+		// runner sees it together with the asking state it belongs to.
+		given = b.peekAnswer(run, fence)
+		if acked != ri.Given {
+			acked = "" // only an answer the owner gave can be acknowledged
+		}
+		if acked != "" && given.question == acked {
+			given = answer{}
+		}
 		accepted := ri.Accepted
 		var payloads []eventstore.Payload
 		for _, ev := range events {
@@ -178,17 +215,92 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 				return fmt.Errorf("%w: got %d after %d", ErrSequence, ev.Seq, accepted)
 			}
 			accepted = ev.Seq
-			payloads = append(payloads, Streamed{Fence: fence, Seq: ev.Seq, Kind: ev.Kind, Text: capText(ev.Text)})
+			if ev.Kind == KindAsking && (ev.Question == ri.Answered || ev.Question == given.question || ev.Question == acked) {
+				ev.Kind, ev.Text, ev.Question = KindActivity, repeatedQuestion, ""
+			}
+			payloads = append(payloads, Streamed{Fence: fence, Seq: ev.Seq, Kind: ev.Kind, Text: capText(ev.Text), Question: ev.Question})
 		}
 		exp := b.now().Add(ttl).UTC()
-		payloads = append(payloads, Renewed{Fence: fence, ExpiresAt: exp})
+		payloads = append(payloads, Renewed{Fence: fence, ExpiresAt: exp, Answered: acked})
 		if _, err := tx.Append(ctx, Stream(ri.Org, ri.Run), ri.Version, runnerActor(runner), payloads...); err != nil {
 			return err
 		}
-		beat = Beat{Expires: exp, Stop: ri.Stop, Accepted: accepted}
+		asking := ri.Asking
+		if n := len(payloads) - 1; n > 0 {
+			asking = payloads[n-1].(Streamed).Kind == KindAsking
+		}
+		beat = Beat{Expires: exp, Stop: ri.Stop, Accepted: accepted, Asking: asking, Answer: given.text, Question: given.question}
 		return nil
 	})
-	return beat, err
+	if err != nil {
+		return Beat{}, err // a refused heartbeat leaves the holder's answer waiting
+	}
+	if acked != "" { // set to "" in the transaction when the owner never answered it
+		b.acknowledged(run, fence, acked)
+	}
+	return beat, nil
+}
+
+// Answer relays the owner's answer to a leased run that is asking; only the Tower calls it
+// (Runtime.Answer), so a Pilot hears from the owner through the Tower and nothing else
+// (LUCY-RUN-013). The log records the answer's digest; the text goes to the run's runner on
+// each heartbeat until it acknowledges it. An answer the runner never received, because the
+// daemon restarted first, is noticed by the runner, which asks again, so the Tower asks the owner
+// again.
+func (b *Broker) Answer(ctx context.Context, run, text string) error {
+	if text == "" || len(text) > MaxAnswer {
+		return fmt.Errorf("%w: an answer is 1 to %d bytes", ErrInvalid, MaxAnswer)
+	}
+	held := false
+	err := b.store.Update(ctx, func(tx *eventstore.Tx) error {
+		ri, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runner_runs WHERE run = ?`, run))
+		if err != nil {
+			return err
+		}
+		if ri.State != StateLeased || !ri.Asking {
+			return ErrNotAsking
+		}
+		sum := sha256.Sum256([]byte(text))
+		if _, err = tx.Append(ctx, Stream(ri.Org, ri.Run), ri.Version, ActorDaemon,
+			Answered{Fence: ri.Fence, Question: ri.QuestionID, AnswerSHA256: hex.EncodeToString(sum[:])}); err != nil {
+			return err
+		}
+		b.mu.Lock()
+		b.answers[run] = answer{fence: ri.Fence, question: ri.QuestionID, text: text}
+		b.mu.Unlock()
+		held = true
+		return nil
+	})
+	if err != nil && held {
+		b.dropAnswer(run) // its record did not commit, so it is never delivered
+	}
+	return err
+}
+
+// peekAnswer returns the answer waiting for run under fence, leaving it waiting.
+func (b *Broker) peekAnswer(run string, fence int64) answer {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	a, ok := b.answers[run]
+	if !ok || a.fence != fence {
+		return answer{}
+	}
+	return a
+}
+
+// acknowledged forgets the answer to question that run's runner, under fence, gave its work.
+func (b *Broker) acknowledged(run string, fence int64, question string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if a := b.answers[run]; a.fence == fence && a.question == question {
+		delete(b.answers, run)
+	}
+}
+
+func (b *Broker) dropAnswer(run string) {
+	b.mu.Lock()
+	delete(b.answers, run)
+	b.mu.Unlock()
 }
 
 // Finish ends runner's run with its result.
@@ -199,11 +311,15 @@ func (b *Broker) Finish(ctx context.Context, runner, run string, fence int64, re
 	if res.PR < 0 || (res.PR != 0 && res.Outcome != OutcomeDone) {
 		return fmt.Errorf("%w: only a done run reports a pull request", ErrInvalid)
 	}
-	return b.held(ctx, runner, run, fence, func(tx *eventstore.Tx, ri RunInfo) error {
+	err := b.held(ctx, runner, run, fence, func(tx *eventstore.Tx, ri RunInfo) error {
 		_, err := tx.Append(ctx, Stream(ri.Org, ri.Run), ri.Version, runnerActor(runner),
 			Finished{Fence: fence, Outcome: res.Outcome, PR: res.PR, Reason: capText(res.Reason)})
 		return err
 	})
+	if err == nil {
+		b.dropAnswer(run)
+	}
+	return err
 }
 
 // Stop asks for a run to stop. A queued run is finished as stopped at once; a leased one is told
@@ -274,5 +390,8 @@ func (b *Broker) expire(ctx context.Context, run string) (expired bool, err erro
 		_, err = tx.Append(ctx, Stream(ri.Org, ri.Run), ri.Version, ActorDaemon, Expired{Fence: ri.Fence, ExpiresAt: ri.Expires})
 		return err
 	})
+	if expired && err == nil {
+		b.dropAnswer(run)
+	}
 	return expired, err
 }

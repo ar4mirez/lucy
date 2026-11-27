@@ -297,13 +297,15 @@ type HeartbeatParams struct {
 	Fence      int64      `json:"fence" lucy:"min=1" doc:"The lease's fencing token."`
 	TTLSeconds int        `json:"ttl_seconds,omitempty" lucy:"min=0,max=300" doc:"The renewed life; 0 means 60, and values below 5 mean 5."`
 	Events     []RunEvent `json:"events,omitempty" lucy:"maxitems=32" doc:"The run's new events, numbered from 1 without gaps; a resent event is skipped."`
+	Acked      string     `json:"acked,omitempty" lucy:"maxlen=200" doc:"The id of the question whose answer, from an earlier heartbeat's result, the runner gave its work. Until it is acknowledged the answer comes again in every result. An id the owner did not answer under this lease is ignored."`
 }
 
 // RunEvent is one event a runner streams.
 type RunEvent struct {
-	Seq  int64  `json:"seq" lucy:"min=1" doc:"The event's number in its run, from 1."`
-	Kind string `json:"kind" lucy:"required,maxlen=16" doc:"output, activity or asking."`
-	Text string `json:"text,omitempty" lucy:"maxlen=1024" doc:"The event's text: a line of output, a summary, or the question. Untrusted."`
+	Seq      int64  `json:"seq" lucy:"min=1" doc:"The event's number in its run, from 1."`
+	Kind     string `json:"kind" lucy:"required,maxlen=16" doc:"output, activity or asking."`
+	Text     string `json:"text,omitempty" lucy:"maxlen=1024" doc:"The event's text: a line of output, a summary, or the question. Untrusted."`
+	Question string `json:"question,omitempty" lucy:"maxlen=200" doc:"The question's id: required on an asking event and the same on every repeat of the question, refused on any other. An asking event for an answered question is recorded as activity."`
 }
 
 // HeartbeatResult answers runner.heartbeat.
@@ -311,6 +313,9 @@ type HeartbeatResult struct {
 	ExpiresAt time.Time `json:"expires_at" doc:"The lease's new expiry, UTC."`
 	Stop      bool      `json:"stop" doc:"The Tower asked for the run to stop: stop the work and finish the run as stopped."`
 	Accepted  int64     `json:"accepted" doc:"The highest event number recorded for the run."`
+	Answer    string    `json:"answer,omitempty" doc:"The owner's answer to the run's question, relayed by the Tower. Give it to the work once, then acknowledge it; it comes again in every result until acknowledged."`
+	Question  string    `json:"question,omitempty" doc:"With answer: the id of the question it answers, to send back as acked."`
+	Asking    bool      `json:"asking" doc:"The run's last recorded event is a question still waiting on an answer. False with no answer after the runner asked means the answer was lost: ask again."`
 }
 
 // FinishParams ends a run.

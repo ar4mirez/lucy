@@ -99,7 +99,7 @@ func TestRunnerStreamsRenewsAndFinishes(t *testing.T) {
 		t.Fatalf("not renewed at a third of its life: expires %v", got)
 	}
 
-	s.queue = []Update{{Events: []Event{{Kind: KindAsking, Text: "which base?"}}}}
+	s.queue = []Update{{Events: []Event{{Kind: KindAsking, Text: "which base?", Question: "q1"}}}}
 	step(t, r)
 	if ri := f.run("a#1"); !ri.Asking || ri.Question != "which base?" {
 		t.Fatalf("question not recorded: %+v", ri)
@@ -167,8 +167,8 @@ type flaky struct {
 	fail bool
 }
 
-func (p *flaky) Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event) (Beat, error) {
-	b, err := p.Broker.Heartbeat(ctx, runner, run, fence, ttl, events)
+func (p *flaky) Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event, acked string) (Beat, error) {
+	b, err := p.Broker.Heartbeat(ctx, runner, run, fence, ttl, events, acked)
 	if err == nil && p.fail {
 		return Beat{}, errors.New("reply lost")
 	}

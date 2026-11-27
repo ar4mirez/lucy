@@ -1,0 +1,5 @@
+harness/claude-code activity "session started: claude-code 2.1.332, model claude-opus-5-5"
+harness/claude-code output "unparsed harness output: \"plain text the harness printed\""
+harness/claude-code activity "unrecognised harness message: message_from_a_later_version"
+harness/claude-code activity "session ended: error_max_turns after 50 turns"
+exit ok=false pr=0 reason="error_max_turns: Reached maximum number of turns (50)"

@@ -26,10 +26,12 @@ type Leased struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// Renewed records a heartbeat: the lease under Fence now expires at ExpiresAt.
+// Renewed records a heartbeat: the lease under Fence now expires at ExpiresAt. Answered is the id
+// of the question whose answer the runner acknowledged giving its work, if any.
 type Renewed struct {
 	Fence     int64     `json:"fence"`
 	ExpiresAt time.Time `json:"expires_at"`
+	Answered  string    `json:"answered,omitempty"`
 }
 
 // Streamed records one event the runner streamed under Fence.
@@ -38,11 +40,23 @@ type Streamed struct {
 	Seq   int64     `json:"seq"`
 	Kind  EventKind `json:"kind"`
 	Text  string    `json:"text,omitempty"` // untrusted output of the work, capped
+	// Question, when asking, is the question's id. An asking event for a question already
+	// answered is recorded as activity, so an answered question never re-opens.
+	Question string `json:"question,omitempty"`
 }
 
 // StopRequested records that the Tower asked for the run to stop. A queued run finishes at once;
 // a leased one learns it on its next heartbeat.
 type StopRequested struct{}
+
+// Answered records that the Tower relayed the owner's answer to the run's question under Fence.
+// Only the answer's digest is kept: its text goes to the runner on each heartbeat until the runner
+// acknowledges it (Renewed.Answered), and never into the log.
+type Answered struct {
+	Fence        int64  `json:"fence"`
+	Question     string `json:"question"` // the id of the question answered
+	AnswerSHA256 string `json:"answer_sha256"`
+}
 
 // Finished ends a run. Fence is 0 when no runner held it (a queued run stopped).
 type Finished struct {
@@ -65,6 +79,7 @@ func (Leased) EventType() string        { return "run.leased" }
 func (Renewed) EventType() string       { return "run.renewed" }
 func (Streamed) EventType() string      { return "run.event" }
 func (StopRequested) EventType() string { return "run.stop_requested" }
+func (Answered) EventType() string      { return "run.answered" }
 func (Finished) EventType() string      { return "run.finished" }
 func (Expired) EventType() string       { return "run.expired" }
 
@@ -73,12 +88,13 @@ func (Leased) EventVersion() int        { return 1 }
 func (Renewed) EventVersion() int       { return 1 }
 func (Streamed) EventVersion() int      { return 1 }
 func (StopRequested) EventVersion() int { return 1 }
+func (Answered) EventVersion() int      { return 1 }
 func (Finished) EventVersion() int      { return 1 }
 func (Expired) EventVersion() int       { return 1 }
 
 // Payloads returns the run events, for the store's registry.
 func Payloads() []eventstore.Payload {
-	return []eventstore.Payload{Queued{}, Leased{}, Renewed{}, Streamed{}, StopRequested{}, Finished{}, Expired{}}
+	return []eventstore.Payload{Queued{}, Leased{}, Renewed{}, Streamed{}, StopRequested{}, Answered{}, Finished{}, Expired{}}
 }
 
 // StreamPrefix starts every run stream.

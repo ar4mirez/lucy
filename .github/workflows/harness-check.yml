@@ -1,0 +1,75 @@
+name: harness-check
+
+# The harness churn guard (LUCY-RUN-003). Each night, the newest Claude Code release is checked
+# against the adapter's contract: its version is read and its --help must still list every flag
+# the adapter passes. Nothing runs a session, a model or a login, and no job has a secret. lucy
+# runs only the pinned version, so this job never fails: a newer release that passes is reported
+# as ready for the pin to move (with recorded transcripts for it, which CI then tests), and one
+# that fails or cannot be installed is reported as held, as a warning, without turning main red.
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+# Least privilege: the token can only read the repository.
+permissions:
+  contents: read
+
+jobs:
+  latest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install the newest release
+        id: install
+        continue-on-error: true
+        run: |
+          set -eu
+          latest="$(npm view @anthropic-ai/claude-code version)"
+          if ! printf '%s' "$latest" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "unexpected version string from the registry"
+            exit 1
+          fi
+          prefix="$RUNNER_TEMP/harness"
+          npm install --no-fund --no-audit --prefix "$prefix" "@anthropic-ai/claude-code@$latest"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "bin=$prefix/node_modules/.bin/claude" >> "$GITHUB_OUTPUT"
+
+      - name: Check it against the adapter's contract
+        id: contract
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        env:
+          LUCY_HARNESS_BIN: ${{ steps.install.outputs.bin }}
+          DISABLE_AUTOUPDATER: "1"
+        run: go test -count=1 -run TestLiveHarness -v ./internal/harness/claudecode
+
+      - name: Report
+        env:
+          LATEST: ${{ steps.install.outputs.latest }}
+          INSTALL: ${{ steps.install.outcome }}
+          CONTRACT: ${{ steps.contract.outcome }}
+        run: |
+          pinned="$(sed -n 's/^const Pinned = "\(.*\)"$/\1/p' internal/harness/claudecode/claudecode.go)"
+          if [ "$INSTALL" != success ]; then
+            verdict="held: the newest release could not be installed; the pin stays at $pinned"
+          elif [ "$CONTRACT" != success ]; then
+            verdict="held: claude-code $LATEST fails the adapter's contract; the pin stays at $pinned"
+          elif [ "$LATEST" = "$pinned" ]; then
+            verdict="current: claude-code $pinned is the newest release"
+          else
+            verdict="ready: claude-code $LATEST passes the live check; record its transcripts under internal/harness/claudecode/testdata/$LATEST to move the pin from $pinned"
+          fi
+          echo "$verdict"
+          printf '### Harness check\n\n%s\n' "$verdict" >> "$GITHUB_STEP_SUMMARY"
+          case "$verdict" in held*) echo "::warning title=Harness upgrade held::$verdict" ;; esac

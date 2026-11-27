@@ -50,16 +50,16 @@ func (r Remote) Lease(ctx context.Context, runner string, placement Placement, t
 }
 
 // Heartbeat implements Protocol.
-func (r Remote) Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event) (Beat, error) {
-	p := api.HeartbeatParams{Runner: runner, Run: run, Fence: fence, TTLSeconds: seconds(ttl)}
+func (r Remote) Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event, acked string) (Beat, error) {
+	p := api.HeartbeatParams{Runner: runner, Run: run, Fence: fence, TTLSeconds: seconds(ttl), Acked: acked}
 	for _, e := range events {
-		p.Events = append(p.Events, api.RunEvent{Seq: e.Seq, Kind: string(e.Kind), Text: e.Text})
+		p.Events = append(p.Events, api.RunEvent{Seq: e.Seq, Kind: string(e.Kind), Text: e.Text, Question: e.Question})
 	}
 	res, err := r.Client.RunnerHeartbeat(ctx, p)
 	if err != nil {
 		return Beat{}, remoteError(err)
 	}
-	return Beat{Expires: res.ExpiresAt, Stop: res.Stop, Accepted: res.Accepted}, nil
+	return Beat{Expires: res.ExpiresAt, Stop: res.Stop, Accepted: res.Accepted, Answer: res.Answer, Question: res.Question, Asking: res.Asking}, nil
 }
 
 // Finish implements Protocol.

@@ -1,0 +1,8 @@
+harness/claude-code activity "session started: claude-code 2.1.332, model claude-opus-5-5"
+harness/claude-code activity "tool: AskUserQuestion"
+harness/claude-code asking "Which account should the migration run against? (staging | production)"
+answered
+harness/claude-code activity "tool result"
+harness/claude-code output "Ran it against staging.\nlucy:pr=7"
+harness/claude-code activity "session ended: success after 2 turns"
+exit ok=true pr=7 reason=""

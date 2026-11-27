@@ -1,0 +1,2 @@
+harness/claude-code activity "session refused: the harness reports version 2.1.400"
+exit ok=false pr=0 reason="claude-code reported version 2.1.400, lucy supports 2.1.332"

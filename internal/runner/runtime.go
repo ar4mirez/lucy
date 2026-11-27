@@ -69,10 +69,11 @@ func (r Runtime) Poll(ctx context.Context, session string) (tower.PilotReport, e
 	return tower.PilotReport{}, fmt.Errorf("runner: run %s in unknown state %q", session, ri.State)
 }
 
-// Answer implements tower.Runtime. No executor takes input yet: answering a Pilot needs the
-// structured harness adapter. TODO(LUCY-RUN-002): deliver the owner's answer to the run through
-// the Claude Code adapter (m1 step 2).
-func (Runtime) Answer(context.Context, string, string) error { return ErrNoInput }
+// Answer implements tower.Runtime: the owner's answer, which only the Tower relays, goes to the
+// run's runner on its next heartbeat (LUCY-RUN-013).
+func (r Runtime) Answer(ctx context.Context, session, answer string) error {
+	return r.Broker.Answer(ctx, session, answer)
+}
 
 // Stop implements tower.Runtime.
 func (r Runtime) Stop(ctx context.Context, session string) error { return r.Broker.Stop(ctx, session) }

@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 6
+version: 7
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -93,8 +93,13 @@ flies flights.
 ```sh
 lucy runner -- ./do-the-work.sh   # this machine's runner, id "local"; Ctrl-C stops it and its runs
 lucy runner --id spare --ttl 30 --root /path/to/scratch -- ./do-the-work.sh
-lucy events --after 0             # run.queued, run.leased, run.event, run.renewed, run.finished, run.expired
+lucy runner --harness claude-code # drive Claude Code (`claude` on PATH) over its stream-json protocol
+lucy events --after 0             # run.queued, run.leased, run.event, run.renewed, run.answered, run.finished, run.expired
 ```
+
+With `--harness claude-code` a run fails without starting unless `claude --version` reports the
+pinned version (`lucy runner --help` names it); install that version rather than the newest. The
+nightly `harness-check` workflow says whether a newer release is ready for the pin to move.
 
 Each run gets a fresh directory under `--root` (default `$XDG_DATA_HOME/lucy/runner`, created 0700),
 deleted through the path guard when the command exits; the command sees only PATH, HOME, TMPDIR

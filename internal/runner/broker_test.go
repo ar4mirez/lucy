@@ -146,15 +146,15 @@ func TestLeaseHeartbeatFinish(t *testing.T) {
 	}
 
 	f.clock.Advance(10 * time.Second)
-	beat, err := f.b.Heartbeat(ctx, "r1", "a#1", la.Fence, 20*time.Second, evs(1, 3))
+	beat, err := f.b.Heartbeat(ctx, "r1", "a#1", la.Fence, 20*time.Second, evs(1, 3), "")
 	if err != nil || beat.Accepted != 3 || beat.Stop || !beat.Expires.Equal(f.clock.Now().Add(20*time.Second)) {
 		t.Fatalf("heartbeat: %+v, %v", beat, err)
 	}
 	// A batch resent after a lost reply records only what is new.
-	if beat, err = f.b.Heartbeat(ctx, "r1", "a#1", la.Fence, 0, evs(2, 4)); err != nil || beat.Accepted != 4 {
+	if beat, err = f.b.Heartbeat(ctx, "r1", "a#1", la.Fence, 0, evs(2, 4), ""); err != nil || beat.Accepted != 4 {
 		t.Fatalf("resent heartbeat: %+v, %v", beat, err)
 	}
-	if _, err := f.b.Heartbeat(ctx, "r1", "a#1", la.Fence, 0, evs(6, 6)); !errors.Is(err, ErrSequence) {
+	if _, err := f.b.Heartbeat(ctx, "r1", "a#1", la.Fence, 0, evs(6, 6), ""); !errors.Is(err, ErrSequence) {
 		t.Fatalf("a gap: %v", err)
 	}
 	if err := f.b.Finish(ctx, "r1", "a#1", la.Fence, Result{Outcome: OutcomeDone, PR: 12}); err != nil {
@@ -169,7 +169,7 @@ func TestLeaseHeartbeatFinish(t *testing.T) {
 		t.Fatalf("stream %v, want %v", got, want)
 	}
 	// Nothing more under a finished lease.
-	if _, err := f.b.Heartbeat(ctx, "r1", "a#1", la.Fence, 0, nil); !errors.Is(err, ErrFenced) {
+	if _, err := f.b.Heartbeat(ctx, "r1", "a#1", la.Fence, 0, nil, ""); !errors.Is(err, ErrFenced) {
 		t.Fatalf("heartbeat after finish: %v", err)
 	}
 	if err := f.b.Finish(ctx, "r1", "a#1", la.Fence, Result{Outcome: OutcomeFailed}); !errors.Is(err, ErrFenced) {
@@ -183,8 +183,8 @@ func TestFencing(t *testing.T) {
 	f.submit("a#1")
 	l := f.lease("r1", 10*time.Second)
 	for name, call := range map[string]func() error{
-		"another runner": func() error { _, err := f.b.Heartbeat(ctx, "r2", l.Run, l.Fence, 0, nil); return err },
-		"another fence":  func() error { _, err := f.b.Heartbeat(ctx, "r1", l.Run, l.Fence+1, 0, nil); return err },
+		"another runner": func() error { _, err := f.b.Heartbeat(ctx, "r2", l.Run, l.Fence, 0, nil, ""); return err },
+		"another fence":  func() error { _, err := f.b.Heartbeat(ctx, "r1", l.Run, l.Fence+1, 0, nil, ""); return err },
 		"finish by another": func() error {
 			return f.b.Finish(ctx, "r2", l.Run, l.Fence, Result{Outcome: OutcomeDone})
 		},
@@ -193,13 +193,13 @@ func TestFencing(t *testing.T) {
 			t.Errorf("%s: %v, want fenced", name, err)
 		}
 	}
-	if _, err := f.b.Heartbeat(ctx, "r1", "nope", 1, 0, nil); !errors.Is(err, ErrNoRun) {
+	if _, err := f.b.Heartbeat(ctx, "r1", "nope", 1, 0, nil, ""); !errors.Is(err, ErrNoRun) {
 		t.Errorf("unknown run: %v", err)
 	}
 
 	// The lease expires: the late heartbeat is refused, and the expiry it found is recorded.
 	f.clock.Advance(10 * time.Second)
-	if _, err := f.b.Heartbeat(ctx, "r1", l.Run, l.Fence, 0, evs(1, 2)); !errors.Is(err, ErrFenced) {
+	if _, err := f.b.Heartbeat(ctx, "r1", l.Run, l.Fence, 0, evs(1, 2), ""); !errors.Is(err, ErrFenced) {
 		t.Fatalf("heartbeat after expiry: %v", err)
 	}
 	ri := f.run(l.Run)
@@ -244,7 +244,7 @@ func TestExpireAndStop(t *testing.T) {
 	if err := f.b.Stop(ctx, lb.Run); err != nil {
 		t.Fatal(err)
 	}
-	beat, err := f.b.Heartbeat(ctx, "r1", lb.Run, lb.Fence, 0, nil)
+	beat, err := f.b.Heartbeat(ctx, "r1", lb.Run, lb.Fence, 0, nil, "")
 	if err != nil || !beat.Stop {
 		t.Fatalf("heartbeat after stop: %+v, %v", beat, err)
 	}
@@ -275,7 +275,7 @@ func TestRestartKeepsLeases(t *testing.T) {
 	f := open(t)
 	f.submit("a#1", "b#1")
 	l := f.lease("r1", 0)
-	if _, err := f.b.Heartbeat(ctx, "r1", l.Run, l.Fence, 0, evs(1, 2)); err != nil {
+	if _, err := f.b.Heartbeat(ctx, "r1", l.Run, l.Fence, 0, evs(1, 2), ""); err != nil {
 		t.Fatal(err)
 	}
 	before := f.run(l.Run)
@@ -283,7 +283,7 @@ func TestRestartKeepsLeases(t *testing.T) {
 	if after := f.run(l.Run); after != before {
 		t.Fatalf("after restart %+v, before %+v", after, before)
 	}
-	if beat, err := f.b.Heartbeat(ctx, "r1", l.Run, l.Fence, 0, evs(1, 3)); err != nil || beat.Accepted != 3 {
+	if beat, err := f.b.Heartbeat(ctx, "r1", l.Run, l.Fence, 0, evs(1, 3), ""); err != nil || beat.Accepted != 3 {
 		t.Fatalf("heartbeat after restart: %+v, %v", beat, err)
 	}
 	live, err := f.b.Runs(ctx, 0, 10)
@@ -317,9 +317,9 @@ func TestRefusals(t *testing.T) {
 		"slash in run":      f.b.Submit(ctx, Task{Run: "x/1", Org: "acme", Project: "web", Flight: "x", Generation: 1, Goal: "g"}),
 		"bad runner id":     second(f.b.Lease(ctx, "Runner One", PlacementHost, 0)),
 		"bad placement":     second(f.b.Lease(ctx, "r1", "cloud", 0)),
-		"too many events":   first(f.b.Heartbeat(ctx, "r1", "a#1", 1, 0, evs(1, MaxBatch+1))),
-		"unknown kind":      first(f.b.Heartbeat(ctx, "r1", "a#1", 1, 0, []Event{{Seq: 1, Kind: "shout"}})),
-		"event 0":           first(f.b.Heartbeat(ctx, "r1", "a#1", 1, 0, []Event{{Seq: 0, Kind: KindOutput}})),
+		"too many events":   first(f.b.Heartbeat(ctx, "r1", "a#1", 1, 0, evs(1, MaxBatch+1), "")),
+		"unknown kind":      first(f.b.Heartbeat(ctx, "r1", "a#1", 1, 0, []Event{{Seq: 1, Kind: "shout"}}, "")),
+		"event 0":           first(f.b.Heartbeat(ctx, "r1", "a#1", 1, 0, []Event{{Seq: 0, Kind: KindOutput}}, "")),
 		"unknown outcome":   f.b.Finish(ctx, "r1", "a#1", 1, Result{Outcome: "great"}),
 		"PR on a failure":   f.b.Finish(ctx, "r1", "a#1", 1, Result{Outcome: OutcomeFailed, PR: 3}),
 		"negative PR":       f.b.Finish(ctx, "r1", "a#1", 1, Result{Outcome: OutcomeDone, PR: -1}),

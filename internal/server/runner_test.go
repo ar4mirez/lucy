@@ -83,7 +83,7 @@ func TestRunnerOverTheSocket(t *testing.T) {
 	// Calls under a stale fence come back fenced, and the runner side sees ErrFenced.
 	_, err = f.client.RunnerHeartbeat(ctx, api.HeartbeatParams{Runner: "local", Run: "f1#1", Fence: got.Fence})
 	wantCode(t, err, api.CodeFenced)
-	if _, err := (runner.Remote{Client: f.client}).Heartbeat(ctx, "local", "f1#1", got.Fence, 0, nil); !errors.Is(err, runner.ErrFenced) {
+	if _, err := (runner.Remote{Client: f.client}).Heartbeat(ctx, "local", "f1#1", got.Fence, 0, nil, ""); !errors.Is(err, runner.ErrFenced) {
 		t.Fatalf("remote heartbeat: %v", err)
 	}
 	if err := (runner.Remote{Client: f.client}).Finish(ctx, "local", "f1#1", got.Fence, runner.Result{Outcome: runner.OutcomeDone, PR: 5}); !errors.Is(err, runner.ErrFenced) {
