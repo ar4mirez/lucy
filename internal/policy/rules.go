@@ -95,6 +95,7 @@ func (c *evalCtx) staleReason() string {
 		KindMerge:         "the pull request's head or base changed",
 		KindDelete:        "the path now resolves elsewhere",
 		KindCredentialUse: "the credential's scope changed",
+		KindContainer:     "the container's live sessions changed",
 	}[c.req.Kind]
 	if changed == "" {
 		changed = "the project's default branch changed"
@@ -292,6 +293,26 @@ var rules = []Rule{
 		}
 		return c.approved(ByOwner, "the {owner} approved this "+string(c.req.Kind), string(c.req.Kind)+" is destructive")
 	}},
+	{"container.role", "Only the {owner} and the daemon start, restart or stop an org's container; no agent does.", func(c *evalCtx) (verdict, bool) {
+		if c.kindIs(KindContainer) && !containerRoles[c.req.Actor.Role] {
+			return deny(actorName(c.req.Actor.Role) + " never starts, restarts or stops a container")
+		}
+		return pass()
+	}},
+	{"container.live-sessions", "Starting, restarting or stopping an org's container stops the work in it: with no live session it is cleared, with live sessions it needs the {owner}'s confirmation for exactly those sessions.", func(c *evalCtx) (verdict, bool) {
+		if !c.kindIs(KindContainer) {
+			return pass()
+		}
+		if !c.facts.SessionsKnown {
+			return deny("the org container's live sessions are unknown")
+		}
+		if len(c.facts.LiveSessions) == 0 {
+			return allow("no session is live in the org's container")
+		}
+		n := len(c.facts.LiveSessions)
+		return c.approved(ByOwner, fmt.Sprintf("the {owner} confirmed stopping %s", sessions(n)),
+			fmt.Sprintf("%s live in the org's container would stop", sessions(n)))
+	}},
 	{"default.deny", "Anything no rule allows is denied.", func(*evalCtx) (verdict, bool) {
 		return deny("no rule allows this action")
 	}},
@@ -328,12 +349,15 @@ func validRequest(r Request) string {
 		KindWrite: {"project"}, KindMerge: {"project", "resource"}, KindDelete: {"resource"},
 		KindForcePush: {"project", "resource"}, KindBranchDelete: {"project", "resource"},
 		KindHistoryRewrite: {"project", "resource"}, KindCredentialUse: {"resource"},
-		KindExec: {"project", "resource"}, KindFetch: {"resource"},
+		KindExec: {"project", "resource"}, KindFetch: {"resource"}, KindContainer: {"resource"},
 	}
 	for _, field := range needs[r.Kind] {
 		if field == "project" && r.Target.Project == "" || field == "resource" && r.Target.Resource == "" {
 			return fmt.Sprintf("a %s needs a target %s", r.Kind, field)
 		}
+	}
+	if r.Kind == KindContainer && !ContainerOps[r.Target.Resource] {
+		return "a container request names up, restart or down"
 	}
 	if r.Kind == KindDelete && !filepath.IsAbs(r.Target.Resource) {
 		return "a delete names an absolute path"
@@ -367,8 +391,23 @@ func validFacts(f Facts) string {
 	default:
 		return fmt.Sprintf("unknown check state %q", f.Checks)
 	}
-	if len(f.Exceptions) > MaxFactItems || len(f.Roots) > MaxFactItems || len(f.Approvals) > MaxFactItems {
-		return fmt.Sprintf("more than %d exceptions, roots or approvals", MaxFactItems)
+	if len(f.Exceptions) > MaxFactItems || len(f.Roots) > MaxFactItems || len(f.Approvals) > MaxFactItems ||
+		len(f.LiveSessions) > MaxFactItems {
+		return fmt.Sprintf("more than %d exceptions, roots, approvals or live sessions", MaxFactItems)
+	}
+	if !f.SessionsKnown && len(f.LiveSessions) > 0 {
+		return "live sessions listed but not known"
+	}
+	for i, s := range f.LiveSessions {
+		if s == "" {
+			return "an empty live session"
+		}
+		if e := label(s, MaxLabelBytes); e != "" {
+			return "live session " + e
+		}
+		if i > 0 && f.LiveSessions[i-1] >= s {
+			return "live sessions are not sorted and unique"
+		}
 	}
 	for _, e := range f.Exceptions {
 		if !exceptions[e] {
@@ -454,4 +493,12 @@ func joinExceptions(es []Exception) string {
 		s[i] = string(e)
 	}
 	return strings.Join(s, ", ")
+}
+
+// sessions says "1 session" or "n sessions".
+func sessions(n int) string {
+	if n == 1 {
+		return "1 session"
+	}
+	return fmt.Sprintf("%d sessions", n)
 }

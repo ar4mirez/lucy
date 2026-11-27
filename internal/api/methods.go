@@ -53,8 +53,8 @@ var methods = []Method{
 	{MethodDecisions, "Recorded policy decisions, oldest first.", "query", ScopeRead, false, typeOf[DecisionsParams](), typeOf[DecisionsPage]()},
 	{MethodResources, "The config resources the daemon loaded and their status, as conditions.", "query", ScopeRead, false, typeOf[ResourcesParams](), typeOf[ResourcesPage]()},
 	{MethodAudit, "Verify the audit hash chain against the event log.", "query", ScopeRead, false, typeOf[NoParams](), typeOf[AuditReport]()},
-	{MethodQueued, "How many runs wait for a runner. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log.", "query", ScopeRun, false, typeOf[NoParams](), typeOf[QueuedResult]()},
-	{MethodLease, "Lease the oldest queued run under a new fencing token.", "command", ScopeRun, true, typeOf[LeaseParams](), typeOf[LeaseResult]()},
+	{MethodQueued, "How many runs wait for a runner placed at placement. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log. A runner placed in a container is not counted the runs of an org whose container is being restarted or stopped.", "query", ScopeRun, false, typeOf[QueuedParams](), typeOf[QueuedResult]()},
+	{MethodLease, "Lease the oldest queued run under a new fencing token. A runner placed in a container is never leased a run whose org's container is being restarted or stopped; when every queued run is such a run, it is refused with sandbox_busy and leases again later.", "command", ScopeRun, true, typeOf[LeaseParams](), typeOf[LeaseResult]()},
 	{MethodHeartbeat, "Renew a lease and record the run's newly streamed events, in one transaction.", "command", ScopeRun, true, typeOf[HeartbeatParams](), typeOf[HeartbeatResult]()},
 	{MethodFinish, "Finish a leased run with its outcome.", "command", ScopeRun, true, typeOf[FinishParams](), typeOf[FinishResult]()},
 	{MethodPermit, "Ask the policy engine whether a leased run's Pilot may use a prompted file tool; the decision is recorded before it is returned.", "command", ScopeRun, true, typeOf[PermitParams](), typeOf[PermitResult]()},
@@ -164,7 +164,7 @@ type ShutdownResult struct {
 // identified it; the facts (posture, checks, approvals, resolved paths) are the daemon's own and
 // cannot be supplied here.
 type EvaluateParams struct {
-	Kind     string        `json:"kind" lucy:"required,maxlen=32" doc:"The action: read, write, merge, delete, force_push, branch_delete, history_rewrite, credential_use, exec or fetch."`
+	Kind     string        `json:"kind" lucy:"required,maxlen=32" doc:"The action: read, write, merge, delete, force_push, branch_delete, history_rewrite, credential_use, exec, fetch or container."`
 	Org      string        `json:"org" lucy:"required,maxlen=128" doc:"The org the target belongs to."`
 	Project  string        `json:"project,omitempty" lucy:"maxlen=128" doc:"The project (repository), when the action has one."`
 	Resource string        `json:"resource,omitempty" lucy:"maxlen=4096" doc:"What the action is on: a PR (pr/12), an absolute path, a branch or a credential name."`
@@ -263,6 +263,11 @@ type AuditReport struct {
 	Head        string `json:"head,omitempty" doc:"The last entry's hash, when verified."`
 	BrokenAtSeq int64  `json:"broken_at_seq,omitempty" doc:"The event whose entry failed, when broken."`
 	Reason      string `json:"reason,omitempty" doc:"Why the chain is broken, when it is."`
+}
+
+// QueuedParams asks runner.queued.
+type QueuedParams struct {
+	Placement string `json:"placement,omitempty" lucy:"maxlen=16" doc:"The asking runner's placement: host (this machine; the default) or container (an org's container)."`
 }
 
 // QueuedResult answers runner.queued.

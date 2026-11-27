@@ -3,10 +3,12 @@ package runner
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -99,16 +101,85 @@ func (b *Broker) Runs(ctx context.Context, after int64, limit int) ([]RunInfo, e
 	return out, rows.Err()
 }
 
-// Queued returns how many runs wait for a runner. It is a read: a runner polls it, and leases
-// only when there is something to lease, so an idle runner adds nothing to the log.
-func (b *Broker) Queued(ctx context.Context) (int, error) {
+// LiveInContainer returns the runs leased by a runner placed in org's container, sorted: the
+// sessions that starting, restarting or stopping that container would stop (LUCY-SBX-003). A
+// lease that has run out but is not yet recorded as expired still counts, so a session is never
+// missed because the daemon has not looked at it yet.
+func (b *Broker) LiveInContainer(ctx context.Context, org string) ([]string, error) {
+	rows, err := b.store.QueryContext(ctx, `SELECT run FROM runner_runs WHERE org = ? AND state = ? AND placement = ?
+		ORDER BY run`, org, string(StateLeased), string(PlacementContainer))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck // read-only
+	var out []string
+	for rows.Next() {
+		var run string
+		if err := rows.Scan(&run); err != nil {
+			return nil, err
+		}
+		out = append(out, run)
+	}
+	return out, rows.Err()
+}
+
+// HoldContainer holds org's container for an operation that stops it, if the runs live in it are
+// exactly live (sorted, as LiveInContainer returns them): the check and the hold are one
+// transaction, so no run is placed in the container between them. Until ReleaseContainer or ttl
+// passes, Lease refuses a runner placed in a container a run of org (ErrSandboxBusy). held is
+// false, and nothing is recorded, when the live runs are not live.
+func (b *Broker) HoldContainer(ctx context.Context, org string, live []string, ttl time.Duration) (held bool, err error) {
+	err = b.store.Update(ctx, func(tx *eventstore.Tx) error {
+		var now sql.NullString
+		if err := tx.QueryRowContext(ctx, `SELECT group_concat(run, char(10)) FROM (SELECT run FROM runner_runs
+			WHERE org = ? AND state = ? AND placement = ? ORDER BY run)`, org, string(StateLeased), string(PlacementContainer)).Scan(&now); err != nil {
+			return err
+		}
+		if now.String != strings.Join(live, "\n") {
+			return nil
+		}
+		held = true
+		_, err := tx.Append(ctx, ContainerStream(org), eventstore.AnyVersion, ActorDaemon,
+			ContainerHeld{Org: org, ExpiresAt: b.now().Add(ttl).UTC()})
+		return err
+	})
+	if err != nil {
+		return false, err
+	}
+	return held, nil
+}
+
+// ReleaseContainer ends the hold on org's container.
+func (b *Broker) ReleaseContainer(ctx context.Context, org string) error {
+	_, err := b.store.Append(ctx, ContainerStream(org), eventstore.AnyVersion, ActorDaemon, ContainerReleased{Org: org})
+	return err
+}
+
+// Queued returns how many runs wait for a runner placed at placement (PlacementHost when empty).
+// It is a read: a runner polls it, and leases only when there is something to lease, so an idle
+// runner adds nothing to the log. A runner placed in a container is not counted the runs of an org
+// whose container is held, as Lease would not give it them.
+func (b *Broker) Queued(ctx context.Context, placement Placement) (int, error) {
+	if placement == "" {
+		placement = PlacementHost
+	}
+	if !placement.Valid() {
+		return 0, fmt.Errorf("%w: placement %q", ErrInvalid, placement)
+	}
 	var n int
-	err := b.store.QueryRowContext(ctx, `SELECT count(*) FROM runner_runs WHERE state = ?`, string(StateQueued)).Scan(&n)
+	err := b.store.QueryRowContext(ctx, `SELECT count(*) FROM runner_runs WHERE state = ? AND `+leasable,
+		string(StateQueued), string(placement), string(PlacementContainer), b.now().UnixNano()).Scan(&n)
 	return n, err
 }
 
+// leasable is the condition on a queued run that a runner may be leased it: its placement, then
+// PlacementContainer, then the time in Unix nanoseconds are its arguments.
+const leasable = `(? != ? OR org NOT IN (SELECT org FROM runner_holds WHERE expires_ns > ?))`
+
 // Lease gives runner the oldest queued run, under a new fence that expires after ttl (clamped to
-// MinTTL..MaxTTL; DefaultTTL when zero). ok is false when nothing is queued.
+// MinTTL..MaxTTL; DefaultTTL when zero). ok is false when nothing is queued. A runner placed in a
+// container is given the oldest queued run whose org's container is not held, and is refused
+// (ErrSandboxBusy) when every queued run's is.
 func (b *Broker) Lease(ctx context.Context, runner string, placement Placement, ttl time.Duration) (l Lease, ok bool, err error) {
 	if err := CheckRunnerID(runner); err != nil {
 		return Lease{}, false, err
@@ -118,15 +189,26 @@ func (b *Broker) Lease(ctx context.Context, runner string, placement Placement, 
 	}
 	ttl = clampTTL(ttl)
 	err = b.store.Update(ctx, func(tx *eventstore.Tx) error {
+		now := b.now()
 		ri, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runner_runs WHERE state = ?
-			ORDER BY queued_seq LIMIT 1`, string(StateQueued)))
+			AND `+leasable+` ORDER BY queued_seq LIMIT 1`, string(StateQueued), string(placement), string(PlacementContainer), now.UnixNano()))
 		if errors.Is(err, ErrNoRun) {
+			if placement != PlacementContainer {
+				return nil
+			}
+			var queued int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runner_runs WHERE state = ?`, string(StateQueued)).Scan(&queued); err != nil {
+				return err
+			}
+			if queued > 0 {
+				return ErrSandboxBusy
+			}
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		exp := b.now().Add(ttl).UTC()
+		exp := now.Add(ttl).UTC()
 		evs, err := tx.Append(ctx, Stream(ri.Org, ri.Run), ri.Version, runnerActor(runner),
 			Leased{Runner: runner, Placement: placement, ExpiresAt: exp})
 		if err != nil {

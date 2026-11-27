@@ -2,9 +2,9 @@
 id: tech-policy
 title: "lucy: the policy engine"
 status: active
-version: 2
+version: 3
 owner: ar4mirez
-requirements: [LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-006, LUCY-POL-007]
+requirements: [LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-006, LUCY-POL-007, LUCY-SBX-003]
 ---
 
 # lucy: the policy engine
@@ -19,21 +19,24 @@ LUCY-SPEC-010) feed them data, not code.
 
 - **Request.** Actor (id, role, org: set by the daemon from the authenticated caller), kind (`read`,
   `write`, `merge`, `delete`, `force_push`, `branch_delete`, `history_rewrite`, `credential_use`,
-  `exec`, `fetch`; no rule allows the last two yet),
+  `exec`, `fetch`, `container`; no rule allows `exec` or `fetch` yet; a `container` request names
+  the operation on the org's container, `up`, `restart` or `down`, as its resource),
   target (org, project, resource) and inputs, each with its source (`owner`, `config`, `daemon`,
   `task` are trusted; `agent`, `tool_output`, `repo_content`, `issue`, `pr_body`, `pr_comment`,
   `web`, `email` are not). The requester never sets trust (LUCY-POL-004).
 - **Facts.** What the daemon knows from trusted sources: posture (owner by default), check state,
   unreported required checks, fixed-list categories, a PR's head SHA, base ref and base SHA, the
-  credential's scope, default branch, home, declared roots, the symlink-resolved delete target and
+  credential's scope, default branch, home, declared roots, the symlink-resolved delete target, the
+  sessions live in an org's container (listed, sorted, and whether the daemon could list them) and
   owner approvals. Approvals come only from decision records and name two digests: the action's
   (`action_sha256`, over actor, kind, target), so one cannot be reused for another action, and the
   bound facts' (`facts_sha256`, the SHA-256 of `{"kind":..., "facts":{...}}` holding a merge's head
   SHA, base ref and base SHA, a delete's resolved path, a credential use's scope, or the default
-  branch for force-push, branch delete and history rewrite), so an approval lapses when those
+  branch for force-push, branch delete and history rewrite, or the live sessions for a container
+  operation), so an approval lapses when those
   change: a matching approval made under other facts is a deny, not an escalation (LUCY-POL-002,
   rule set version 2; version 3 renamed the outcomes, roles and postures to the glossary's terms;
-  version 4 only annotated two names for the static analyser; version 5 added `exec` and `fetch`).
+  version 4 only annotated two names for the static analyser; version 5 added `exec` and `fetch`; version 6 added `container`).
 - **Rules, in order; the first with an opinion decides:** `request.valid`, `facts.valid`,
   `org.isolation` (an org-bound role acts only in its org), `taint.trusted-basis` (a privileged
   request needs a trusted input), `read.in-org`, `write.worker-only`, `credential.gateway-only`,
@@ -43,7 +46,10 @@ LUCY-SPEC-010) feed them data, not code.
   the relayed client confirmation), `merge.posture`, `destructive.role`, `delete.path-guard`,
   `delete.scratch` (cleared), `delete.project` (owner), `git.default-branch` (denied; the target
   must be a plain branch name by git check-ref-format rules and is compared case-insensitively),
-  `git.owner`, and `default.deny`.
+  `git.owner`, `container.role` (only the owner and the daemon start, restart or stop an org's
+  container), `container.live-sessions` (denied when the live sessions are unknown, cleared when
+  there are none, else the owner's confirmation of exactly those sessions:
+  [sandbox](sandbox.md), LUCY-SBX-003), and `default.deny`.
 - **Decision** (a clearance). `cleared`, `denied` or `holding` (waiting on the owner), with the
   rule, a reason, every approval it rested on (`approvals_used`, in the order the rules used them;
   empty unless cleared), whether any input was untrusted, and the rule set's version and SHA-256 (LUCY-POL-006). The hash

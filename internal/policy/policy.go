@@ -54,6 +54,7 @@ const (
 	KindCredentialUse  Kind = "credential_use"  // #nosec G101 -- use a stored credential; this is the kind's name, not a credential
 	KindExec           Kind = "exec"            // run a shell command in a project's worktree
 	KindFetch          Kind = "fetch"           // fetch a URL or search the network
+	KindContainer      Kind = "container"       // start, restart or stop an org's container: its resource is the operation
 )
 
 // Source is where an input to a request came from. It is set by lucy where the text enters the
@@ -178,6 +179,8 @@ type Facts struct {
 	Home               string           `json:"home,omitempty"`                // the user's resolved home directory
 	Roots              []pathguard.Root `json:"roots,omitempty"`               // resolved roots this request may delete in
 	ResolvedPath       string           `json:"resolved_path,omitempty"`       // the delete target after symlink resolution
+	SessionsKnown      bool             `json:"sessions_known,omitempty"`      // the daemon listed the org container's live sessions
+	LiveSessions       []string         `json:"live_sessions,omitempty"`       // the runs live in the org's container, sorted
 	Approvals          []Approval       `json:"approvals,omitempty"`
 }
 

@@ -29,19 +29,24 @@ func runnerError(err error) error {
 		return api.FieldError(api.CodeInvalidParams, "run", "no such run")
 	case errors.Is(err, runner.ErrSequence):
 		return api.FieldError(api.CodeInvalidParams, "events", "number a run's events from 1 without gaps; resend from the accepted number")
+	case errors.Is(err, runner.ErrSandboxBusy):
+		return api.NewError(api.CodeSandboxBusy, "every queued run's org container is being restarted or stopped; lease again later")
 	case errors.Is(err, runner.ErrInvalid), errors.Is(err, runner.ErrExists):
 		return api.NewError(api.CodeInvalidParams, "check the runner id, placement, event kinds and outcome")
 	}
 	return err
 }
 
-func (s *Server) runnerQueued(ctx context.Context, _ *api.NoParams) (api.QueuedResult, error) {
+func (s *Server) runnerQueued(ctx context.Context, p *api.QueuedParams) (api.QueuedResult, error) {
 	b, err := s.broker()
 	if err != nil {
 		return api.QueuedResult{}, err
 	}
-	n, err := b.Queued(ctx)
-	return api.QueuedResult{Queued: n}, err
+	n, err := b.Queued(ctx, runner.Placement(p.Placement))
+	if err != nil {
+		return api.QueuedResult{}, runnerError(err)
+	}
+	return api.QueuedResult{Queued: n}, nil
 }
 
 func (s *Server) runnerLease(ctx context.Context, p *api.LeaseParams) (api.LeaseResult, error) {

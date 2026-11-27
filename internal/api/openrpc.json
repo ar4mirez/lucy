@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.7.0"
+    "version": "1.8.0"
   },
   "servers": [
     {
@@ -363,7 +363,7 @@
       "params": [
         {
           "name": "kind",
-          "description": "The action: read, write, merge, delete, force_push, branch_delete, history_rewrite, credential_use, exec or fetch.",
+          "description": "The action: read, write, merge, delete, force_push, branch_delete, history_rewrite, credential_use, exec, fetch or container.",
           "required": true,
           "schema": {
             "maxLength": 32,
@@ -917,9 +917,19 @@
     },
     {
       "name": "runner.queued",
-      "summary": "How many runs wait for a runner. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log.",
+      "summary": "How many runs wait for a runner placed at placement. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log. A runner placed in a container is not counted the runs of an org whose container is being restarted or stopped.",
       "paramStructure": "by-name",
-      "params": [],
+      "params": [
+        {
+          "name": "placement",
+          "description": "The asking runner's placement: host (this machine; the default) or container (an org's container).",
+          "required": false,
+          "schema": {
+            "maxLength": 16,
+            "type": "string"
+          }
+        }
+      ],
       "result": {
         "name": "result",
         "required": true,
@@ -942,7 +952,7 @@
     },
     {
       "name": "runner.lease",
-      "summary": "Lease the oldest queued run under a new fencing token.",
+      "summary": "Lease the oldest queued run under a new fencing token. A runner placed in a container is never leased a run whose org's container is being restarted or stopped; when every queued run is such a run, it is refused with sandbox_busy and leases again later.",
       "paramStructure": "by-name",
       "params": [
         {
@@ -1650,6 +1660,10 @@
       "parse_error": {
         "code": -32700,
         "message": "parse error"
+      },
+      "sandbox_busy": {
+        "code": -32007,
+        "message": "org container busy"
       },
       "timeout": {
         "code": -32005,

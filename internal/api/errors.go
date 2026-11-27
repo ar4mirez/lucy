@@ -22,6 +22,7 @@ const (
 	CodeUnavailable        Code = -32004 // the daemon cannot serve now (shutting down, store down)
 	CodeTimeout            Code = -32005 // the call ran past its deadline
 	CodeFenced             Code = -32006 // a runner's lease no longer holds the run: expired, finished or replaced
+	CodeSandboxBusy        Code = -32007 // every queued run's org container is being restarted or stopped; lease again later
 )
 
 // codeInfo is the fixed message and kind of each code. Messages never carry request-specific or
@@ -38,12 +39,14 @@ var codeInfo = map[Code]struct{ kind, message string }{
 	CodeUnavailable:        {"unavailable", "daemon unavailable"},
 	CodeTimeout:            {"timeout", "deadline exceeded"},
 	CodeFenced:             {"fenced", "lease no longer held"},
+	CodeSandboxBusy:        {"sandbox_busy", "org container busy"},
 }
 
 // Codes lists every error code, in a stable order.
 var Codes = []Code{
 	CodeParseError, CodeInvalidRequest, CodeMethodNotFound, CodeInvalidParams, CodeInternal,
 	CodeForbidden, CodeUnsupportedVersion, CodeTooLarge, CodeUnavailable, CodeTimeout, CodeFenced,
+	CodeSandboxBusy,
 }
 
 // Kind is the code's stable machine-readable name, for example "invalid_params".

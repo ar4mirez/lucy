@@ -122,6 +122,9 @@ var (
 	ErrNoInput = errors.New("runner: this run's executor takes no input")
 	// ErrNotAsking refuses an answer to a run that is not waiting on a question.
 	ErrNotAsking = errors.New("runner: the run is not asking")
+	// ErrSandboxBusy refuses a lease to a runner placed in a container when every queued run's org
+	// container is being restarted or stopped. The runner leases again later.
+	ErrSandboxBusy = errors.New("runner: sandbox busy: every queued run's org container is being restarted or stopped")
 )
 
 // Task is one run of work, as a runner is leased it: a flight's Pilot generation.

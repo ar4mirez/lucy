@@ -119,7 +119,7 @@ func TestRunServesThenStopsThroughTheAPI(t *testing.T) {
 		t.Fatalf("status = %+v, %v", st, err)
 	}
 	// The daemon serves the runner protocol; with nothing queued a runner's poll is a read.
-	if q, err := c.RunnerQueued(ctx); err != nil || q.Queued != 0 {
+	if q, err := c.RunnerQueued(ctx, api.QueuedParams{}); err != nil || q.Queued != 0 {
 		t.Fatalf("runner.queued = %+v, %v", q, err)
 	}
 	if l, err := c.RunnerLease(ctx, api.LeaseParams{Runner: "local"}); err != nil || l.Leased {

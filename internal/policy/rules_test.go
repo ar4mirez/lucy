@@ -1,6 +1,9 @@
 package policy
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -392,4 +395,72 @@ func TestExecAndFetchDenied(t *testing.T) {
 		{"owner exec", request(Actor{ID: "o", Role: RoleOwner}, KindExec, "app", "ls"), Facts{}, Denied, "default.deny"},
 		{"exec on agent text alone", request(worker, KindExec, "app", "ls", agentOnly), Facts{}, Denied, "taint.trusted-basis"},
 	})
+}
+
+// TestContainer covers LUCY-SBX-003: starting, restarting or stopping an org's container stops
+// the work in it, so with live sessions it needs the owner's confirmation for exactly those
+// sessions, and no agent may ask at all.
+func TestContainer(t *testing.T) {
+	daemonInput := Input{Source: SourceDaemon, Ref: "sandbox/acme"}
+	restart := request(daemon, KindContainer, "", "restart", daemonInput)
+	none := Facts{SessionsKnown: true}
+	live := Facts{SessionsKnown: true, LiveSessions: []string{"f1#1", "f2#1"}}
+	confirmed := live
+	confirmed.Approvals = []Approval{approval(restart, live, ByOwner)}
+	// The owner confirmed while one session was live; a second one has started since.
+	staleFacts := Facts{SessionsKnown: true, LiveSessions: []string{"f1#1"}}
+	stale := live
+	stale.Approvals = []Approval{approval(restart, staleFacts, ByOwner)}
+	// A confirmation of a restart does not confirm a stop.
+	down := request(daemon, KindContainer, "", "down", daemonInput)
+	otherOp := live
+	otherOp.Approvals = []Approval{approval(down, live, ByOwner)}
+	clientOnly := live
+	clientOnly.Approvals = []Approval{approval(restart, live, ByClientViaOwner)}
+	runCases(t, []ruleCase{
+		{"no live session", restart, none, Cleared, "container.live-sessions"},
+		{"up with no live session", request(daemon, KindContainer, "", "up", daemonInput), none, Cleared, "container.live-sessions"},
+		{"owner asks, no live session", request(owner, KindContainer, "", "down", Input{Source: SourceOwner}), none, Cleared, "container.live-sessions"},
+		{"live sessions hold for the owner", restart, live, Holding, "container.live-sessions"},
+		{"the owner confirmed these sessions", restart, confirmed, Cleared, "container.live-sessions"},
+		{"a confirmation for other sessions", restart, stale, Denied, "container.live-sessions"},
+		{"a confirmation of another operation", restart, otherOp, Holding, "container.live-sessions"},
+		{"a relayed client confirmation is not the owner's", restart, clientOnly, Holding, "container.live-sessions"},
+		{"sessions unknown", restart, Facts{}, Denied, "container.live-sessions"},
+		{"sessions listed but not known", restart, Facts{LiveSessions: []string{"f1#1"}}, Denied, "facts.valid"},
+		{"unsorted sessions", restart, Facts{SessionsKnown: true, LiveSessions: []string{"f2#1", "f1#1"}}, Denied, "facts.valid"},
+		{"duplicate sessions", restart, Facts{SessionsKnown: true, LiveSessions: []string{"f1#1", "f1#1"}}, Denied, "facts.valid"},
+		{"an empty session", restart, Facts{SessionsKnown: true, LiveSessions: []string{""}}, Denied, "facts.valid"},
+		{"unknown operation", request(daemon, KindContainer, "", "destroy", daemonInput), none, Denied, "request.valid"},
+		{"no operation", request(daemon, KindContainer, "", "", daemonInput), none, Denied, "request.valid"},
+		{"a worker never restarts its container", request(worker, KindContainer, "", "restart"), none, Denied, "container.role"},
+		{"nor does the supervisor", request(supervisor, KindContainer, "", "down"), none, Denied, "container.role"},
+		{"nor does the gateway", request(gateway, KindContainer, "", "up"), none, Denied, "container.role"},
+		{"outside text alone", request(daemon, KindContainer, "", "restart", issueInput), none, Denied, "taint.trusted-basis"},
+	})
+	many := Facts{SessionsKnown: true}
+	for i := 0; i <= MaxFactItems; i++ {
+		many.LiveSessions = append(many.LiveSessions, fmt.Sprintf("f%03d#1", i))
+	}
+	runCases(t, []ruleCase{{"too many sessions", restart, many, Denied, "facts.valid"}})
+}
+
+// TestContainerFactsDigest checks that a container confirmation binds to the live sessions and to
+// nothing else the daemon happens to know.
+func TestContainerFactsDigest(t *testing.T) {
+	a := Facts{SessionsKnown: true, LiveSessions: []string{"f1#1"}}
+	b := Facts{SessionsKnown: true, LiveSessions: []string{"f1#1", "f2#1"}}
+	if FactsDigest(KindContainer, a) == FactsDigest(KindContainer, b) {
+		t.Error("a new live session did not change the bound facts")
+	}
+	c := a
+	c.HeadSHA, c.Posture = head, PostureGreen
+	if FactsDigest(KindContainer, a) != FactsDigest(KindContainer, c) {
+		t.Error("facts a container operation does not bind to changed its digest")
+	}
+	// {"kind":"container","facts":{"live_sessions":"f1#1"}}, as the digest's documented shape.
+	sum := sha256.Sum256([]byte(`{"kind":"container","facts":{"live_sessions":"f1#1"}}`))
+	if got, want := FactsDigest(KindContainer, a), hex.EncodeToString(sum[:]); got != want {
+		t.Errorf("FactsDigest = %s, want %s", got, want)
+	}
 }
