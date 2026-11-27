@@ -36,7 +36,7 @@ const Version = 1
 // Revision 6 added hook events: the hook kind and its name on runner.heartbeat's events.
 // Revision 7 added questions.list and questions.answer.
 // Revision 8 added the container action kind: starting, restarting or stopping an org's container,
-// and the sandbox_busy error runner.lease answers while it is.
+// the sandbox_busy error runner.lease answers while it is, and runner.queued's placement.
 const SchemaRevision = 8
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.

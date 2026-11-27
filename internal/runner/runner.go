@@ -12,7 +12,7 @@ import (
 // Protocol is the runner's view of the broker: the Broker itself in the daemon's process, or the
 // API client (Remote) from `lucy runner`.
 type Protocol interface {
-	Queued(ctx context.Context) (int, error)
+	Queued(ctx context.Context, placement Placement) (int, error)
 	Lease(ctx context.Context, runner string, placement Placement, ttl time.Duration) (Lease, bool, error)
 	Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event, acked string) (Beat, error)
 	Finish(ctx context.Context, runner, run string, fence int64, res Result) error
@@ -242,7 +242,7 @@ func (r *Runner) drop(h *held, why string) {
 // take leases the oldest queued run and starts its work. A run whose work cannot start is
 // finished as failed.
 func (r *Runner) take(ctx context.Context) error {
-	n, err := r.cfg.Protocol.Queued(ctx)
+	n, err := r.cfg.Protocol.Queued(ctx, r.cfg.Placement)
 	if err != nil || n == 0 {
 		return err
 	}

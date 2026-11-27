@@ -37,13 +37,16 @@ func runnerError(err error) error {
 	return err
 }
 
-func (s *Server) runnerQueued(ctx context.Context, _ *api.NoParams) (api.QueuedResult, error) {
+func (s *Server) runnerQueued(ctx context.Context, p *api.QueuedParams) (api.QueuedResult, error) {
 	b, err := s.broker()
 	if err != nil {
 		return api.QueuedResult{}, err
 	}
-	n, err := b.Queued(ctx)
-	return api.QueuedResult{Queued: n}, err
+	n, err := b.Queued(ctx, runner.Placement(p.Placement))
+	if err != nil {
+		return api.QueuedResult{}, runnerError(err)
+	}
+	return api.QueuedResult{Queued: n}, nil
 }
 
 func (s *Server) runnerLease(ctx context.Context, p *api.LeaseParams) (api.LeaseResult, error) {

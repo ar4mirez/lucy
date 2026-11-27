@@ -155,13 +155,26 @@ func (b *Broker) ReleaseContainer(ctx context.Context, org string) error {
 	return err
 }
 
-// Queued returns how many runs wait for a runner. It is a read: a runner polls it, and leases
-// only when there is something to lease, so an idle runner adds nothing to the log.
-func (b *Broker) Queued(ctx context.Context) (int, error) {
+// Queued returns how many runs wait for a runner placed at placement (PlacementHost when empty).
+// It is a read: a runner polls it, and leases only when there is something to lease, so an idle
+// runner adds nothing to the log. A runner placed in a container is not counted the runs of an org
+// whose container is held, as Lease would not give it them.
+func (b *Broker) Queued(ctx context.Context, placement Placement) (int, error) {
+	if placement == "" {
+		placement = PlacementHost
+	}
+	if !placement.Valid() {
+		return 0, fmt.Errorf("%w: placement %q", ErrInvalid, placement)
+	}
 	var n int
-	err := b.store.QueryRowContext(ctx, `SELECT count(*) FROM runner_runs WHERE state = ?`, string(StateQueued)).Scan(&n)
+	err := b.store.QueryRowContext(ctx, `SELECT count(*) FROM runner_runs WHERE state = ? AND `+leasable,
+		string(StateQueued), string(placement), string(PlacementContainer), b.now().UnixNano()).Scan(&n)
 	return n, err
 }
+
+// leasable is the condition on a queued run that a runner may be leased it: its placement, then
+// PlacementContainer, then the time in Unix nanoseconds are its arguments.
+const leasable = `(? != ? OR org NOT IN (SELECT org FROM runner_holds WHERE expires_ns > ?))`
 
 // Lease gives runner the oldest queued run, under a new fence that expires after ttl (clamped to
 // MinTTL..MaxTTL; DefaultTTL when zero). ok is false when nothing is queued. A runner placed in a
@@ -178,8 +191,7 @@ func (b *Broker) Lease(ctx context.Context, runner string, placement Placement, 
 	err = b.store.Update(ctx, func(tx *eventstore.Tx) error {
 		now := b.now()
 		ri, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runner_runs WHERE state = ?
-			AND (? != ? OR org NOT IN (SELECT org FROM runner_holds WHERE expires_ns > ?))
-			ORDER BY queued_seq LIMIT 1`, string(StateQueued), string(placement), string(PlacementContainer), now.UnixNano()))
+			AND `+leasable+` ORDER BY queued_seq LIMIT 1`, string(StateQueued), string(placement), string(PlacementContainer), now.UnixNano()))
 		if errors.Is(err, ErrNoRun) {
 			if placement != PlacementContainer {
 				return nil

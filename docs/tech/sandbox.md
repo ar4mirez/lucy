@@ -39,7 +39,10 @@ first provider, is `internal/sandbox/berth` ([D3a](../decisions/D3a-berth-sandbo
   no run of that org to a runner placed in a container: such a runner is given the oldest queued run
   of an org that is not held, and when every queued run's org is held it is refused with a typed
   "sandbox busy" refusal (`runner.ErrSandboxBusy`, the API's `sandbox_busy` error, -32007, on
-  `runner.lease`), which the runner takes as lease again later. Host runners are not held. The Sandbox records `container.released` once the
+  `runner.lease`), which the runner takes as lease again later. That refusal is the backstop for a
+  hold set between a runner's poll and its lease: `runner.queued`, asked with the runner's
+  placement, counts a runner placed in a container none of a held org's runs, so an idle one never
+  leases and adds nothing to the log while the hold lasts. Host runners are not held. The Sandbox records `container.released` once the
   provider is done, whether it succeeded or failed. The hold is a projection of the log, so a
   daemon restart rebuilds it, and it expires after `sandbox.HoldTTL` (15 minutes, which also bounds
   the provider's operation), so a daemon that dies mid-operation cannot leave it stuck. `up` needs

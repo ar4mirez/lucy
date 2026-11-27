@@ -30,7 +30,7 @@ func (e *answeringExecutor) Start(_ context.Context, l Lease) (Execution, error)
 // runner.
 type live struct{ f *fixture }
 
-func (p live) Queued(ctx context.Context) (int, error) { return p.f.b.Queued(ctx) }
+func (p live) Queued(ctx context.Context, pl Placement) (int, error) { return p.f.b.Queued(ctx, pl) }
 func (p live) Lease(ctx context.Context, r string, pl Placement, ttl time.Duration) (Lease, bool, error) {
 	return p.f.b.Lease(ctx, r, pl, ttl)
 }

@@ -131,7 +131,7 @@ func TestLeaseHeartbeatFinish(t *testing.T) {
 		t.Fatalf("lease from an empty queue: ok %v, err %v", ok, err)
 	}
 	f.submit("a#1", "b#1")
-	if n, err := f.b.Queued(ctx); n != 2 || err != nil {
+	if n, err := f.b.Queued(ctx, PlacementHost); n != 2 || err != nil {
 		t.Fatalf("queued %d, %v", n, err)
 	}
 	la := f.lease("r1", 0)

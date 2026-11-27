@@ -36,8 +36,8 @@ func remoteError(err error) error {
 func seconds(d time.Duration) int { return int(d / time.Second) }
 
 // Queued implements Protocol.
-func (r Remote) Queued(ctx context.Context) (int, error) {
-	res, err := r.Client.RunnerQueued(ctx)
+func (r Remote) Queued(ctx context.Context, placement Placement) (int, error) {
+	res, err := r.Client.RunnerQueued(ctx, api.QueuedParams{Placement: string(placement)})
 	return res.Queued, err
 }
 

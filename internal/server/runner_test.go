@@ -121,7 +121,7 @@ func TestRunnerMethodRefusals(t *testing.T) {
 
 	// A daemon without a broker serves no runners.
 	g := start(t, os.Geteuid(), 0, nil)
-	_, err = g.client.RunnerQueued(ctx)
+	_, err = g.client.RunnerQueued(ctx, api.QueuedParams{})
 	wantCode(t, err, api.CodeUnavailable)
 	_, err = g.client.Runs(ctx, api.RunsParams{})
 	wantCode(t, err, api.CodeUnavailable)
@@ -130,7 +130,7 @@ func TestRunnerMethodRefusals(t *testing.T) {
 	h := start(t, os.Geteuid(), 0, func(o *Options) { withBroker(o); o.Authorizer = denyAdmin{} })
 	_, err = h.client.RunnerLease(ctx, api.LeaseParams{Runner: "local"})
 	wantCode(t, err, api.CodeForbidden)
-	_, err = h.client.RunnerQueued(ctx)
+	_, err = h.client.RunnerQueued(ctx, api.QueuedParams{})
 	wantCode(t, err, api.CodeForbidden)
 	if _, err := h.client.Runs(ctx, api.RunsParams{}); err != nil {
 		t.Fatal("runs.list is a read:", err)
@@ -240,5 +240,51 @@ func TestContainerRunnerWaitsOutAHeldContainer(t *testing.T) {
 	}
 	if ri, err := b.Run(ctx, "f1#1"); err != nil || ri.State != runner.StateLeased || ri.Runner != "box" {
 		t.Fatalf("run once released: %+v, %v", ri, err)
+	}
+}
+
+// While an org's container is held, runner.queued counts none of its runs for a runner placed in a
+// container, so that runner's polling never leases and adds nothing to the log: no api.command,
+// no audit record. A host runner, and an omitted placement, are still counted them.
+func TestHeldContainerRunnerPollsQuietly(t *testing.T) {
+	f := start(t, os.Geteuid(), 0, withBroker)
+	b := f.srv.opts.Runs
+	if err := b.Submit(ctx, runner.Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	if held, err := b.HoldContainer(ctx, "acme", nil, time.Minute); err != nil || !held {
+		t.Fatalf("hold: %v, %v", held, err)
+	}
+	for _, c := range []struct {
+		placement string
+		want      int
+	}{{"", 1}, {"host", 1}, {"container", 0}} {
+		if q, err := f.client.RunnerQueued(ctx, api.QueuedParams{Placement: c.placement}); err != nil || q.Queued != c.want {
+			t.Errorf("runner.queued placement %q = %+v, %v; want %d", c.placement, q, err, c.want)
+		}
+	}
+	before, err := f.store.ReadAfter(ctx, 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := runner.New(runner.Config{ID: "box", Placement: runner.PlacementContainer, Protocol: runner.Remote{Client: f.client},
+		Executor: oneShotExecutor{}, Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		if err := r.Step(ctx); err != nil {
+			t.Fatalf("a step while acme is held: %v", err)
+		}
+	}
+	after, err := f.store.ReadAfter(ctx, 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range after[len(before):] {
+		t.Errorf("polling while held recorded %s", e.Type)
+	}
+	if ri, err := b.Run(ctx, "f1#1"); err != nil || ri.State != runner.StateQueued {
+		t.Fatalf("run while held: %+v, %v", ri, err)
 	}
 }

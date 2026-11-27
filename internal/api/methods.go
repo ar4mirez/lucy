@@ -53,7 +53,7 @@ var methods = []Method{
 	{MethodDecisions, "Recorded policy decisions, oldest first.", "query", ScopeRead, false, typeOf[DecisionsParams](), typeOf[DecisionsPage]()},
 	{MethodResources, "The config resources the daemon loaded and their status, as conditions.", "query", ScopeRead, false, typeOf[ResourcesParams](), typeOf[ResourcesPage]()},
 	{MethodAudit, "Verify the audit hash chain against the event log.", "query", ScopeRead, false, typeOf[NoParams](), typeOf[AuditReport]()},
-	{MethodQueued, "How many runs wait for a runner. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log.", "query", ScopeRun, false, typeOf[NoParams](), typeOf[QueuedResult]()},
+	{MethodQueued, "How many runs wait for a runner placed at placement. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log. A runner placed in a container is not counted the runs of an org whose container is being restarted or stopped.", "query", ScopeRun, false, typeOf[QueuedParams](), typeOf[QueuedResult]()},
 	{MethodLease, "Lease the oldest queued run under a new fencing token. A runner placed in a container is never leased a run whose org's container is being restarted or stopped; when every queued run is such a run, it is refused with sandbox_busy and leases again later.", "command", ScopeRun, true, typeOf[LeaseParams](), typeOf[LeaseResult]()},
 	{MethodHeartbeat, "Renew a lease and record the run's newly streamed events, in one transaction.", "command", ScopeRun, true, typeOf[HeartbeatParams](), typeOf[HeartbeatResult]()},
 	{MethodFinish, "Finish a leased run with its outcome.", "command", ScopeRun, true, typeOf[FinishParams](), typeOf[FinishResult]()},
@@ -263,6 +263,11 @@ type AuditReport struct {
 	Head        string `json:"head,omitempty" doc:"The last entry's hash, when verified."`
 	BrokenAtSeq int64  `json:"broken_at_seq,omitempty" doc:"The event whose entry failed, when broken."`
 	Reason      string `json:"reason,omitempty" doc:"Why the chain is broken, when it is."`
+}
+
+// QueuedParams asks runner.queued.
+type QueuedParams struct {
+	Placement string `json:"placement,omitempty" lucy:"maxlen=16" doc:"The asking runner's placement: host (this machine; the default) or container (an org's container)."`
 }
 
 // QueuedResult answers runner.queued.

@@ -187,9 +187,9 @@ func (c *Client) VerifyAudit(ctx context.Context) (api.AuditReport, error) {
 }
 
 // RunnerQueued calls runner.queued.
-func (c *Client) RunnerQueued(ctx context.Context) (api.QueuedResult, error) {
+func (c *Client) RunnerQueued(ctx context.Context, p api.QueuedParams) (api.QueuedResult, error) {
 	var r api.QueuedResult
-	err := c.Call(ctx, api.MethodQueued, api.NoParams{}, &r)
+	err := c.Call(ctx, api.MethodQueued, p, &r)
 	return r, err
 }
 

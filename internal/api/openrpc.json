@@ -917,9 +917,19 @@
     },
     {
       "name": "runner.queued",
-      "summary": "How many runs wait for a runner. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log.",
+      "summary": "How many runs wait for a runner placed at placement. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log. A runner placed in a container is not counted the runs of an org whose container is being restarted or stopped.",
       "paramStructure": "by-name",
-      "params": [],
+      "params": [
+        {
+          "name": "placement",
+          "description": "The asking runner's placement: host (this machine; the default) or container (an org's container).",
+          "required": false,
+          "schema": {
+            "maxLength": 16,
+            "type": "string"
+          }
+        }
+      ],
       "result": {
         "name": "result",
         "required": true,
