@@ -363,7 +363,7 @@ func pilotPermit(ctx context.Context, e *Env) error {
 	if err != nil || !ok {
 		return fmt.Errorf("lease: %v %v", ok, err)
 	}
-	_, err = b.Permit(ctx, l.Runner, l.Run, l.Fence, runner.PermitRequest{Tool: claimedOwner, Kind: policy.KindWrite, Path: "/scratch/run-1/" + claimedOwner})
+	_, err = b.Permit(ctx, l.Runner, l.Run, l.Fence, runner.PermitRequest{Tool: claimedOwner, Kind: policy.KindWrite, Resource: "/scratch/run-1/" + claimedOwner})
 	return err
 }
 

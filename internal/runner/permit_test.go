@@ -24,7 +24,7 @@ func TestPermit(t *testing.T) {
 	f.submit("f1#1")
 	l := f.lease("r1", 0)
 	for _, kind := range []policy.Kind{policy.KindWrite, policy.KindRead} {
-		perm, err := f.b.Permit(ctx, "r1", "f1#1", l.Fence, PermitRequest{Tool: "Edit", Kind: kind, Path: "/scratch/run-1/main.go"})
+		perm, err := f.b.Permit(ctx, "r1", "f1#1", l.Fence, PermitRequest{Tool: "Edit", Kind: kind, Resource: "/scratch/run-1/main.go"})
 		if err != nil || perm.Outcome != policy.Cleared {
 			t.Fatalf("%s: %+v, %v", kind, perm, err)
 		}
@@ -116,8 +116,8 @@ func TestPermitForStaysInsideTheRun(t *testing.T) {
 		t.Fatalf("a pathless read was refused: %q", why)
 	}
 	want := []PermitRequest{
-		{Tool: "Edit", Kind: policy.KindWrite, Path: filepath.Join(dir, "src", "main.go")},
-		{Tool: "Glob", Kind: policy.KindRead, Path: dir},
+		{Tool: "Edit", Kind: policy.KindWrite, Resource: filepath.Join(dir, "src", "main.go")},
+		{Tool: "Glob", Kind: policy.KindRead, Resource: dir},
 	}
 	if !slices.Equal(pm.asked, want) {
 		t.Fatalf("asked %+v, want %+v", pm.asked, want)
@@ -168,7 +168,7 @@ func TestPermitForSearchGlobs(t *testing.T) {
 			t.Errorf("%s %s: %+v, wrote %s", c.tool, c.input, evs, in.String())
 		}
 	}
-	want := []PermitRequest{{Tool: "Glob", Kind: policy.KindRead, Path: dir}, {Tool: "Glob", Kind: policy.KindRead, Path: filepath.Join(dir, "src")}}
+	want := []PermitRequest{{Tool: "Glob", Kind: policy.KindRead, Resource: dir}, {Tool: "Glob", Kind: policy.KindRead, Resource: filepath.Join(dir, "src")}}
 	if !slices.Equal(pm.asked, want) {
 		t.Fatalf("asked %+v, want %+v", pm.asked, want)
 	}
@@ -208,10 +208,54 @@ func TestPermitForProtectsHarnessConfig(t *testing.T) {
 		t.Fatalf("a read of the configuration refused: %q", why)
 	}
 	want := []PermitRequest{
-		{Tool: "Write", Kind: policy.KindWrite, Path: filepath.Join(dir, "src", "claude.go")},
-		{Tool: "Read", Kind: policy.KindRead, Path: filepath.Join(dir, ".claude", "settings.json")},
+		{Tool: "Write", Kind: policy.KindWrite, Resource: filepath.Join(dir, "src", "claude.go")},
+		{Tool: "Read", Kind: policy.KindRead, Resource: filepath.Join(dir, ".claude", "settings.json")},
 	}
 	if !slices.Equal(pm.asked, want) {
 		t.Fatalf("asked %+v, want %+v", pm.asked, want)
+	}
+}
+
+// TestPermitExecAndFetch: a shell command or fetch goes to the policy engine as written, with no
+// path rule applied, is denied under the default rules and recorded; one that names nothing, or
+// too much, is refused without asking.
+func TestPermitExecAndFetch(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	f.submit("f1#1")
+	l := f.lease("r1", 0)
+	for _, c := range []PermitRequest{
+		{Tool: "Bash", Kind: policy.KindExec, Resource: "rm -rf $HOME"},
+		{Tool: "WebFetch", Kind: policy.KindFetch, Resource: "https://example.com/x"},
+	} {
+		perm, err := f.b.Permit(ctx, "r1", "f1#1", l.Fence, c)
+		if err != nil || perm.Outcome != policy.Denied || perm.Rule != "default.deny" {
+			t.Fatalf("%s: %+v, %v", c.Kind, perm, err)
+		}
+	}
+	evs, err := f.store.ReadStream(ctx, policy.Stream, 0, 10)
+	if err != nil || len(evs) != 2 {
+		t.Fatalf("decisions %d, %v", len(evs), err)
+	}
+	rec, err := eventstore.DecodeAs[policy.DecisionRecord](f.store.Registry(), evs[0])
+	if err != nil || rec.Kind != policy.KindExec || rec.Target.Resource != "rm -rf $HOME" || rec.Outcome != policy.Denied {
+		t.Fatalf("record %+v, %v", rec, err)
+	}
+
+	pm := &fakePermitter{perm: Permission{Outcome: policy.Denied, Reason: "no rule allows this action"}}
+	permit := permitFor(t.TempDir(), nil, Lease{Task: Task{Run: "f1#1"}, Runner: "r1", Fence: 3}, pm, slog.New(slog.DiscardHandler))
+	if ok, why := permit("Bash", harness.Exec, "cat ~/.ssh/id_rsa ${HOME}/x"); ok || why != "no rule allows this action" {
+		t.Errorf("exec: %v %q", ok, why)
+	}
+	if len(pm.asked) != 1 || pm.asked[0] != (PermitRequest{Tool: "Bash", Kind: policy.KindExec, Resource: "cat ~/.ssh/id_rsa ${HOME}/x"}) {
+		t.Fatalf("asked %+v: a command goes to the engine as written", pm.asked)
+	}
+	for _, what := range []string{"", strings.Repeat("x", MaxPermitResource+1)} {
+		if ok, _ := permit("WebFetch", harness.Fetch, what); ok {
+			t.Errorf("fetch of %d bytes allowed", len(what))
+		}
+	}
+	if len(pm.asked) != 1 {
+		t.Errorf("the engine was asked about an empty or oversized fetch: %+v", pm.asked)
 	}
 }

@@ -139,7 +139,7 @@ func (s *Server) runnerPermit(ctx context.Context, p *api.PermitParams) (api.Per
 	if err != nil {
 		return api.PermitResult{}, err
 	}
-	perm, err := b.Permit(ctx, p.Runner, p.Run, p.Fence, runner.PermitRequest{Tool: p.Tool, Kind: policy.Kind(p.Kind), Path: p.Path})
+	perm, err := b.Permit(ctx, p.Runner, p.Run, p.Fence, runner.PermitRequest{Tool: p.Tool, Kind: policy.Kind(p.Kind), Resource: p.Resource})
 	if err != nil {
 		return api.PermitResult{}, runnerError(err)
 	}

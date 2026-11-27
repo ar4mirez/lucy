@@ -148,7 +148,7 @@ func TestRunnerPermitOverTheSocket(t *testing.T) {
 		t.Fatalf("lease %+v, %v", l, err)
 	}
 	perm, err := (runner.Remote{Client: f.client}).Permit(ctx, "local", "f1#1", l.Run.Fence,
-		runner.PermitRequest{Tool: "Edit", Kind: policy.KindWrite, Path: "/scratch/run-1/a.go"})
+		runner.PermitRequest{Tool: "Edit", Kind: policy.KindWrite, Resource: "/scratch/run-1/a.go"})
 	if err != nil || perm.Outcome != policy.Cleared || perm.Rule != "write.worker-only" {
 		t.Fatalf("permit %+v, %v", perm, err)
 	}

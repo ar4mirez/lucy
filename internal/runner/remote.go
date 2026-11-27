@@ -73,7 +73,7 @@ func (r Remote) Finish(ctx context.Context, runner, run string, fence int64, res
 // Permit implements Permitter.
 func (r Remote) Permit(ctx context.Context, runner, run string, fence int64, p PermitRequest) (Permission, error) {
 	res, err := r.Client.RunnerPermit(ctx, api.PermitParams{Runner: runner, Run: run, Fence: fence, Tool: p.Tool,
-		Kind: string(p.Kind), Path: p.Path})
+		Kind: string(p.Kind), Resource: p.Resource})
 	if err != nil {
 		return Permission{}, remoteError(err)
 	}

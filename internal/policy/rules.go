@@ -328,6 +328,7 @@ func validRequest(r Request) string {
 		KindWrite: {"project"}, KindMerge: {"project", "resource"}, KindDelete: {"resource"},
 		KindForcePush: {"project", "resource"}, KindBranchDelete: {"project", "resource"},
 		KindHistoryRewrite: {"project", "resource"}, KindCredentialUse: {"resource"},
+		KindExec: {"project", "resource"}, KindFetch: {"resource"},
 	}
 	for _, field := range needs[r.Kind] {
 		if field == "project" && r.Target.Project == "" || field == "resource" && r.Target.Resource == "" {

@@ -38,9 +38,13 @@ func (c *capture) lines() [][]byte {
 	return bytes.Split(bytes.TrimSuffix(c.buf.Bytes(), []byte("\n")), []byte("\n"))
 }
 
-// fakePermit stands in for the policy engine: it allows file tools inside the run's directory, as
-// the transcripts record it, and refuses the rest.
+// fakePermit stands in for the policy engine under its default rules: it allows file tools inside
+// the run's directory, as the transcripts record it, refuses the rest, and refuses every shell
+// command and fetch, naming what it was asked about.
 func fakePermit(tool string, access harness.Access, path string) (bool, string) {
+	if access == harness.Exec || access == harness.Fetch {
+		return false, "no rule allows this action: " + string(access) + " " + path
+	}
 	if path == "" || strings.HasPrefix(path, "/work/run-1/") {
 		return true, ""
 	}

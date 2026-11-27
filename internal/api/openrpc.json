@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.4.0"
+    "version": "1.5.0"
   },
   "servers": [
     {
@@ -363,7 +363,7 @@
       "params": [
         {
           "name": "kind",
-          "description": "The action: read, write, merge, delete, force_push, branch_delete, history_rewrite or credential_use.",
+          "description": "The action: read, write, merge, delete, force_push, branch_delete, history_rewrite, credential_use, exec or fetch.",
           "required": true,
           "schema": {
             "maxLength": 32,
@@ -1317,7 +1317,7 @@
         },
         {
           "name": "kind",
-          "description": "read or write.",
+          "description": "read, write, exec or fetch.",
           "required": true,
           "schema": {
             "maxLength": 16,
@@ -1326,8 +1326,8 @@
           }
         },
         {
-          "name": "path",
-          "description": "The absolute path the tool reads or writes, inside the run's directory; empty when it names none.",
+          "name": "resource",
+          "description": "For a read or write, the absolute path inside the run's directory, empty when the tool names none; for an exec, the shell command; for a fetch, the URL or search. Untrusted text, recorded with the decision.",
           "required": false,
           "schema": {
             "maxLength": 4096,

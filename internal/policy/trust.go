@@ -52,6 +52,8 @@ var privileged = map[Kind]bool{
 	KindBranchDelete:   true,
 	KindHistoryRewrite: true,
 	KindCredentialUse:  true,
+	KindExec:           true,
+	KindFetch:          true,
 }
 
 // Privileged reports whether k is a privileged action kind. Unknown kinds are.

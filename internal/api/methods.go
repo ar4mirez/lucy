@@ -160,7 +160,7 @@ type ShutdownResult struct {
 // identified it; the facts (posture, checks, approvals, resolved paths) are the daemon's own and
 // cannot be supplied here.
 type EvaluateParams struct {
-	Kind     string        `json:"kind" lucy:"required,maxlen=32" doc:"The action: read, write, merge, delete, force_push, branch_delete, history_rewrite or credential_use."`
+	Kind     string        `json:"kind" lucy:"required,maxlen=32" doc:"The action: read, write, merge, delete, force_push, branch_delete, history_rewrite, credential_use, exec or fetch."`
 	Org      string        `json:"org" lucy:"required,maxlen=128" doc:"The org the target belongs to."`
 	Project  string        `json:"project,omitempty" lucy:"maxlen=128" doc:"The project (repository), when the action has one."`
 	Resource string        `json:"resource,omitempty" lucy:"maxlen=4096" doc:"What the action is on: a PR (pr/12), an absolute path, a branch or a credential name."`
@@ -338,12 +338,12 @@ type FinishResult struct {
 // PermitParams asks about a Pilot's prompted file tool. The actor, org and project come from the
 // lease, never from these params.
 type PermitParams struct {
-	Runner string `json:"runner" lucy:"required,maxlen=63" doc:"The runner holding the lease."`
-	Run    string `json:"run" lucy:"required,maxlen=256" doc:"The leased run."`
-	Fence  int64  `json:"fence" lucy:"min=1" doc:"The lease's fencing token."`
-	Tool   string `json:"tool" lucy:"required,maxlen=64" doc:"The prompted tool's name, as the harness gave it. Untrusted."`
-	Kind   string `json:"kind" lucy:"required,maxlen=16" doc:"read or write."`
-	Path   string `json:"path,omitempty" lucy:"maxlen=4096" doc:"The absolute path the tool reads or writes, inside the run's directory; empty when it names none."`
+	Runner   string `json:"runner" lucy:"required,maxlen=63" doc:"The runner holding the lease."`
+	Run      string `json:"run" lucy:"required,maxlen=256" doc:"The leased run."`
+	Fence    int64  `json:"fence" lucy:"min=1" doc:"The lease's fencing token."`
+	Tool     string `json:"tool" lucy:"required,maxlen=64" doc:"The prompted tool's name, as the harness gave it. Untrusted."`
+	Kind     string `json:"kind" lucy:"required,maxlen=16" doc:"read, write, exec or fetch."`
+	Resource string `json:"resource,omitempty" lucy:"maxlen=4096" doc:"For a read or write, the absolute path inside the run's directory, empty when the tool names none; for an exec, the shell command; for a fetch, the URL or search. Untrusted text, recorded with the decision."`
 }
 
 // PermitResult answers runner.permit.

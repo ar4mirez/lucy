@@ -41,7 +41,8 @@ const (
 // Kind is the action requested.
 type Kind string
 
-// Action kinds. Every kind except read and write is privileged.
+// Action kinds. Every kind except read and write is privileged. No rule allows exec or fetch yet,
+// so the default deny refuses them; each is still decided and recorded.
 const (
 	KindRead           Kind = "read"            // read an org's objects
 	KindWrite          Kind = "write"           // change files in a project worktree
@@ -51,6 +52,8 @@ const (
 	KindBranchDelete   Kind = "branch_delete"   // delete a branch
 	KindHistoryRewrite Kind = "history_rewrite" // rebase, amend or filter published history
 	KindCredentialUse  Kind = "credential_use"  // #nosec G101 -- use a stored credential; this is the kind's name, not a credential
+	KindExec           Kind = "exec"            // run a shell command in a project's worktree
+	KindFetch          Kind = "fetch"           // fetch a URL or search the network
 )
 
 // Source is where an input to a request came from. It is set by lucy where the text enters the

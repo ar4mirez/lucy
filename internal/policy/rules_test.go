@@ -68,7 +68,10 @@ func TestRequestAndFactsValidation(t *testing.T) {
 	}
 	runCases(t, []ruleCase{
 		{"unknown role", request(Actor{ID: "x", Role: "admin", Org: "acme"}, KindRead, "", ""), Facts{}, Denied, "request.valid"},
-		{"unknown kind", request(worker, "exec", "app", "ls"), Facts{}, Denied, "request.valid"},
+		{"unknown kind", request(worker, "teleport", "app", "ls"), Facts{}, Denied, "request.valid"},
+		{"exec without a project", request(worker, KindExec, "", "ls"), Facts{}, Denied, "request.valid"},
+		{"exec without a command", request(worker, KindExec, "app", ""), Facts{}, Denied, "request.valid"},
+		{"fetch without a URL", request(worker, KindFetch, "app", ""), Facts{}, Denied, "request.valid"},
 		{"no actor id", request(Actor{Role: RoleWorker, Org: "acme"}, KindRead, "", ""), Facts{}, Denied, "request.valid"},
 		{"org-bound actor without org", request(Actor{ID: "w", Role: RoleWorker}, KindRead, "", ""), Facts{}, Denied, "request.valid"},
 		{"owner claiming an org", request(Actor{ID: "c", Role: RoleOwner, Org: "acme"}, KindRead, "", ""), Facts{}, Denied, "request.valid"},
@@ -377,4 +380,16 @@ func TestReasonsNameTheOwnerByPlaceholder(t *testing.T) {
 			t.Errorf("%s: reason names the owner by role id: %q", name, d.Reason)
 		}
 	}
+}
+
+// TestExecAndFetchDenied: a shell command or a network fetch is decided, and no rule allows either
+// yet, for any role: the default deny refuses them, and outside text alone is refused first.
+func TestExecAndFetchDenied(t *testing.T) {
+	agentOnly := Input{Source: SourceAgent, Ref: "tool/Bash"}
+	runCases(t, []ruleCase{
+		{"worker exec", request(worker, KindExec, "app", "go test ./..."), Facts{}, Denied, "default.deny"},
+		{"worker fetch", request(worker, KindFetch, "app", "https://example.com"), Facts{}, Denied, "default.deny"},
+		{"owner exec", request(Actor{ID: "o", Role: RoleOwner}, KindExec, "app", "ls"), Facts{}, Denied, "default.deny"},
+		{"exec on agent text alone", request(worker, KindExec, "app", "ls", agentOnly), Facts{}, Denied, "taint.trusted-basis"},
+	})
 }
