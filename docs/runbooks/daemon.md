@@ -168,8 +168,9 @@ dispatched. `lucy config status` shows each Ready Flight's `Dispatched` conditio
 
 | Status / reason | Meaning |
 |---|---|
-| True / `Dispatched` | the Tower flies it |
-| False / `DispatchDisabled` | the daemon was started without `--dispatch` |
+| True / `Dispatched` | this start dispatched it |
+| True / `InFlight` | the Tower is flying it from its log, dispatched by an earlier start, with or without `--dispatch` now |
+| False / `DispatchDisabled` | nothing flies it and the daemon was started without `--dispatch` |
 | False / `TakeoverGate` | its Runway names a repository whose remote, symlinks resolved, is not a `file://` URL or absolute path under lucy's data directory or the system temp directory; real repositories are refused until runs have an OS boundary of their own (#36) and the owner's go/no-go |
 | False / `NameInUse` | a flight of another org or runway holds its name; rename the Flight |
 | False / `Finished` | the flight with its name is finished (grounded, takeoff or merged outside); a new Flight needs a new name |

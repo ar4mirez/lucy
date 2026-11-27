@@ -167,7 +167,7 @@ slice table, requirement status and exit tests stay in the plan.
   owner posture. The daemon hosts the Tower: it steps its flights on its poll interval and serves its
   Pilots' questions through `lucy questions` and `lucy answer`; only started with `--dispatch` does
   it dispatch the Ready Flights it loads (by name, once), each recorded with a `Dispatched`
-  condition (DispatchDisabled, TakeoverGate, NameInUse, Finished, DispatchFailed when not). A Runway
+  condition (InFlight for one it flies from its log; DispatchDisabled, TakeoverGate, NameInUse, Finished, DispatchFailed when not). A Runway
   whose remote is not a local fixture is refused, at dispatch and at every lease, until #36 and the owner's go/no-go, and the gateway
   refuses every git push; its forge is a stub that merges nothing until the validation slice. Left in 7a: decisions
   as Decision resources (LUCY-SPEC-013), pipelines (LUCY-SPEC-014), roles (LUCY-SPEC-015) and Core

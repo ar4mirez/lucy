@@ -75,19 +75,21 @@ func TestTheDaemonFliesReadyFlights(t *testing.T) {
 		t.Fatalf("the answer on the heartbeat: %+v, %v", beat, err)
 	}
 
-	// Restarted, the daemon flies the same flight on: it is not dispatched again.
+	// Restarted without --dispatch, the daemon flies the same flight on from its log: it is not
+	// dispatched again, and its status says it is in flight.
 	if _, err := c.Shutdown(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.wait(t); err != nil {
 		t.Fatal(err)
 	}
+	o.Dispatch = false
 	_, c = start()
 	time.Sleep(100 * time.Millisecond) // a few Tower steps
 	if got := strings.Join(runs(), ","); got != "fix-login#1" {
 		t.Fatalf("runs after a restart: %s", got)
 	}
-	if d := dispatched(t, c, "acme", "fix-login"); d.Status != "True" || d.Reason != ReasonDispatched {
+	if d := dispatched(t, c, "acme", "fix-login"); d.Status != "True" || d.Reason != ReasonInFlight {
 		t.Fatalf("the Dispatched condition after a restart: %+v", d)
 	}
 }
@@ -300,6 +302,9 @@ func TestTheTakeoverGateHoldsAtLease(t *testing.T) {
 	o.Dispatch = false
 	writeFlights(t, o, "spec: { repository: acme/web }")
 	c = startClient(t, o)
+	if d := dispatched(t, c, "acme", "fix-login"); d.Status != "False" || d.Reason != ReasonTakeoverGate {
+		t.Fatalf("the Dispatched condition of a flight in the log on a real remote: %+v", d)
+	}
 	ctx := context.Background()
 	l, err := c.RunnerLease(ctx, api.LeaseParams{Runner: "acme-host-1", Org: "acme"})
 	if err != nil || !l.Leased {

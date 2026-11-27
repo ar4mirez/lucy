@@ -20,7 +20,8 @@ Changes since the last release. When a version is cut, its section moves to
   relays the owner's answer. It dispatches nothing unless started with `lucy daemon --dispatch`;
   then it dispatches every Flight in the config directory whose `Ready` condition is True, once, by
   the Flight's name, and starts its Pilot through the runner protocol. Each Ready Flight carries a
-  `Dispatched` condition (`lucy config status`): True, or False with reason `DispatchDisabled`,
+  `Dispatched` condition (`lucy config status`): True (`Dispatched`, or `InFlight` for a flight the
+  Tower flies from its log, with or without `--dispatch`), or False with reason `DispatchDisabled`,
   `TakeoverGate` (its Runway names a repository whose remote is not a local fixture under lucy's
   data directory or the system temp directory: real repositories are refused until #36 and the
   owner's go/no-go), `NameInUse` (a flight of another org or runway has its name), `Finished` (a finished flight has

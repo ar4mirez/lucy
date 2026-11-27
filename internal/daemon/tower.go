@@ -65,6 +65,7 @@ const ConditionDispatched = "Dispatched"
 // Reasons a Dispatched condition gives.
 const (
 	ReasonDispatched       = "Dispatched"
+	ReasonInFlight         = "InFlight"
 	ReasonDispatchDisabled = "DispatchDisabled"
 	ReasonTakeoverGate     = "TakeoverGate"
 	ReasonNameInUse        = "NameInUse"
@@ -118,8 +119,8 @@ func startTower(ctx context.Context, store *eventstore.Store, broker *runner.Bro
 }
 
 // dispatch decides, for every admitted Flight whose Ready condition is True, whether the Tower
-// flies it, and records why as its Dispatched condition. A Flight that is not Ready is never
-// dispatched (LUCY-SPEC-012). Without dispatch on, none is. A Flight the Tower flies already, by
+// flies it, and records why as its Dispatched condition, whether or not dispatch is on. A Flight
+// that is not Ready is never dispatched (LUCY-SPEC-012). Without dispatch on, none is. A Flight the Tower flies already, by
 // its name, in its namespace and runway, was dispatched by an earlier start, unless it is
 // finished; one whose name a flight of another org or runway holds is not dispatched.
 func (h *hostedTower) dispatch(ctx context.Context, set *spec.Set, enabled bool, gate func(org, project string) error) {
@@ -141,10 +142,6 @@ func (h *hostedTower) dispatch(ctx context.Context, set *spec.Set, enabled bool,
 			set.Results[i].Conditions = append(set.Results[i].Conditions,
 				spec.Condition{Type: ConditionDispatched, Status: status, Reason: reason, Message: message})
 		}
-		if !enabled {
-			mark(spec.False, ReasonDispatchDisabled, "the daemon dispatches no Flight unless it is started with --dispatch")
-			continue
-		}
 		str := func(k string) string { s, _ := r.Spec[k].(string); return s }
 		org, project := r.Metadata.Namespace, str("runway")
 		if f, ok := h.tw.Flight(r.Metadata.Name); ok {
@@ -158,7 +155,16 @@ func (h *hostedTower) dispatch(ctx context.Context, set *spec.Set, enabled bool,
 				mark(spec.False, ReasonFinished, fmt.Sprintf("flight %s is %s; a new Flight needs a new name", f.ID, f.State))
 				continue
 			}
-			mark(spec.True, ReasonDispatched, "the Tower flies it")
+			if err := gate(org, project); err != nil {
+				h.log.Warn("flight in the log refused at the takeover gate: its leases fail", "flight", r.ID(), "err", err)
+				mark(spec.False, ReasonTakeoverGate, err.Error())
+				continue
+			}
+			mark(spec.True, ReasonInFlight, "the Tower is flying it from its log")
+			continue
+		}
+		if !enabled {
+			mark(spec.False, ReasonDispatchDisabled, "the daemon dispatches no Flight unless it is started with --dispatch")
 			continue
 		}
 		if err := gate(org, project); err != nil {
