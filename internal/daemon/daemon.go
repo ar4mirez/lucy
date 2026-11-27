@@ -29,6 +29,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/sandbox"
 	"github.com/ar4mirez/lucy/internal/server"
 	"github.com/ar4mirez/lucy/internal/spec"
+	"github.com/ar4mirez/lucy/internal/tower"
 	"github.com/ar4mirez/lucy/internal/vault"
 	"github.com/ar4mirez/lucy/internal/worktree"
 )
@@ -66,6 +67,7 @@ func Registry() (*eventstore.Registry, error) {
 	payloads := append(spec.Payloads(), Started{}, Stopped{}, server.CommandEvent{}, policy.DecisionRecord{})
 	payloads = append(append(append(payloads, runner.Payloads()...), sandbox.Payloads()...), gateway.Payloads()...)
 	payloads = append(append(append(payloads, capability.Payloads()...), vault.Payloads()...), worktree.Payloads()...)
+	payloads = append(payloads, tower.Payloads()...)
 	return eventstore.NewRegistry(payloads...)
 }
 
@@ -101,8 +103,10 @@ type Options struct {
 	WorktreeGit string
 	// CallTimeout bounds one API call; server.DefaultCallTimeout when zero.
 	CallTimeout time.Duration
-	Version     string       // lucy's version
-	Log         *slog.Logger // slog.Default when nil
+	// TowerPollInterval is how often the hosted Tower steps; tower.DefaultPollInterval when zero.
+	TowerPollInterval time.Duration
+	Version           string       // lucy's version
+	Log               *slog.Logger // slog.Default when nil
 	// OnReady is called once the socket accepts connections.
 	OnReady func(socketPath string)
 }
@@ -211,6 +215,14 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("daemon: recover the worktree pool: %w", err)
 	}
 	gateways.Capabilities = caps
+	poll := opts.TowerPollInterval
+	if poll <= 0 {
+		poll = tower.DefaultPollInterval
+	}
+	hosted, err := startTower(ctx, store, broker, set, poll, log)
+	if err != nil {
+		return fmt.Errorf("daemon: start the tower: %w", err)
+	}
 	srv, err := server.New(server.Options{
 		Store:        store,
 		Version:      opts.Version,
@@ -222,6 +234,7 @@ func Run(ctx context.Context, opts Options) error {
 		Capabilities: caps,
 		Worktrees:    worktrees,
 		CallTimeout:  opts.CallTimeout,
+		Questions:    server.TowerQuestions{Tower: hosted.tw, Lock: &hosted.mu},
 	})
 	if err != nil {
 		return err
@@ -237,6 +250,11 @@ func Run(ctx context.Context, opts Options) error {
 	go func() {
 		defer close(expiring)
 		expireLeases(ctx, broker, caps, log)
+	}()
+	towering := make(chan struct{})
+	go func() {
+		defer close(towering)
+		hosted.run(ctx, poll)
 	}()
 	log.Info("lucy daemon serving", "socket", sock, "api", api.Path, "version", opts.Version)
 	if opts.OnReady != nil {
@@ -260,6 +278,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	stop(nil)
 	<-expiring
+	<-towering
 	worktrees.Wait()
 	if _, err := store.Append(shutdownCtx, DaemonStream, eventstore.AnyVersion, "daemon",
 		Stopped{PID: os.Getpid(), Reason: reason}); err != nil {

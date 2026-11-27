@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 28
+version: 29
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,12 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Added
+
+- The daemon hosts the Tower: at start it dispatches every Flight in the config directory whose
+  `Ready` condition is True, once, by the Flight's name, and starts its Pilot through the runner
+  protocol; `lucy questions` lists its Pilots' open questions and `lucy answer` relays the owner's
+  answer. Until the validation slice connects a forge, the Tower's forge is a stub that reads no
+  pull request and merges nothing, so no flight lands: point no Flight at a real repository yet.
 
 - Flights have a readiness check: a `Flight` resource states its `goal`, its delivery path
   (`runway`, and `delivery`: `pull-request` for a ship Flight, `report` for a research one), its

@@ -79,9 +79,8 @@ type Options struct {
 	// this daemon serves no runners: those methods answer unavailable. Its store must be Store.
 	Runs *runner.Broker
 	// Questions is the Tower's view of the Pilots' open questions, which questions.list and
-	// questions.answer serve. Nil means this daemon hosts no Tower yet: the list is empty and an
-	// answer is unavailable. TODO(LUCY-SPEC-012): set it once the daemon hosts the Tower (m1
-	// slice 7a).
+	// questions.answer serve: the daemon's hosted Tower. Nil means no Tower is hosted: the list is
+	// empty and an answer is unavailable.
 	Questions Questions
 	// Containers is the guarded view of the org containers, which sandbox.held and
 	// sandbox.confirm serve. Nil means this daemon has no Sandbox binding open: nothing is held

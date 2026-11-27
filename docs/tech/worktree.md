@@ -2,7 +2,7 @@
 id: tech-worktree
 title: The worktree pool
 status: active
-version: 2
+version: 3
 owner: ar4mirez
 requirements: [LUCY-RUN-007]
 ---
@@ -134,8 +134,8 @@ Where a run's checkout of its repository comes from (TECH.md section 6). The cod
 
 ## Not built yet
 
-- TODO(LUCY-RUN-007): the Tower giving a slot back at takeoff with its merge as the proof (the daemon
-  hosts the Tower in slice 7a), and fetching a private repository (its credentials through the
+- TODO(LUCY-RUN-007): the Tower giving a slot back at takeoff with its merge as the proof (the hosted
+  Tower's forge merges nothing until the validation slice), and fetching a private repository (its credentials through the
   org's gateway).
 - TODO(LUCY-SBX-001): mounting the slot into the org's container for a container-placed run
   (berth#216).
