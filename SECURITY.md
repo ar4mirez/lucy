@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 4
+version: 5
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-SEC-002, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -18,7 +18,7 @@ discussion for a suspected vulnerability.
 
 Include what you found, how to reproduce it, the version or commit, and the impact you expect. You
 will get an acknowledgement, a fix or mitigation plan, and credit in the advisory if you want it.
-lucy is pre-release (m0): only the `main` branch is supported, and fixes land there.
+lucy is pre-release (0.x): only the `main` branch is supported, and fixes land there.
 
 ## Model
 

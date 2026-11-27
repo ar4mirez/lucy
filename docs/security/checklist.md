@@ -2,7 +2,7 @@
 id: security-checklist
 title: Security checklist mapped to milestones
 status: active
-version: 9
+version: 10
 owner: ar4mirez
 requirements: [LUCY-EVT-005, LUCY-POL-001, LUCY-POL-004, LUCY-POL-006, LUCY-POL-007, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-008, LUCY-VIEW-006, LUCY-SEC-001, LUCY-SEC-002, LUCY-SEC-003, LUCY-SEC-004, LUCY-SEC-005, LUCY-SEC-006, LUCY-SEC-007, LUCY-SEC-008, LUCY-SEC-009, LUCY-SEC-010, LUCY-SEC-011, LUCY-SEC-012, LUCY-SEC-013]
 ---
@@ -174,5 +174,5 @@ changes as needing a decision, and every "later" becomes a backlog record.
 - **Supply chain posture:** OpenSSF Scorecard runs weekly and on `main`, uploading to code scanning
   only; its job holds the only write scope outside the release job (`security-events`), which
   `internal/workflowcheck` enforces.
-- **Still a repository setting:** a red check stops a merge only once branch protection requires it
-  ([repository settings](../runbooks/repository-settings.md)); turning that on is the owner's call.
+- **A repository setting:** a red check stops a merge because the ruleset for `main` requires the
+  scans ([repository settings](../runbooks/repository-settings.md)).

@@ -2,14 +2,14 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 11
+version: 12
 owner: ar4mirez
 requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-001, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-009, LUCY-SIM-001, LUCY-SIM-002, LUCY-RUN-001, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007, LUCY-SEC-002]
 ---
 
 # lucy: technical specification
 
-Status: m0. The skeleton, the release pipeline, the event store (section 3), the first part of the
+Status: m0 done. The skeleton, the release pipeline, the event store (section 3), the first part of the
 API with `lucy daemon` (section 4), the policy engine (section 5), lucy's settings file (section
 2), the spec model with the audit chain (section 10) and the flight state machine with its
 simulation harness (section 11) and lucy's own security scans (section 9) exist; the rest

@@ -2,7 +2,7 @@
 id: changes-archive
 title: Change history by version
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -25,5 +25,6 @@ The release runbook ([docs/runbooks/release.md](../runbooks/release.md)) runs th
 
 ## Versions
 
+- [0.3.0](0.3.0.md) (2026-11-26)
 - [0.2.0](0.2.0.md) (2026-11-26)
 - [0.1.0](0.1.0.md) (2026-11-26)
