@@ -87,6 +87,12 @@ type ContainerReleased struct {
 	Org string `json:"org"`
 }
 
+// HostOrgSet records the one org whose runs runners placed on the host lease: set by the first
+// host lease, and changed only by the owner while no host run is live. It is on HostOrgStream.
+type HostOrgSet struct {
+	Org string `json:"org"`
+}
+
 // EventType and EventVersion implement eventstore.Payload.
 
 func (Queued) EventType() string        { return "run.queued" }
@@ -100,6 +106,7 @@ func (Expired) EventType() string       { return "run.expired" }
 
 func (ContainerHeld) EventType() string     { return "container.held" }
 func (ContainerReleased) EventType() string { return "container.released" }
+func (HostOrgSet) EventType() string        { return "runner.host_org_set" }
 
 func (Queued) EventVersion() int        { return 1 }
 func (Leased) EventVersion() int        { return 1 }
@@ -112,11 +119,12 @@ func (Expired) EventVersion() int       { return 1 }
 
 func (ContainerHeld) EventVersion() int     { return 1 }
 func (ContainerReleased) EventVersion() int { return 1 }
+func (HostOrgSet) EventVersion() int        { return 1 }
 
-// Payloads returns the run and container hold events, for the store's registry.
+// Payloads returns the run, container hold and host org events, for the store's registry.
 func Payloads() []eventstore.Payload {
 	return []eventstore.Payload{Queued{}, Leased{}, Renewed{}, Streamed{}, StopRequested{}, Answered{}, Finished{}, Expired{},
-		ContainerHeld{}, ContainerReleased{}}
+		ContainerHeld{}, ContainerReleased{}, HostOrgSet{}}
 }
 
 // StreamPrefix starts every run stream.
@@ -124,6 +132,9 @@ const StreamPrefix = "run/"
 
 // Stream returns a run's stream.
 func Stream(org, run string) string { return StreamPrefix + org + "/" + run }
+
+// HostOrgStream is the stream of the host org's changes.
+const HostOrgStream = "runner/host-org"
 
 // ContainerStreamPrefix starts every container hold stream.
 const ContainerStreamPrefix = "container/"

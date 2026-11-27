@@ -29,7 +29,7 @@ new ADR whose front matter says `supersedes`.
 | [D10](D10-api-json-rpc.md) | The one API is restricted JSON-RPC 2.0 with a generated OpenRPC schema | accepted |
 | [D11](D11-spec-loading.md) | How lucy loads spec resources and chains its audit log | accepted |
 | [D12](D12-threat-model.md) | lucy's STRIDE threat model, re-checked at every milestone exit | accepted |
-| [D13](D13-run-gateway-socket.md) | A run reaches its org's gateway through a socket its runner fronts; one org per host runner | accepted |
+| [D13](D13-run-gateway-socket.md) | A run reaches its org's gateway through a socket its runner fronts; the host serves one org | accepted |
 | [R1](R1-adversarial-review.md) | Adversarial architecture review, adopted in full | accepted |
 
 ## Format

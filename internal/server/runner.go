@@ -31,7 +31,9 @@ func runnerError(err error) error {
 	case errors.Is(err, runner.ErrSequence):
 		return api.FieldError(api.CodeInvalidParams, "events", "number a run's events from 1 without gaps; resend from the accepted number")
 	case errors.Is(err, runner.ErrRunnerOrg):
-		return api.FieldError(api.CodeRunnerOrg, "org", "a runner on the host names the one org whose runs it leases, and only the org of the runs it holds")
+		return api.FieldError(api.CodeRunnerOrg, "org", "a runner on the host names the one org whose runs it leases")
+	case errors.Is(err, runner.ErrHostOrg):
+		return api.FieldError(api.CodeHostOrg, "org", "host placement serves one org at a time; lease other orgs' runs with container placement, or change the host org with `lucy runner host-org <org>` once no host run is live")
 	case errors.Is(err, runner.ErrSandboxBusy):
 		return api.NewError(api.CodeSandboxBusy, "every queued run's org container is being restarted or stopped; lease again later")
 	case errors.Is(err, runner.ErrInvalid), errors.Is(err, runner.ErrExists):
@@ -199,4 +201,15 @@ func (s *Server) runnerPermit(ctx context.Context, p *api.PermitParams) (api.Per
 		return api.PermitResult{}, runnerError(err)
 	}
 	return api.PermitResult{Outcome: string(perm.Outcome), Rule: perm.Rule, Reason: perm.Reason}, nil
+}
+
+func (s *Server) runnerHostOrg(ctx context.Context, p *api.HostOrgParams) (api.HostOrgResult, error) {
+	b, err := s.broker()
+	if err != nil {
+		return api.HostOrgResult{}, err
+	}
+	if err := b.SetHostOrg(ctx, p.Org, "owner"); err != nil {
+		return api.HostOrgResult{}, runnerError(err)
+	}
+	return api.HostOrgResult{Org: p.Org}, nil
 }

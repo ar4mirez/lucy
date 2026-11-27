@@ -961,7 +961,7 @@
     },
     {
       "name": "runner.lease",
-      "summary": "Lease the oldest queued run under a new fencing token. A runner placed on the host leases the runs of exactly one org, which it names; one that names none, or names another org than that of a run it holds, is refused with runner_org. A runner placed in a container is never leased a run whose org's container is being restarted or stopped; when every queued run is such a run, it is refused with sandbox_busy and leases again later.",
+      "summary": "Lease the oldest queued run under a new fencing token. A runner placed on the host names its org, or is refused with runner_org; it is leased only that org's runs, and only if that is the host org (the first host lease sets it; runner.host_org changes it), or it is refused with host_org: other orgs need container placement. A runner placed in a container is never leased a run whose org's container is being restarted or stopped; when every queued run is such a run, it is refused with sandbox_busy and leases again later.",
       "paramStructure": "by-name",
       "params": [
         {
@@ -985,7 +985,7 @@
         },
         {
           "name": "org",
-          "description": "The one org whose runs the runner leases. Required on the host: a host runner that names none, or names another org than that of a run it holds, is refused with runner_org. A runner in a container may leave it empty to lease any org's runs.",
+          "description": "The one org whose runs the runner leases. Required on the host, refused with runner_org when empty, and refused with host_org when it is not the host org. A runner in a container may leave it empty to lease any org's runs.",
           "required": false,
           "schema": {
             "maxLength": 200,
@@ -2473,6 +2473,42 @@
       "x-lucy-scope": "admin",
       "x-lucy-mutating": true,
       "x-lucy-group": "command"
+    },
+    {
+      "name": "runner.host_org",
+      "summary": "Make org the host org: the one org whose runs runners placed on the host lease, since every process on the host runs as one uid and can reach the others' sockets. The first host lease sets it; only this owner command changes it, recorded, and it is refused with host_org while any host run is live. Other orgs need container placement.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "org",
+          "description": "The org whose runs runners placed on the host lease from now on.",
+          "required": true,
+          "schema": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "org": {
+              "description": "The host org.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "org"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "admin",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
     }
   ],
   "components": {
@@ -2484,6 +2520,10 @@
       "forbidden": {
         "code": -32001,
         "message": "forbidden"
+      },
+      "host_org": {
+        "code": -32009,
+        "message": "host placement serves another org"
       },
       "internal": {
         "code": -32603,

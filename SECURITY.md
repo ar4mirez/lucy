@@ -96,11 +96,12 @@ forwards it. A Pilot reaches the gateway through a socket the runner opens in it
 directory, which adds the token on the Pilot's behalf, so no token is ever in a Pilot's process,
 environment or files ([D13](docs/decisions/D13-run-gateway-socket.md)). Any process of the run can
 still act with its token, through that socket, for the run's life and within its org, routes and
-lease. The socket's modes keep out other users but not the runner's own uid, so a runner on the
-host leases the runs of exactly one org (`lucy runner --org`, required there): the daemon refuses a
-host lease that names no org, or names another org than that of a run the runner holds
-(`runner_org`). By default each org's runs also get their own runner root. A Pilot of one org thus
-never shares a runner, a socket directory or a token holder with another org.
+lease. Isolation between orgs holds across containers or uids, not within one: the socket's modes
+keep out other users, but every process of the same uid can reach every other's socket. So the
+daemon serves one host org: the first run leased to a runner on the host sets it, recorded as
+`runner.host_org_set`, and a host lease for any other org is refused (`host_org`); other orgs need
+container placement. Only the owner changes it (`lucy runner host-org <org>`, recorded), and not
+while any host run is live, so no two orgs' runs are ever on the host at once.
 
 ## Audit and log data
 

@@ -50,6 +50,7 @@ const (
 	MethodCaps      = "capabilities.list"
 	MethodRevoke    = "capability.revoke"
 	MethodVaultRec  = "vault.record"
+	MethodHostOrg   = "runner.host_org"
 )
 
 var methods = []Method{
@@ -64,7 +65,7 @@ var methods = []Method{
 	{MethodResources, "The config resources the daemon loaded and their status, as conditions.", "query", ScopeRead, false, typeOf[ResourcesParams](), typeOf[ResourcesPage]()},
 	{MethodAudit, "Verify the audit hash chain against the event log.", "query", ScopeRead, false, typeOf[NoParams](), typeOf[AuditReport]()},
 	{MethodQueued, "How many runs wait for a runner placed at placement, of the runner's org when it names one. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log. A runner placed in a container is not counted the runs of an org whose container is being restarted or stopped.", "query", ScopeRun, false, typeOf[QueuedParams](), typeOf[QueuedResult]()},
-	{MethodLease, "Lease the oldest queued run under a new fencing token. A runner placed on the host leases the runs of exactly one org, which it names; one that names none, or names another org than that of a run it holds, is refused with runner_org. A runner placed in a container is never leased a run whose org's container is being restarted or stopped; when every queued run is such a run, it is refused with sandbox_busy and leases again later.", "command", ScopeRun, true, typeOf[LeaseParams](), typeOf[LeaseResult]()},
+	{MethodLease, "Lease the oldest queued run under a new fencing token. A runner placed on the host names its org, or is refused with runner_org; it is leased only that org's runs, and only if that is the host org (the first host lease sets it; runner.host_org changes it), or it is refused with host_org: other orgs need container placement. A runner placed in a container is never leased a run whose org's container is being restarted or stopped; when every queued run is such a run, it is refused with sandbox_busy and leases again later.", "command", ScopeRun, true, typeOf[LeaseParams](), typeOf[LeaseResult]()},
 	{MethodHeartbeat, "Renew a lease and record the run's newly streamed events, in one transaction.", "command", ScopeRun, true, typeOf[HeartbeatParams](), typeOf[HeartbeatResult]()},
 	{MethodFinish, "Finish a leased run with its outcome.", "command", ScopeRun, true, typeOf[FinishParams](), typeOf[FinishResult]()},
 	{MethodPermit, "Ask the policy engine whether a leased run's Pilot may use a prompted file tool; the decision is recorded before it is returned.", "command", ScopeRun, true, typeOf[PermitParams](), typeOf[PermitResult]()},
@@ -81,6 +82,7 @@ var methods = []Method{
 	{MethodCaps, "The capability tokens issued to runs, by id, never the tokens: newest first, only those not yet expired unless all.", "query", ScopeRead, false, typeOf[CapabilitiesParams](), typeOf[CapabilitiesList]()},
 	{MethodRevoke, "Revoke a capability token by its id: the gateway refuses it from then on.", "command", ScopeDecide, true, typeOf[RevokeParams](), typeOf[CapabilityInfo]()},
 	{MethodVaultRec, "Record one phase of a change to an org's vault, by name only: before the change (requested) and after it (applied or failed).", "command", ScopeAdmin, true, typeOf[VaultRecordParams](), typeOf[VaultRecorded]()},
+	{MethodHostOrg, "Make org the host org: the one org whose runs runners placed on the host lease, since every process on the host runs as one uid and can reach the others' sockets. The first host lease sets it; only this owner command changes it, recorded, and it is refused with host_org while any host run is live. Other orgs need container placement.", "command", ScopeAdmin, true, typeOf[HostOrgParams](), typeOf[HostOrgResult]()},
 }
 
 // NewParams returns a pointer to a new, zero params value for the method, ready for DecodeParams.
@@ -300,7 +302,7 @@ type QueuedResult struct {
 type LeaseParams struct {
 	Runner     string `json:"runner" lucy:"required,maxlen=63" doc:"The runner's id: 1-63 of a-z, 0-9, '.', '_' and '-', starting with a letter or digit."`
 	Placement  string `json:"placement,omitempty" lucy:"maxlen=16" doc:"host (this machine; the default) or container (an org's container)."`
-	Org        string `json:"org,omitempty" lucy:"maxlen=200" doc:"The one org whose runs the runner leases. Required on the host: a host runner that names none, or names another org than that of a run it holds, is refused with runner_org. A runner in a container may leave it empty to lease any org's runs."`
+	Org        string `json:"org,omitempty" lucy:"maxlen=200" doc:"The one org whose runs the runner leases. Required on the host, refused with runner_org when empty, and refused with host_org when it is not the host org. A runner in a container may leave it empty to lease any org's runs."`
 	TTLSeconds int    `json:"ttl_seconds,omitempty" lucy:"min=0,max=300" doc:"The lease's life; 0 means 60, and values below 5 mean 5."`
 }
 
@@ -577,6 +579,16 @@ type CapabilityInfo struct {
 type RevokeParams struct {
 	ID     string `json:"id" lucy:"required,maxlen=16" doc:"The capability's id, as capabilities.list shows it."`
 	Reason string `json:"reason,omitempty" lucy:"maxlen=200" doc:"Why, for the record."`
+}
+
+// HostOrgParams sets the host org.
+type HostOrgParams struct {
+	Org string `json:"org" lucy:"required,maxlen=200" doc:"The org whose runs runners placed on the host lease from now on."`
+}
+
+// HostOrgResult answers runner.host_org.
+type HostOrgResult struct {
+	Org string `json:"org" doc:"The host org."`
 }
 
 // VaultRecordParams records one phase of a vault change.

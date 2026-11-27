@@ -10,10 +10,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/ar4mirez/lucy/internal/api"
+	"github.com/ar4mirez/lucy/internal/api/client"
 	"github.com/ar4mirez/lucy/internal/daemon"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/harness"
@@ -26,17 +29,20 @@ const runnerUsage = `Usage:
               [--placement host|container] [--ttl <seconds>] [--gateway-dir <dir>]
               -- <command> [<args>...]
   lucy runner [flags as above] --harness claude-code [-- <harness program> [<args>...]]
+  lucy runner host-org [--socket <path>] <org>
 
 Runs a runner in the foreground: it leases runs from the daemon over the runner protocol,
 runs <command> once per leased run, streams each line of its output into the daemon's event
 log, renews the lease at a third of its life and reports the outcome (exit status 0 is done;
 a line "lucy:pr=<n>" reports the pull request). A runner on the host (the default placement)
-leases the runs of exactly one org, which --org names and which it requires: it is never leased
-another org's run, and the daemon refuses it (runner_org) if it names none. Run one runner per
-org, so no two orgs' runs share a runner, its directory, its gateway sockets or the tokens it
-holds. A runner placed in a container may leave --org out to lease any org's runs. Each run gets
-a fresh directory under --root ($XDG_DATA_HOME/lucy/runner/<org> by default, so each org's runs
-have their own) as its working directory and TMPDIR, and an
+needs --org and is leased only that org's runs. Every process on the host runs as one uid and
+can reach the others' sockets, so the daemon serves one host org: the first host lease sets it,
+and a runner on the host for any other org is refused (host_org) and exits; other orgs need
+container placement. lucy runner host-org <org> changes the host org, recorded, and is refused
+while any host run is live. A runner placed in a container may leave --org out to lease any org's
+runs. --id defaults to one unique to the process, built from the org, the host name and the pid.
+Each run gets a fresh directory under --root ($XDG_DATA_HOME/lucy/runner/<org> by default) as its
+working directory and TMPDIR, and an
 environment of only PATH, HOME, TMPDIR and LUCY_RUN, LUCY_RUN_ORG, LUCY_RUN_PROJECT,
 LUCY_RUN_FLIGHT, LUCY_RUN_GENERATION, LUCY_RUN_GOAL and LUCY_RUN_BASE; the directory is
 deleted when the command exits. A lease not renewed within --ttl (60 s by default) expires:
@@ -50,7 +56,8 @@ named in LUCY_RUN_GATEWAY, which forwards to the org's gateway socket in --gatew
 in lucy's runtime directory by default, where lucy gateway listens) with the token added and any
 the run sent dropped. The token itself is never in the run's environment or files. A Unix socket
 path is at most 107 bytes on Linux and 103 on macOS, so the runner refuses to start under a
---root too long for a run's socket and names the longest it can take.
+--root too long for a run's socket, once symlinks in it are resolved, and names the longest it
+can take.
 
 With --harness claude-code the runner drives Claude Code (` + "`claude`" + ` unless a program follows
 --) over its stream-json protocol instead of streaming lines: the harness must report version
@@ -80,11 +87,40 @@ func defaultRunnerSignalContext() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), sigs...)
 }
 
+// defaultRunnerID is a runner id unique to this process: the org, the host name and the pid, each
+// reduced to the id alphabet and cut to fit.
+func defaultRunnerID(org string) string {
+	clean := func(s string) string {
+		return strings.Map(func(r rune) rune {
+			switch {
+			case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
+				return r
+			case r >= 'A' && r <= 'Z':
+				return r + ('a' - 'A')
+			}
+			return '-'
+		}, s)
+	}
+	host, _ := os.Hostname()
+	id := strings.TrimLeft(clean(org)+"-"+clean(host), "._-")
+	if id == "" {
+		id = "runner"
+	}
+	pid := "-" + strconv.Itoa(os.Getpid())
+	if len(id) > 63-len(pid) {
+		id = id[:63-len(pid)]
+	}
+	return id + pid
+}
+
 func runRunner(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "host-org" {
+		return runRunnerHostOrg(args[1:], stdout, stderr)
+	}
 	fs := flag.NewFlagSet("runner", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	sock := fs.String("socket", "", "")
-	id := fs.String("id", "local", "")
+	id := fs.String("id", "", "")
 	org := fs.String("org", "", "")
 	root := fs.String("root", "", "")
 	placement := fs.String("placement", string(runner.PlacementHost), "")
@@ -116,6 +152,9 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, "error: no command to run\nhelp: run `lucy runner --help`; the command follows --\n")
 		return 2
 	}
+	if *id == "" {
+		*id = defaultRunnerID(*org)
+	}
 	if err := runner.CheckRunnerID(*id); err != nil {
 		fmt.Fprintf(stderr, "error: --id %q: %v\nhelp: run `lucy runner --help`\n", *id, err)
 		return 2
@@ -125,7 +164,7 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if *org == "" && runner.Placement(*placement) == runner.PlacementHost {
-		fmt.Fprint(stderr, "error: a runner on the host needs --org: it leases the runs of exactly one org\nhelp: run `lucy runner --help`; run one runner per org\n")
+		fmt.Fprint(stderr, "error: a runner on the host needs --org: it leases the runs of one org, the host org\nhelp: run `lucy runner --help`; other orgs need --placement container\n")
 		return 2
 	}
 	if *org != "" && (*org != filepath.Base(*org) || strings.HasPrefix(*org, ".") || strings.Contains(*org, "#") || len(*org) > 200) {
@@ -147,6 +186,17 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if err := runner.CheckRunGatewayRoot(dir); err != nil {
+		fmt.Fprintf(stderr, "error: %v\nhelp: run `lucy runner --help`\n", err)
+		return 2
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+	if resolved, err := filepath.EvalSymlinks(dir); err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	} else if err := runner.CheckRunGatewayRoot(resolved); err != nil {
 		fmt.Fprintf(stderr, "error: %v\nhelp: run `lucy runner --help`\n", err)
 		return 2
 	}
@@ -189,5 +239,32 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
+	return 0
+}
+
+// runRunnerHostOrg is lucy runner host-org: the owner's command that changes the host org.
+func runRunnerHostOrg(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("runner host-org", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	sock := fs.String("socket", "", "")
+	if code, ok := parseFlagsAllowingArgs(fs, args, runnerUsage, "lucy runner --help", stdout, stderr); !ok {
+		return code
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprint(stderr, "error: lucy runner host-org takes one org\nhelp: run `lucy runner --help`\n")
+		return 2
+	}
+	c, code := dial(*sock, stderr)
+	if c == nil {
+		return code
+	}
+	defer c.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), client.DefaultTimeout)
+	defer cancel()
+	res, err := c.RunnerHostOrg(ctx, api.HostOrgParams{Org: fs.Arg(0)})
+	if err != nil {
+		return callFailed(err, c, stderr)
+	}
+	fmt.Fprintf(stdout, "host org: %s\n", untrusted(res.Org))
 	return 0
 }

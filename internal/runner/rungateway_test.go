@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -262,9 +263,9 @@ func (p withToken) Lease(ctx context.Context, r string, pl Placement, org string
 	return l, ok, err
 }
 
-// acme's runner on the host is never leased beta's run, so its root holds acme's run sockets only:
-// no beta socket exists under it for an acme run to open.
-func TestAHostRunnersRootHoldsOnlyItsOrgsSockets(t *testing.T) {
+// With acme as the host org, beta's runner on the host is refused and exits before it leases, so
+// no beta run, and no beta socket, exists on the host for an acme run to open.
+func TestNoOtherOrgsSocketOnTheHost(t *testing.T) {
 	ctx := context.Background()
 	f := open(t)
 	if err := f.b.Submit(ctx, Task{Run: "b#1", Org: "beta", Project: "web", Flight: "b", Generation: 1, Goal: "gateway"}); err != nil {
@@ -275,8 +276,9 @@ func TestAHostRunnersRootHoldsOnlyItsOrgsSockets(t *testing.T) {
 	}
 	gwDir := shortDir(t)
 	g := startFakeOrgGateway(t, gwDir, "lcap_acme")
+	base := shortDir(t)
 	pf := newProc(t)
-	pf.ex.Root = filepath.Join(shortDir(t), "acme")
+	pf.ex.Root = filepath.Join(base, "acme")
 	pf.ex.GatewayDir = gwDir
 	r := newRunner(t, f, "r1", pf.ex, withToken{f.b})
 	defer r.Shutdown(ctx, 5*time.Second)
@@ -288,18 +290,29 @@ func TestAHostRunnersRootHoldsOnlyItsOrgsSockets(t *testing.T) {
 	if held := r.Held(); len(held) != 1 || held[0].Run != "a#1" {
 		t.Fatalf("acme's runner holds %+v", held)
 	}
+	bf := newProc(t)
+	bf.ex.Root = filepath.Join(base, "beta")
+	bf.ex.GatewayDir = gwDir
+	beta, err := New(Config{ID: "r2", Org: "beta", Protocol: withToken{f.b}, Executor: bf.ex, Now: f.clock.Now,
+		TTL: 30 * time.Second, Log: nopLog()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := beta.Run(ctx, time.Millisecond); !errors.Is(err, ErrHostOrg) {
+		t.Fatalf("beta's runner on the host: %v, want ErrHostOrg", err)
+	}
 	if f.run("b#1").State != StateQueued {
-		t.Fatal("beta's run left the queue for acme's runner")
+		t.Fatal("beta's run left the queue")
 	}
 	var sockets []string
-	err := filepath.WalkDir(pf.ex.Root, func(p string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(base, func(p string, d fs.DirEntry, err error) error {
 		if err == nil && d.Type()&fs.ModeSocket != 0 {
 			sockets = append(sockets, p)
 		}
 		return err
 	})
-	if err != nil || len(sockets) != 1 {
-		t.Fatalf("sockets under acme's runner root: %q, %v", sockets, err)
+	if err != nil || len(sockets) != 1 || !strings.HasPrefix(sockets[0], pf.ex.Root+string(filepath.Separator)) {
+		t.Fatalf("sockets on the host: %q, %v; want acme's run's alone", sockets, err)
 	}
 	if status, _ := get(t, unixClient(sockets[0]), "/github/x", nil); status != 200 || g.last().Get(capabilityHeader) != "lcap_acme" {
 		t.Fatalf("the one socket: %d, sent %q", status, g.last().Get(capabilityHeader))

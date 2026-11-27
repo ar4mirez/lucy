@@ -41,12 +41,15 @@ each heartbeat's new token replaces the old one in the forwarder. The socket clo
 ends.
 
 The socket keeps other users out with file modes alone: the run's directory is 0700 and the socket
-is 0600. Every process of the runner's uid can open it, so a runner on the host leases the runs of
-exactly one org (`lucy runner --org`; the daemon refuses a host lease that names no org, or names
-another org than that of a run the runner holds, with `runner_org`). By default each org's runs
-also get their own runner root (`<data>/runner/<org>`). A Pilot of one org therefore never shares
-a runner, a socket directory or a token holder with another org. A runner in an org's container
-leases as before, because the container already belongs to one org.
+is 0600. Isolation between orgs therefore holds across containers or uids, not within one: every
+process of the runner's uid can open every run socket of that uid. Until runs are in their org's
+container (berth#216), the daemon serves one host org. The first run leased to a runner on the host
+sets it, recorded as `runner.host_org_set`; a host lease for any other org is refused with
+`host_org`, and other orgs need container placement. A runner on the host names its org
+(`lucy runner --org`; `runner_org` without one). Only the owner changes the host org
+(`lucy runner host-org <org>`, the `runner.host_org` method, recorded), and not while any host run
+is live, so no two orgs' runs are on the host at once. A runner in an org's container leases as
+before, because the container already belongs to one org.
 
 ## Consequences
 

@@ -38,14 +38,15 @@ type RunInfo struct {
 }
 
 // Projector maintains the runner_runs table from the run streams, and the runner_holds table of
-// held org containers from the container streams. Register it with the store that the Broker uses.
+// held org containers from the container streams, and the runner_host_org row from HostOrgStream.
+// Register it with the store that the Broker uses.
 type Projector struct{}
 
 // Name implements eventstore.Projector.
 func (Projector) Name() string { return "runner_runs" }
 
 // Version implements eventstore.Projector.
-func (Projector) Version() int { return 5 }
+func (Projector) Version() int { return 6 }
 
 // Reset implements eventstore.Projector.
 func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
@@ -84,6 +85,11 @@ func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
 			org        TEXT PRIMARY KEY,
 			expires_ns INTEGER NOT NULL
 		)`,
+		`DROP TABLE IF EXISTS runner_host_org`,
+		`CREATE TABLE runner_host_org (
+			id  INTEGER PRIMARY KEY CHECK (id = 1),
+			org TEXT NOT NULL
+		)`,
 	} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return err
@@ -118,6 +124,13 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 			return err
 		}
 		_, err := tx.ExecContext(ctx, `DELETE FROM runner_holds WHERE org = ?`, p.Org)
+		return err
+	case HostOrgSet{}.EventType():
+		var p HostOrgSet
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO runner_host_org (id, org) VALUES (1, ?)`, p.Org)
 		return err
 	}
 	if !strings.HasPrefix(e.Type, "run.") {

@@ -145,6 +145,43 @@ func TestRunnerMethodRefusals(t *testing.T) {
 	}
 }
 
+// Host placement serves one org over the API: another org's host lease is refused with host_org,
+// and runner.host_org, an admin command, changes it only while no host run is live.
+func TestHostOrgOverTheSocket(t *testing.T) {
+	f := start(t, os.Geteuid(), 0, withBroker)
+	for _, task := range []runner.Task{{Run: "a#1", Org: "acme", Project: "web", Flight: "a", Generation: 1, Goal: "g"},
+		{Run: "b#1", Org: "beta", Project: "web", Flight: "b", Generation: 1, Goal: "g"}} {
+		if err := f.srv.opts.Runs.Submit(ctx, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l, err := f.client.RunnerLease(ctx, api.LeaseParams{Runner: "a", Org: "acme"})
+	if err != nil || !l.Leased {
+		t.Fatalf("acme's lease %+v, %v", l, err)
+	}
+	_, err = f.client.RunnerLease(ctx, api.LeaseParams{Runner: "b", Org: "beta"})
+	if ae := wantCode(t, err, api.CodeHostOrg); ae.Data.Field != "org" || !strings.Contains(ae.Data.Help, "container placement") {
+		t.Fatalf("beta's host lease: %+v", ae)
+	}
+	if _, _, err := (runner.Remote{Client: f.client}).Lease(ctx, "b", runner.PlacementHost, "beta", 0); !errors.Is(err, runner.ErrHostOrg) {
+		t.Fatalf("a remote host lease for beta: %v, want ErrHostOrg", err)
+	}
+	_, err = f.client.RunnerHostOrg(ctx, api.HostOrgParams{Org: "beta"})
+	wantCode(t, err, api.CodeHostOrg)
+	if _, err := f.client.RunnerFinish(ctx, api.FinishParams{Runner: "a", Run: "a#1", Fence: l.Run.Fence, Outcome: "done"}); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := f.client.RunnerHostOrg(ctx, api.HostOrgParams{Org: "beta"}); err != nil || res.Org != "beta" {
+		t.Fatalf("switch to beta: %+v, %v", res, err)
+	}
+	if l, err := f.client.RunnerLease(ctx, api.LeaseParams{Runner: "b", Org: "beta"}); err != nil || !l.Leased || l.Run.Run != "b#1" {
+		t.Fatalf("beta's lease after the switch: %+v, %v", l, err)
+	}
+	h := start(t, os.Geteuid(), 0, func(o *Options) { withBroker(o); o.Authorizer = denyAdmin{} })
+	_, err = h.client.RunnerHostOrg(ctx, api.HostOrgParams{Org: "beta"})
+	wantCode(t, err, api.CodeForbidden)
+}
+
 // A runner asks the policy engine about its Pilot's prompted tool through runner.permit: the
 // Pilot is decided as a worker of the run's org, and a stale fence gets nothing.
 func TestRunnerPermitOverTheSocket(t *testing.T) {

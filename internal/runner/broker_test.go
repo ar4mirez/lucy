@@ -367,42 +367,63 @@ func equal(a, b []string) bool {
 	return true
 }
 
-// A runner on the host leases the runs of exactly one org: it is never leased another org's run,
-// which stays queued for that org's runner, and it is refused when it names no org, or names
-// another org than that of a run it holds.
-func TestAHostRunnerLeasesOneOrg(t *testing.T) {
+// Host placement serves one org: the first host lease sets it, recorded; a host lease for another
+// org is refused and that org's runs stay queued; the owner changes it only while no host run is
+// live; it survives a daemon restart; and container leases of other orgs are unaffected.
+func TestHostPlacementServesOneOrg(t *testing.T) {
 	ctx := context.Background()
 	f := open(t)
-	if err := f.b.Submit(ctx, Task{Run: "b#1", Org: "beta", Project: "web", Flight: "b", Generation: 1, Goal: "g"}); err != nil {
-		t.Fatal(err)
+	sub := func(run, org string) {
+		t.Helper()
+		if err := f.b.Submit(ctx, Task{Run: run, Org: org, Project: "web", Flight: run, Generation: 1, Goal: "g"}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	f.submit("a#1")
+	sub("b#1", "beta")
+	sub("a#1", "acme")
 	if _, _, err := f.b.Lease(ctx, "r1", PlacementHost, "", 0); !errors.Is(err, ErrRunnerOrg) {
 		t.Fatalf("a host lease without an org: %v, want ErrRunnerOrg", err)
 	}
-	if n, err := f.b.Queued(ctx, PlacementHost, "acme"); n != 1 || err != nil {
-		t.Fatalf("acme's queued runs: %d, %v", n, err)
+	if org, err := f.b.HostOrg(ctx); org != "" || err != nil {
+		t.Fatalf("host org before any host lease: %q, %v", org, err)
 	}
 	l, ok, err := f.b.Lease(ctx, "r1", PlacementHost, "acme", 0)
-	if err != nil || !ok || l.Run != "a#1" || l.Org != "acme" {
+	if err != nil || !ok || l.Run != "a#1" {
 		t.Fatalf("acme's runner leased %+v, %v, %v; want a#1, past beta's older run", l, ok, err)
 	}
-	if _, ok, err := f.b.Lease(ctx, "r1", PlacementHost, "acme", 0); ok || err != nil {
-		t.Fatalf("acme's runner with only beta's run queued: ok %v, err %v", ok, err)
+	if org, _ := f.b.HostOrg(ctx); org != "acme" {
+		t.Fatalf("host org after acme's lease: %q", org)
+	}
+	if _, _, err := f.b.Lease(ctx, "r2", PlacementHost, "beta", 0); !errors.Is(err, ErrHostOrg) {
+		t.Fatalf("beta's host runner: %v, want ErrHostOrg", err)
 	}
 	if f.run("b#1").State != StateQueued {
-		t.Fatal("beta's run left the queue for acme's runner")
+		t.Fatal("beta's run left the queue")
 	}
-	if _, _, err := f.b.Lease(ctx, "r1", PlacementHost, "beta", 0); !errors.Is(err, ErrRunnerOrg) {
-		t.Fatalf("acme's runner, holding a#1, naming beta: %v, want ErrRunnerOrg", err)
+	if err := f.b.SetHostOrg(ctx, "beta", "owner"); !errors.Is(err, ErrHostOrg) {
+		t.Fatalf("switching while acme's host run is live: %v, want ErrHostOrg", err)
 	}
-	if f.run("b#1").State != StateQueued {
-		t.Fatal("a runner holding acme's run was leased beta's")
+	if err := f.b.Finish(ctx, "r1", "a#1", l.Fence, Result{Outcome: OutcomeDone}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.b.SetHostOrg(ctx, "beta", "owner"); err != nil {
+		t.Fatalf("switching with no host run live: %v", err)
+	}
+	f.reopen()
+	if org, err := f.b.HostOrg(ctx); org != "beta" || err != nil {
+		t.Fatalf("host org after a restart: %q, %v", org, err)
+	}
+	if _, _, err := f.b.Lease(ctx, "r1", PlacementHost, "acme", 0); !errors.Is(err, ErrHostOrg) {
+		t.Fatalf("acme's host runner after the switch: %v, want ErrHostOrg", err)
 	}
 	if l, ok, err := f.b.Lease(ctx, "r2", PlacementHost, "beta", 0); err != nil || !ok || l.Run != "b#1" {
 		t.Fatalf("beta's runner leased %+v, %v, %v", l, ok, err)
 	}
-	if _, _, err := f.b.Lease(ctx, "r3", PlacementHost, "a/b", 0); !errors.Is(err, ErrInvalid) {
+	sub("c#1", "gamma")
+	if l, ok, err := f.b.Lease(ctx, "box", PlacementContainer, "", 0); err != nil || !ok || l.Run != "c#1" {
+		t.Fatalf("a container lease of another org: %+v, %v, %v", l, ok, err)
+	}
+	if err := f.b.SetHostOrg(ctx, "a/b", "owner"); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("an org that is not a name: %v, want ErrInvalid", err)
 	}
 }

@@ -318,7 +318,8 @@ func (r *Runner) Shutdown(ctx context.Context, grace time.Duration) error {
 }
 
 // Run calls Step every interval until ctx ends, then shuts down with a 5 s grace. A Step's error
-// is logged, not fatal: the daemon may be restarting, and a lease outlives a short outage.
+// is logged, not fatal: the daemon may be restarting, and a lease outlives a short outage. The one
+// exception is ErrHostOrg, which no retry clears: Run shuts down and returns it.
 func (r *Runner) Run(ctx context.Context, interval time.Duration) error {
 	if interval <= 0 {
 		interval = time.Second
@@ -327,6 +328,11 @@ func (r *Runner) Run(ctx context.Context, interval time.Duration) error {
 	defer t.Stop()
 	for {
 		if err := r.Step(ctx); err != nil && ctx.Err() == nil {
+			if errors.Is(err, ErrHostOrg) {
+				sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+				defer cancel()
+				return errors.Join(err, r.Shutdown(sctx, 5*time.Second))
+			}
 			r.cfg.Log.Warn("runner step failed", "err", err)
 		}
 		select {

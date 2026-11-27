@@ -125,10 +125,12 @@ var (
 	// ErrSandboxBusy refuses a lease to a runner placed in a container when every queued run's org
 	// container is being restarted or stopped. The runner leases again later.
 	ErrSandboxBusy = errors.New("runner: sandbox busy: every queued run's org container is being restarted or stopped")
-	// ErrRunnerOrg refuses a lease to a runner placed on the host that names no org, or names an
-	// org other than that of a run it holds: a host runner leases the runs of exactly one org, so
-	// no two orgs' runs share its directory, its gateway sockets or the tokens it holds.
-	ErrRunnerOrg = errors.New("runner: a host runner leases the runs of exactly one org: name it, and only the org of the runs it holds")
+	// ErrRunnerOrg refuses a lease to a runner placed on the host that names no org.
+	ErrRunnerOrg = errors.New("runner: a runner on the host names the one org whose runs it leases")
+	// ErrHostOrg refuses a host lease for an org other than the daemon's host org, and a change of
+	// the host org while a host run is live. Every process on the host runs as one uid and can
+	// reach the others' sockets, so the host serves one org; other orgs need container placement.
+	ErrHostOrg = errors.New("runner: host placement serves one org; other orgs need container placement")
 )
 
 // Task is one run of work, as a runner is leased it: a flight's Pilot generation.

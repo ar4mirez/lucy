@@ -20,7 +20,7 @@ type Remote struct {
 var _ Protocol = Remote{}
 
 // remoteError maps the API's fenced, sandbox_busy and runner_org errors back to ErrFenced,
-// ErrSandboxBusy and ErrRunnerOrg.
+// ErrSandboxBusy, ErrRunnerOrg and ErrHostOrg.
 func remoteError(err error) error {
 	var ae *api.Error
 	if errors.As(err, &ae) {
@@ -31,6 +31,8 @@ func remoteError(err error) error {
 			return errors.Join(ErrSandboxBusy, err)
 		case api.CodeRunnerOrg:
 			return errors.Join(ErrRunnerOrg, err)
+		case api.CodeHostOrg:
+			return errors.Join(ErrHostOrg, err)
 		}
 	}
 	return err

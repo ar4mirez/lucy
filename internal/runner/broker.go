@@ -204,9 +204,9 @@ const leasable = `(? = '' OR org = ?) AND (? != ? OR org NOT IN (SELECT org FROM
 
 // Lease gives runner the oldest queued run, of org only when org is not empty, under a new fence
 // that expires after ttl (clamped to MinTTL..MaxTTL; DefaultTTL when zero). ok is false when
-// nothing is queued. A runner placed on the host leases for exactly one org: it is refused
-// (ErrRunnerOrg) when it names none, or names another than that of a run it holds. A runner placed
-// in a container is given the oldest queued run whose org's container is not held, and is refused
+// nothing is queued. A runner placed on the host names its org (ErrRunnerOrg otherwise), which
+// must be the host org: the first run leased to the host sets it, recorded, and a host lease for any other org
+// is refused (ErrHostOrg). A runner placed in a container is given the oldest queued run whose org's container is not held, and is refused
 // (ErrSandboxBusy) when every queued run's is.
 func (b *Broker) Lease(ctx context.Context, runner string, placement Placement, org string, ttl time.Duration) (l Lease, ok bool, err error) {
 	if err := CheckRunnerID(runner); err != nil {
@@ -226,14 +226,15 @@ func (b *Broker) Lease(ctx context.Context, runner string, placement Placement, 
 	ttl = clampTTL(ttl)
 	err = b.store.Update(ctx, func(tx *eventstore.Tx) error {
 		now := b.now()
+		var host string
 		if placement == PlacementHost {
-			var others int
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runner_runs WHERE state = ? AND runner = ? AND org != ?`,
-				string(StateLeased), runner, org).Scan(&others); err != nil {
+			h, err := hostOrg(ctx, tx)
+			if err != nil {
 				return err
 			}
-			if others > 0 {
-				return fmt.Errorf("%w: runner %q holds a run of another org than %q", ErrRunnerOrg, runner, org)
+			host = h
+			if host != "" && host != org {
+				return fmt.Errorf("%w: host placement serves org %q; org %q needs container placement", ErrHostOrg, host, org)
 			}
 		}
 		ri, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runner_runs WHERE state = ?
@@ -255,6 +256,11 @@ func (b *Broker) Lease(ctx context.Context, runner string, placement Placement, 
 		if err != nil {
 			return err
 		}
+		if placement == PlacementHost && host == "" {
+			if _, err := tx.Append(ctx, HostOrgStream, eventstore.AnyVersion, runnerActor(runner), HostOrgSet{Org: org}); err != nil {
+				return err
+			}
+		}
 		exp := now.Add(ttl).UTC()
 		evs, err := tx.Append(ctx, Stream(ri.Org, ri.Run), ri.Version, runnerActor(runner),
 			Leased{Runner: runner, Placement: placement, ExpiresAt: exp})
@@ -268,6 +274,50 @@ func (b *Broker) Lease(ctx context.Context, runner string, placement Placement, 
 		return Lease{}, false, err
 	}
 	return l, ok, nil
+}
+
+// HostOrg returns the org whose runs runners placed on the host lease, empty until the first host
+// lease or SetHostOrg sets it.
+func (b *Broker) HostOrg(ctx context.Context) (string, error) {
+	return hostOrg(ctx, b.store)
+}
+
+type rowQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func hostOrg(ctx context.Context, q rowQuerier) (string, error) {
+	var org string
+	err := q.QueryRowContext(ctx, `SELECT org FROM runner_host_org WHERE id = 1`).Scan(&org)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return org, err
+}
+
+// SetHostOrg makes org the host org, recorded under actor: the owner's command. It is refused
+// (ErrHostOrg) while a run leased by a runner on the host is live, so no host run of the old org
+// overlaps one of the new.
+func (b *Broker) SetHostOrg(ctx context.Context, org, actor string) error {
+	if err := checkOrg(org); err != nil {
+		return err
+	}
+	return b.store.Update(ctx, func(tx *eventstore.Tx) error {
+		host, err := hostOrg(ctx, tx)
+		if err != nil || host == org {
+			return err
+		}
+		var live int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runner_runs WHERE state = ? AND placement = ?`,
+			string(StateLeased), string(PlacementHost)).Scan(&live); err != nil {
+			return err
+		}
+		if live > 0 {
+			return fmt.Errorf("%w: %d host runs of org %q are live; stop them or let them finish first", ErrHostOrg, live, host)
+		}
+		_, err = tx.Append(ctx, HostOrgStream, eventstore.AnyVersion, actor, HostOrgSet{Org: org})
+		return err
+	})
 }
 
 // held runs fn on the run if runner holds it under fence and the lease is live. A lease found past
