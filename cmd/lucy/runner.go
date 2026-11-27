@@ -47,8 +47,10 @@ unique to the process, built from the org, the host name and the pid. Each run g
 working directory and TMPDIR, as HOME the org's own home, home/ under --root (0700, kept and
 shared by the org's runs, never your home), and an environment of only PATH, HOME, TMPDIR and
 LUCY_RUN, LUCY_RUN_ORG, LUCY_RUN_PROJECT, LUCY_RUN_FLIGHT, LUCY_RUN_GENERATION, LUCY_RUN_GOAL
-and LUCY_RUN_BASE; the directory is deleted when the command exits, the home is kept. A lease not renewed within --ttl (60 s by default) expires:
-the run is lost and the daemon refuses anything sent under its fence afterwards.
+and LUCY_RUN_BASE; the directory is deleted when the command exits, the home is kept. A --root
+is bound to the org of the first runner that uses it (.org in it), and a runner for another org
+refuses it. A lease not renewed within --ttl (60 s by default) expires: the run is lost and the
+daemon refuses anything sent under its fence afterwards.
 
 SIGTERM drains the runner: it leases nothing more, lets each run it holds carry on to its end
 and then exits 0, so a planned restart or upgrade loses no work. lucy runner drain sends that
@@ -225,7 +227,7 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, "error: lucy runner needs --org: a runner leases the runs of one org\nhelp: run `lucy runner --help`\n")
 		return 2
 	}
-	if *org != filepath.Base(*org) || strings.HasPrefix(*org, ".") || strings.Contains(*org, "#") || len(*org) > 200 {
+	if !runner.ValidOrg(*org) {
 		fmt.Fprintf(stderr, "error: --org %q is not an org name\nhelp: run `lucy runner --help`\n", *org)
 		return 2
 	}
@@ -256,6 +258,10 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 		return 1
 	} else if err := runner.CheckRunGatewayRoot(resolved); err != nil {
 		fmt.Fprintf(stderr, "error: %v\nhelp: run `lucy runner --help`\n", err)
+		return 2
+	}
+	if err := runner.ClaimRoot(dir, *org); err != nil {
+		fmt.Fprintf(stderr, "error: %v\nhelp: run `lucy runner --help`; a --root holds the runs of one org, and each org's default is its own\n", err)
 		return 2
 	}
 	gwDir := *gatewayDir

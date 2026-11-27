@@ -157,7 +157,8 @@ func transcript(t *testing.T, name string) string {
 	return p
 }
 
-// scratchLeft returns the runs' scratch directories left in root: what is there but the org's home.
+// scratchLeft returns the runs' scratch directories left in root: what is there but the org's home
+// and the root's org marker.
 func scratchLeft(t *testing.T, root string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(root)
@@ -166,7 +167,7 @@ func scratchLeft(t *testing.T, root string) []string {
 	}
 	var out []string
 	for _, e := range entries {
-		if e.Name() != "home" {
+		if e.Name() != "home" && e.Name() != rootOrgFile {
 			out = append(out, e.Name())
 		}
 	}
@@ -292,27 +293,129 @@ func TestRunsGetTheOrgHome(t *testing.T) {
 		t.Fatalf("scratch left: %v", left)
 	}
 
-	// An org home that is the user's home, holds it, is open to others or is a symlink is refused.
-	open := filepath.Join(t.TempDir(), "open")
-	if err := os.Mkdir(open, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(open, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	link := filepath.Join(t.TempDir(), "link")
-	if err := os.Symlink(t.TempDir(), link); err != nil {
-		t.Fatal(err)
-	}
-	for name, h := range map[string]string{"the user's home": pf.home, "a parent of it": filepath.Dir(pf.home),
-		"open to others": open, "a symlink": link, "relative": "home"} {
-		ex := *pf.ex
-		ex.OrgHome = h
-		if x, err := ex.Start(context.Background(), procLease("home")); err == nil {
+	// An org home that is open to others or is a symlink is refused, and no run directory is made.
+	for name, plant := range map[string]func(home string) error{
+		"open to others": func(home string) error {
+			if err := os.Mkdir(home, 0o700); err != nil {
+				return err
+			}
+			return os.Chmod(home, 0o755)
+		},
+		"a symlink": func(home string) error { return os.Symlink(pf.home, home) },
+	} {
+		bf := newProc(t)
+		if err := os.MkdirAll(bf.root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := plant(filepath.Join(bf.root, "home")); err != nil {
+			t.Fatal(err)
+		}
+		if x, err := bf.ex.Start(context.Background(), procLease("home")); err == nil {
 			x.Stop()
 			drain(t, x)
 			t.Errorf("%s: started", name)
 		}
+		if left := scratchLeft(t, bf.root); len(left) != 0 {
+			t.Errorf("%s: scratch left: %v", name, left)
+		}
+	}
+}
+
+// A runner root is bound to the first org that uses it: the same org reuses it, another org is
+// refused with ErrRootOrg before its HOME or any run directory is made.
+func TestRootIsBoundToOneOrg(t *testing.T) {
+	pf := newProc(t)
+	for range 2 {
+		x, err := pf.ex.Start(context.Background(), procLease("work"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, res := drain(t, x); res.Outcome != OutcomeDone {
+			t.Fatalf("acme: %+v", res)
+		}
+	}
+	marker := filepath.Join(pf.root, rootOrgFile)
+	if b, err := os.ReadFile(marker); err != nil || string(b) != "acme\n" {
+		t.Fatalf("marker %q, %v", b, err)
+	}
+	if fi, err := os.Lstat(marker); err != nil || fi.Mode() != 0o600 {
+		t.Fatalf("marker %v, %v", fi, err)
+	}
+
+	fresh := newProc(t)
+	if err := os.MkdirAll(fresh.root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fresh.root, rootOrgFile), []byte("acme\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	beta := procLease("home")
+	beta.Org = "beta"
+	resolved, err := filepath.EvalSymlinks(fresh.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = fresh.ex.Start(context.Background(), beta)
+	if !errors.Is(err, ErrRootOrg) || !strings.Contains(err.Error(), resolved) || !strings.Contains(err.Error(), `"acme"`) {
+		t.Fatalf("beta on acme's root: %v, want ErrRootOrg naming the root and acme", err)
+	}
+	if entries, err := os.ReadDir(fresh.root); err != nil || len(entries) != 1 || entries[0].Name() != rootOrgFile {
+		t.Fatalf("beta changed acme's root: %v, %v", entries, err)
+	}
+
+	// A marker that is a symlink, another user's, or not an org name refuses the root to everyone.
+	plants := map[string]func(marker string) error{
+		"a symlink": func(marker string) error {
+			target := filepath.Join(t.TempDir(), "org")
+			if err := os.WriteFile(target, []byte("acme\n"), 0o600); err != nil {
+				return err
+			}
+			return os.Symlink(target, marker)
+		},
+		"garbage":   func(marker string) error { return os.WriteFile(marker, []byte("../etc\n"), 0o600) },
+		"no name":   func(marker string) error { return os.WriteFile(marker, nil, 0o600) },
+		"directory": func(marker string) error { return os.Mkdir(marker, 0o700) },
+	}
+	if os.Geteuid() == 0 {
+		plants["another user's"] = func(marker string) error {
+			if err := os.WriteFile(marker, []byte("acme\n"), 0o600); err != nil {
+				return err
+			}
+			return os.Chown(marker, 65534, 65534)
+		}
+	}
+	for name, plant := range plants {
+		bf := newProc(t)
+		if err := os.MkdirAll(bf.root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := plant(filepath.Join(bf.root, rootOrgFile)); err != nil {
+			t.Fatal(err)
+		}
+		if x, err := bf.ex.Start(context.Background(), procLease("work")); err == nil {
+			x.Stop()
+			drain(t, x)
+			t.Errorf("%s: started", name)
+		}
+		if entries, err := os.ReadDir(bf.root); err != nil || len(entries) != 1 {
+			t.Errorf("%s: the root changed: %v, %v", name, entries, err)
+		}
+	}
+}
+
+// Of runners of two orgs racing to claim a fresh root, exactly one wins; the other is refused.
+func TestClaimRootRace(t *testing.T) {
+	root := t.TempDir()
+	errs := make(chan error, 2)
+	for _, org := range []string{"acme", "beta"} {
+		go func() { errs <- ClaimRoot(root, org) }()
+	}
+	a, b := <-errs, <-errs
+	if (a == nil) == (b == nil) || !errors.Is(errors.Join(a, b), ErrRootOrg) {
+		t.Fatalf("claims: %v, %v; want one bound and one ErrRootOrg", a, b)
+	}
+	if entries, err := os.ReadDir(root); err != nil || len(entries) != 1 {
+		t.Fatalf("root after the race: %v, %v", entries, err)
 	}
 }
 
