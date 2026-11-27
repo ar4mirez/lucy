@@ -167,6 +167,10 @@ func (b *Broker) held(ctx context.Context, runner, run string, fence int64, fn f
 	return nil
 }
 
+// repeatedQuestion records a question the Pilot streamed again while the owner's answer to it
+// waited for its runner: the question is answered, so it does not re-open.
+const repeatedQuestion = "the Pilot repeated its question while its answer was on the way"
+
 // Heartbeat renews runner's lease on run for another ttl and records the streamed events, in one
 // transaction. Events numbered at or below what the broker already recorded are a resent batch
 // and are skipped; the rest must continue the numbering without a gap.
@@ -183,6 +187,9 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 	var beat Beat
 	var given answer
 	err := b.held(ctx, runner, run, fence, func(tx *eventstore.Tx, ri RunInfo) error {
+		// The answer is read inside the transaction, which no Answer can interleave with, so the
+		// runner sees it together with the asking state it belongs to.
+		given = b.peekAnswer(run, fence)
 		accepted := ri.Accepted
 		var payloads []eventstore.Payload
 		for _, ev := range events {
@@ -193,6 +200,9 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 				return fmt.Errorf("%w: got %d after %d", ErrSequence, ev.Seq, accepted)
 			}
 			accepted = ev.Seq
+			if ev.Kind == KindAsking && given.text != "" {
+				ev.Kind, ev.Text = KindActivity, repeatedQuestion
+			}
 			payloads = append(payloads, Streamed{Fence: fence, Seq: ev.Seq, Kind: ev.Kind, Text: capText(ev.Text)})
 		}
 		exp := b.now().Add(ttl).UTC()
@@ -204,9 +214,6 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 		if n := len(payloads) - 1; n > 0 {
 			asking = payloads[n-1].(Streamed).Kind == KindAsking
 		}
-		// The answer is read inside the transaction, which no Answer can interleave with, so the
-		// runner sees it together with the asking state it belongs to.
-		given = b.peekAnswer(run, fence)
 		beat = Beat{Expires: exp, Stop: ri.Stop, Accepted: accepted, Asking: asking, Answer: given.text}
 		return nil
 	})

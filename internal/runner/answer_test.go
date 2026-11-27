@@ -90,6 +90,35 @@ func TestAnswerRelay(t *testing.T) {
 	}
 }
 
+// TestRepeatedQuestionWhileAnswerWaits: a heartbeat that streams the question again while the
+// owner's answer to it waits for the runner gets the answer, and the run stays not asking, so the
+// Tower never asks the owner an answered question.
+func TestRepeatedQuestionWhileAnswerWaits(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	f.submit("f1#1")
+	l := f.lease("r1", 0)
+	ask := Event{Kind: KindAsking, Text: "which account?"}
+	ask.Seq = 1
+	if _, err := f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, []Event{ask}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.b.Answer(ctx, "f1#1", "staging"); err != nil {
+		t.Fatal(err)
+	}
+	ask.Seq = 2
+	beat, err := f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, []Event{ask})
+	if err != nil || beat.Answer != "staging" || beat.Asking || beat.Accepted != 2 {
+		t.Fatalf("beat %+v, %v", beat, err)
+	}
+	if ri := f.run("f1#1"); ri.Asking {
+		t.Fatalf("the answered question re-opened: %+v", ri)
+	}
+	if err := f.b.Answer(ctx, "f1#1", "again"); !errors.Is(err, ErrNotAsking) {
+		t.Fatalf("a second answer = %v", err)
+	}
+}
+
 // TestRunnerDeliversAndReasks: a runner gives the work the answer its heartbeat brings, and asks
 // again when a daemon restart lost an answer the log says was given.
 func TestRunnerDeliversAndReasks(t *testing.T) {
@@ -115,6 +144,12 @@ func TestRunnerDeliversAndReasks(t *testing.T) {
 	step(t, r)
 	if got := ex.execs["f1#1"].answers; len(got) != 1 || got[0] != "staging" {
 		t.Fatalf("f1 answers %q", got)
+	}
+	// the work repeats the question it was just given the answer to: it does not re-open
+	ex.execs["f1#1"].queue = append(ex.execs["f1#1"].queue, Update{Events: []Event{{Kind: KindAsking, Text: "which account?"}}})
+	step(t, r)
+	if ri := f.run("f1#1"); ri.Asking {
+		t.Fatalf("f1 asks an answered question again: %+v", ri)
 	}
 
 	// f2: answered, then the daemon restarts before the runner's heartbeat collects it.
