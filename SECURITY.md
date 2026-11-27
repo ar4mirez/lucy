@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 5
+version: 6
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-SEC-002, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -52,6 +52,18 @@ The controls that answer most of those threats:
 - **lucy's own scans:** govulncheck, gosec with a reviewed baseline, gitleaks and dependency review
   fail CI on a finding; OpenSSF Scorecard reports to code scanning (LUCY-SEC-002,
   [security scans](docs/runbooks/security-scans.md)).
+
+## Audit and log data
+
+Decision records and the audit trail hold names and references, never secrets or input text. A
+Pilot's shell command, URL or search (an `exec` or `fetch` request) is untrusted text that can
+carry secrets, so the policy engine decides on it as written, in memory, and the record and
+`policy.decisions` hold only `policy.RecordedResource`: the text with Authorization and Cookie
+values, URL credentials, credential-named query parameters and `NAME=value` assignments, known
+token prefixes (GitHub, OpenAI, Slack, AWS, GitLab) and long high-entropy strings replaced by
+`<redacted>`, capped at 512 bytes, then `sha256:` and the digest of the original, so one command
+can be matched across records without being stored. `runner.permit`'s `api.command` record holds
+only a digest of its parameters.
 
 The owner's security checklist (38 items in five areas) is mapped to milestones and requirements in the
 [checklist map](docs/security/checklist.md). The threat model is re-checked at every milestone exit and each

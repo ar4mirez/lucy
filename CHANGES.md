@@ -21,7 +21,14 @@ Changes since the last release. When a version is cut, its section moves to
   org, and the decision is recorded before the tool runs; a path outside the directory, also
   through a symlink, a path or glob that could be expanded or climb out (`~`, a variable
   reference, a brace group, `..`) and a write to the harness's own `.claude` configuration are
-  refused without asking, and shell or fetch prompts are still refused (OpenRPC revision 4).
+  refused without asking. A prompted shell command (Bash) or fetch or search (WebFetch,
+  WebSearch) goes to the engine too, as the new action kinds `exec` and `fetch`, with the command
+  or URL as written; no rule allows either yet, so the default deny refuses them, and every
+  decision is recorded (policy rule set version 5, OpenRPC revision 5: `runner.permit` takes
+  `resource`). The record, and `policy.decisions`, never hold the raw text: secrets in it
+  (Authorization and Cookie values, URL credentials and token query parameters, `NAME=value`
+  credentials, known token prefixes, long high-entropy strings) are redacted, the text is capped
+  at 512 bytes, and the SHA-256 of the original follows it.
 - Conformance scenario trust-04 runs: a Pilot's tool request is tagged by the channel it entered
   through, the run's task and the Pilot's own output, whatever its text claims, and its decision
   is marked tainted. The corpus now has 59 executable scenarios.

@@ -57,12 +57,15 @@ func (DecisionRecord) EventType() string { return "policy.decision" }
 // EventVersion implements eventstore.Payload.
 func (DecisionRecord) EventVersion() int { return 1 }
 
-// NewRecord builds the record of decision d for req under facts.
+// NewRecord builds the record of decision d for req under facts. An exec or fetch resource is
+// recorded as RecordedResource makes it, never as the text the engine decided on.
 func NewRecord(req Request, facts Facts, d Decision) DecisionRecord {
+	target := req.Target
+	target.Resource = RecordedResource(req.Kind, target.Resource)
 	rec := DecisionRecord{
 		Outcome: d.Outcome, Rule: d.Rule, Reason: d.Reason, RuleSetVersion: d.RuleSetVersion,
 		RuleSetSHA256: d.RuleSetSHA256, ActionSHA256: d.ActionSHA256, FactsSHA256: d.FactsSHA256, Tainted: d.Tainted,
-		ApprovalsUsed: d.ApprovalsUsed, Actor: req.Actor, Kind: req.Kind, Target: req.Target,
+		ApprovalsUsed: d.ApprovalsUsed, Actor: req.Actor, Kind: req.Kind, Target: target,
 		Inputs: []InputRecord{},
 		Facts: FactsRecord{
 			Posture: facts.Posture, Checks: facts.Checks, RequiredUnreported: facts.RequiredUnreported,

@@ -252,9 +252,20 @@ type conn struct {
 	permit harness.Permit // nil refuses every prompted file tool
 }
 
+// actionTools are the prompted tools the policy engine decides as a shell command or a network
+// fetch, with the input field that holds what they would run or fetch. Under the default rules
+// they are refused, but every one is decided and recorded.
+var actionTools = map[string]struct {
+	access harness.Access
+	field  string
+}{
+	"Bash":      {harness.Exec, "command"},
+	"WebFetch":  {harness.Fetch, "url"},
+	"WebSearch": {harness.Fetch, "query"},
+}
+
 // fileTools are the prompted tools the policy engine decides, by what they do with files. Any
-// other prompted tool, a shell command or a fetch among them, is refused: what it does cannot be
-// read from its name.
+// other prompted tool is refused: what it does cannot be read from its name.
 var fileTools = map[string]harness.Access{
 	"Read": harness.Read, "Glob": harness.Read, "Grep": harness.Read, "LS": harness.Read,
 	"Edit": harness.Write, "MultiEdit": harness.Write, "Write": harness.Write, "NotebookEdit": harness.Write,
@@ -426,11 +437,19 @@ func (c *conn) control(m message) []harness.Event {
 		return []harness.Event{ev(harness.Activity, "refused control request: "+capped(m.Request.Subtype, 64))}
 	}
 	tool := capped(m.Request.ToolName, 64)
-	if access, ok := fileTools[m.Request.ToolName]; ok && c.permit != nil {
-		p, why := toolPath(m.Request.ToolName, m.Request.Input)
-		allowed := false
-		if why == "" {
-			allowed, why = c.permit(m.Request.ToolName, access, p)
+	_, isFile := fileTools[m.Request.ToolName]
+	_, isAction := actionTools[m.Request.ToolName]
+	if (isFile || isAction) && c.permit != nil {
+		var allowed bool
+		var why string
+		if a, ok := actionTools[m.Request.ToolName]; ok {
+			what, _ := m.Request.Input[a.field].(string)
+			allowed, why = c.permit(m.Request.ToolName, a.access, what)
+		} else {
+			p, refused := toolPath(m.Request.ToolName, m.Request.Input)
+			if why = refused; why == "" {
+				allowed, why = c.permit(m.Request.ToolName, fileTools[m.Request.ToolName], p)
+			}
 		}
 		if !allowed {
 			_ = c.respond(m.RequestID, permission{Behavior: "deny", Message: "lucy: " + tool + " was refused: " + why})

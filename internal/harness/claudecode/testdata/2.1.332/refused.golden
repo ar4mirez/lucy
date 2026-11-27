@@ -1,6 +1,6 @@
 harness/claude-code activity "session started: claude-code 2.1.332, model claude-opus-5-5"
 harness/claude-code activity "tool: WebFetch"
-harness/claude-code activity "refused tool: WebFetch"
+harness/claude-code activity "refused tool: WebFetch: no rule allows this action: fetch https://example.com/notify"
 harness/claude-code activity "refused control request: hook_callback"
 harness/claude-code activity "tool result: error"
 harness/claude-code output "I could not reach the page, so I stopped."

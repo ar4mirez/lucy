@@ -454,6 +454,13 @@ func (pe *processExecution) Stop() {
 // Anything that goes wrong refuses the tool.
 func permitFor(dir string, protected []string, l Lease, pm Permitter, log *slog.Logger) harness.Permit {
 	return func(tool string, access harness.Access, path string) (bool, string) {
+		if access == harness.Exec || access == harness.Fetch {
+			// A command or a URL is the policy engine's to decide: no path rule applies to it.
+			if path == "" || len(path) > MaxPermitResource {
+				return false, fmt.Sprintf("the %s names nothing to decide, or more than %d bytes", access, MaxPermitResource)
+			}
+			return ask(pm, l, log, tool, access, path)
+		}
 		if harness.VarRef(path) {
 			return false, "the path contains a variable reference"
 		}
@@ -467,18 +474,24 @@ func permitFor(dir string, protected []string, l Lease, pm Permitter, log *slog.
 		if access == harness.Write && holdsAny(strings.TrimPrefix(path, dir), protected) {
 			return false, "the path is the harness's own configuration"
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
-		defer cancel()
-		perm, err := pm.Permit(ctx, l.Runner, l.Run, l.Fence, PermitRequest{Tool: tool, Kind: policy.Kind(access), Path: path})
-		if err != nil {
-			log.Warn("runner could not ask the policy engine about a tool", "run", l.Run, "tool", tool, "err", err)
-			return false, "lucy could not ask its policy engine"
-		}
-		if perm.Outcome != policy.Cleared {
-			return false, perm.Reason
-		}
-		return true, ""
+		return ask(pm, l, log, tool, access, path)
 	}
+}
+
+// ask has the policy engine decide one prompted tool under the run's lease. Only a recorded
+// cleared decision lets it run.
+func ask(pm Permitter, l Lease, log *slog.Logger, tool string, access harness.Access, resource string) (bool, string) {
+	ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
+	defer cancel()
+	perm, err := pm.Permit(ctx, l.Runner, l.Run, l.Fence, PermitRequest{Tool: tool, Kind: policy.Kind(access), Resource: resource})
+	if err != nil {
+		log.Warn("runner could not ask the policy engine about a tool", "run", l.Run, "tool", tool, "err", err)
+		return false, "lucy could not ask its policy engine"
+	}
+	if perm.Outcome != policy.Cleared {
+		return false, perm.Reason
+	}
+	return true, ""
 }
 
 // holdsAny reports whether an element of path equals one of names, ignoring case.

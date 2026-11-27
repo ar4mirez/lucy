@@ -403,15 +403,15 @@ func (b *Broker) expire(ctx context.Context, run string) (expired bool, err erro
 // run's task is the trusted basis. The Pilot's own text never picks the actor, org or project:
 // those come from the lease (LUCY-POL-001, LUCY-POL-004).
 func (b *Broker) Permit(ctx context.Context, runner, run string, fence int64, p PermitRequest) (Permission, error) {
-	if (p.Kind != policy.KindRead && p.Kind != policy.KindWrite) || p.Tool == "" || len(p.Tool) > 64 || len(p.Path) > 4096 {
-		return Permission{}, fmt.Errorf("%w: a permit is a read or a write by a named tool", ErrInvalid)
+	if !permitKinds[p.Kind] || p.Tool == "" || len(p.Tool) > 64 || len(p.Resource) > MaxPermitResource {
+		return Permission{}, fmt.Errorf("%w: a permit is a read, write, exec or fetch by a named tool, on at most %d bytes", ErrInvalid, MaxPermitResource)
 	}
 	var perm Permission
 	err := b.held(ctx, runner, run, fence, func(tx *eventstore.Tx, ri RunInfo) error {
 		req := policy.Request{
 			Actor:  policy.Actor{ID: "pilot/" + ri.Run, Role: policy.RoleWorker, Org: ri.Org},
 			Kind:   p.Kind,
-			Target: policy.Target{Org: ri.Org, Project: ri.Project, Resource: p.Path},
+			Target: policy.Target{Org: ri.Org, Project: ri.Project, Resource: p.Resource},
 			Inputs: []policy.Input{{Source: policy.SourceTask, Ref: "run/" + ri.Run}, {Source: policy.SourceAgent, Ref: "tool/" + p.Tool}},
 		}
 		d := policy.Evaluate(req, policy.Facts{})
@@ -426,3 +426,6 @@ func (b *Broker) Permit(ctx context.Context, runner, run string, fence int64, p 
 	}
 	return perm, nil
 }
+
+// permitKinds are the actions a Pilot's prompted tool may be asked about.
+var permitKinds = map[policy.Kind]bool{policy.KindRead: true, policy.KindWrite: true, policy.KindExec: true, policy.KindFetch: true}

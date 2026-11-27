@@ -1,0 +1,8 @@
+# Reviewed false positives: made-up credentials in redaction test fixtures,
+# which assert that the policy decision record and policy.decisions never hold
+# them. None is a real credential. Entries are path-scoped (file:rule:line) so
+# they hold for the pull request's commits, a squash merge and the weekly
+# history scan; moving one of these lines needs its entry updated.
+internal/policy/redact_test.go:curl-auth-header:12
+internal/runner/permit_test.go:generic-api-key:228
+internal/server/runner_test.go:curl-auth-header:176

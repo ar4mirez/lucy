@@ -61,12 +61,16 @@ type Access string
 const (
 	Read  Access = "read"
 	Write Access = "write"
+	Exec  Access = "exec"  // run a shell command
+	Fetch Access = "fetch" // fetch a URL or search the network
 )
 
-// Permit asks the policy engine whether the Pilot may run a prompted tool that reads or writes
-// path (empty when the tool names none). It returns whether the tool may run and, when not, why.
-// An adapter refuses, without asking, every prompted tool it cannot map to an Access.
-type Permit func(tool string, access Access, path string) (allowed bool, why string)
+// Permit asks the policy engine whether the Pilot may run a prompted tool. For Read and Write,
+// resource is the path it reads or writes (empty when the tool names none); for Exec the shell
+// command and for Fetch the URL or search, as the Pilot wrote them. It returns whether the tool may
+// run and, when not, why. An adapter refuses, without asking, every prompted tool it cannot map to
+// an Access.
+type Permit func(tool string, access Access, resource string) (allowed bool, why string)
 
 // PRDirective starts the line a Pilot writes to report its pull request: "lucy:pr=<number>".
 const PRDirective = "lucy:pr="

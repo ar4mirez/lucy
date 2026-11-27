@@ -46,8 +46,10 @@ imports with @path inside that directory, one level deep and size-capped, and ap
 system prompt as repository text, which grants no permission; until the worktree pool (m1 slice
 6) checks the repository out there, the run directory is empty and nothing is injected. Its
 question to the owner is streamed as asking and answered only with what the Tower relays. A
-prompted file tool (read, edit or write) on a path inside the run's directory is decided by the
-daemon's policy engine, as the Pilot; every other permission prompt is refused.
+prompted file tool (read, edit or write) on a path inside the run's directory, a shell command
+(Bash) and a fetch or search (WebFetch, WebSearch) are decided by the daemon's policy engine, as
+the Pilot, and recorded; no rule allows a command or a fetch yet, so those are refused. Every
+other permission prompt is refused.
 `
 
 // runnerSignalContext is swapped in tests.
