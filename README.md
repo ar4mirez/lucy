@@ -2,7 +2,7 @@
 id: readme
 title: lucy
 status: active
-version: 9
+version: 10
 owner: ar4mirez
 requirements: [LUCY-REPO-001, LUCY-REPO-006]
 ---
@@ -17,7 +17,7 @@ deterministic policy decides what actually happens.
 
 ## Status
 
-**m0 (foundation) done; m1 (ar4mirez end to end) in progress, released as 0.5.0.** This repository
+**m0 (foundation) done; m1 (ar4mirez end to end) in progress, released as 0.6.0.** This repository
 holds the skeleton, the signed release pipeline, the event store, the first part of the typed API
 with `lucy daemon`, the policy engine, the ai-sdlc spec model and the design docs; the binary prints
 its version and help, updates itself, validates config (`lucy config validate`), and runs a daemon
@@ -25,7 +25,11 @@ that `lucy status`, `lucy events`, `lucy config status` and `lucy audit verify` 
 socket. `lucy runner` takes runs from the daemon under a lease and runs them on this machine, and
 `lucy runner --harness claude-code` drives a pinned Claude Code version over its stream-json
 protocol, with a Pilot's file, shell and fetch prompts decided by the policy engine; `lucy questions`
-and `lucy answer` show and answer the Pilots' questions through the Tower. See the
+and `lucy answer` show and answer the Pilots' questions through the Tower. `lucy sandbox` shows and
+confirms org container operations that would stop live sessions, and `lucy gateway`, `lucy vault`
+and `lucy capability` run an org's credential gateway, its encrypted credential vault and the
+runs' capability tokens; placing runners inside org containers waits on berth, and the vault must
+not hold real credentials until its keys are wrapped at rest. See the
 [milestones](docs/milestones/README.md) for what lands next and [PRODUCT.md](PRODUCT.md) for the plan.
 
 ## Install
