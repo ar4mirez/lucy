@@ -93,6 +93,9 @@ func fakeHarness(spec string) int {
 	if version != "-" {
 		tr.Header.Version = version
 	}
+	if tr.Header.Project != "" && !filepath.IsAbs(tr.Header.Project) {
+		tr.Header.Project = filepath.Join(filepath.Dir(path), tr.Header.Project)
+	}
 	return harnesstest.Replay(tr, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
 }
 
@@ -462,5 +465,55 @@ func TestHarnessExecutorTagsEveryRepeat(t *testing.T) {
 	}
 	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7}) {
 		t.Fatalf("result %+v", res)
+	}
+}
+
+// projectSettings is the Claude Code adapter with the setting flags lucy used before: project
+// settings loaded, no lucy-owned settings. It is the control that shows the test below can see a
+// project's settings take effect.
+type projectSettings struct{ claudecode.Adapter }
+
+func (a projectSettings) Args(s harness.Session) []string {
+	var out []string
+	args := a.Adapter.Args(s)
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--setting-sources":
+			out = append(out, args[i], "project")
+			i++
+		case "--settings":
+			i++
+		default:
+			out = append(out, args[i])
+		}
+	}
+	return out
+}
+
+// TestHarnessIgnoresProjectSettings runs a session in a fixture repository whose committed
+// .claude/settings.json pre-allows Bash and adds a hook. Under the adapter's arguments neither takes
+// effect: Bash is still prompted, so lucy refuses it, and the hook never runs. The control, with
+// project settings loaded, shows both taking effect.
+func TestHarnessIgnoresProjectSettings(t *testing.T) {
+	run := func(a harness.Adapter) []string {
+		pf := newProc(t)
+		pf.ex.Harness = a
+		x, err := pf.ex.Start(context.Background(), procLease("harness - "+transcript(t, "project")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines, res := drain(t, x)
+		if res.Outcome != OutcomeDone {
+			t.Fatalf("result %+v, events %q", res, lines)
+		}
+		return lines
+	}
+	got := strings.Join(run(claudecode.Adapter{}), "|")
+	if !strings.Contains(got, "refused tool: Bash") || strings.Contains(got, "project hook ran") {
+		t.Errorf("the repository's settings took effect: %s", got)
+	}
+	control := strings.Join(run(projectSettings{}), "|")
+	if strings.Contains(control, "refused tool: Bash") || !strings.Contains(control, "project hook ran") {
+		t.Errorf("the control did not load the repository's settings, so the test proves nothing: %s", control)
 	}
 }

@@ -39,7 +39,9 @@ A runner started under nohup keeps ignoring SIGHUP and outlives its terminal.
 With --harness claude-code the runner drives Claude Code (` + "`claude`" + ` unless a program follows
 --) over its stream-json protocol instead of streaming lines: the harness must report version
 ` + claudecode.Pinned + `, the one this lucy supports, or the run fails without starting. Each session gets no
-MCP servers, no user-level settings or hooks and no saved transcript; its question to the owner
+MCP servers, no settings file but lucy's own (so neither the user's nor a repository's committed
+.claude settings apply: nothing is pre-allowed, and hooks, skills and slash commands are off) and
+no saved transcript; its question to the owner
 is streamed as asking and answered only with what the Tower relays. A prompted file tool (read,
 edit or write) on a path inside the run's directory is decided by the daemon's policy engine, as
 the Pilot; every other permission prompt is refused.

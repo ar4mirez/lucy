@@ -2,6 +2,7 @@ package claudecode
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -47,7 +48,7 @@ func fakePermit(tool string, access harness.Access, path string) (bool, string) 
 }
 
 // required are the transcripts every pinned version must have: the contract.
-var required = []string{"ask", "done", "drift", "error", "permitted", "refused"}
+var required = []string{"ask", "done", "drift", "error", "permitted", "project", "refused"}
 
 // TestContract replays every recorded transcript of the pinned version through the adapter: what
 // the adapter writes must match each recorded input, and what it reports must match the golden
@@ -176,11 +177,38 @@ func TestCheckVersion(t *testing.T) {
 }
 
 // TestArgs pins the session's limits: the structured protocol both ways, prompts to the host, an
-// empty MCP set, no user settings, nothing saved, and no flag that skips permissions.
+// empty MCP set, no settings source but lucy's own, nothing saved, and no flag that skips
+// permissions.
 func TestArgs(t *testing.T) {
-	args := strings.Join(Adapter{}.Args(harness.Session{Goal: "g"}), " ")
+	argv := Adapter{}.Args(harness.Session{Goal: "g"})
+	value := func(flag string) (string, bool) {
+		for i := 0; i+1 < len(argv); i++ {
+			if argv[i] == flag {
+				return argv[i+1], true
+			}
+		}
+		return "", false
+	}
+	if v, ok := value("--setting-sources"); !ok || v != "" {
+		t.Errorf("--setting-sources %q (set %v): a session must load no user, project or local settings", v, ok)
+	}
+	var settings struct {
+		Permissions struct {
+			Allow []string `json:"allow"`
+		} `json:"permissions"`
+		DisableAllHooks            bool `json:"disableAllHooks"`
+		EnableAllProjectMcpServers bool `json:"enableAllProjectMcpServers"`
+	}
+	if v, _ := value("--settings"); json.Unmarshal([]byte(v), &settings) != nil || len(settings.Permissions.Allow) != 0 ||
+		!settings.DisableAllHooks || settings.EnableAllProjectMcpServers {
+		t.Errorf("--settings %q must pre-allow nothing, disable every hook and enable no project MCP server", v)
+	}
+	if !slices.Contains(argv, "--disable-slash-commands") {
+		t.Error("skills and slash commands are enabled; a skill's allowed tools would skip the prompt")
+	}
+	args := strings.Join(argv, " ")
 	for _, want := range []string{"--print", "--input-format stream-json", "--output-format stream-json", "--permission-prompts host",
-		"--strict-mcp-config", `--mcp-config {"mcpServers":{}}`, "--setting-sources project", "--no-session-persistence",
+		"--strict-mcp-config", `--mcp-config {"mcpServers":{}}`, "--no-session-persistence",
 		"--permission-mode " + PermissionMode} {
 		if !strings.Contains(args, want) {
 			t.Errorf("args lack %q: %s", want, args)

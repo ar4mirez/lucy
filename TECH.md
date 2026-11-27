@@ -164,7 +164,7 @@ before returning it. The request model, facts, rule order, decision record and p
 - **Harness adapters** (LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-013), in `internal/harness`: an
   `Adapter` gives a session's arguments, refuses any but its pinned version (the upgrade is held)
   and decodes the structured output into tagged events. `claudecode` runs `claude --print` over
-  stream-json both ways, with an empty MCP set, project settings only, no saved session and every
+  stream-json both ways, with an empty MCP set, only lucy's own settings, no saved session and every
   prompt sent to it: a file tool inside the run's dir goes to `runner.permit` (the engine decides,
   the Pilot as a worker of the lease's org); AskUserQuestion streams as `asking` with the
   question's id on every repeat; the rest are refused. The broker records `run.answered` (id and

@@ -2,7 +2,7 @@
 id: sast-baseline
 title: "SAST baseline: reviewed gosec suppressions"
 status: active
-version: 3
+version: 4
 owner: ar4mirez
 requirements: [LUCY-SEC-002]
 ---
@@ -21,7 +21,7 @@ Reviewed in m0 slice 9 against gosec v2.30.0. Of the first scan's 23 findings, 1
 the code: ten unchecked `Close`, `Rollback` and `Write` calls on error paths now discard their
 error explicitly (G104), and the doc checker reads through an `os.Root` (G122 and a G304). The
 other 11 are below. m1 slice 1 added one, the runner's process executor (G204); slice 2 added its
-harness version check (G204).
+harness version check (G204) and the fake harness's fixture-settings reader (G304).
 
 | File | Rule | Why it is safe |
 |---|---|---|
@@ -33,6 +33,7 @@ harness version check (G204).
 | `internal/spec/load.go` | G304 | Reading the owner's config tree is the loader's job; the walk refuses symlinks and caps file and tree sizes |
 | `internal/runner/process.go` | G204 | Runs the program the runner's operator configured (`lucy runner -- <command>`), never text from a task; no shell, and an environment of only PATH, HOME, TMPDIR and `LUCY_RUN_*` |
 | `internal/runner/process.go` | G204 | The harness version check runs the same configured program with the adapter's fixed version arguments, the run's environment and a 10 s timeout; no shell |
+| `internal/harness/harnesstest/replay.go` | G304 | A test helper: the fake harness reads the settings file of the fixture project its own transcript names |
 | `internal/selfupdate/selfupdate.go` | G204 | Runs mise from PATH with fixed arguments and a version that matched `versionRe`; no shell |
 | `internal/policy/policy.go` | G101 | `KindCredentialUse` is an action kind's name, `credential_use`, not a credential |
 | `internal/policy/rules.go` | G101 | A map of stale-approval reasons keyed by action kind; it holds no credential |
