@@ -19,11 +19,16 @@ type Remote struct {
 
 var _ Protocol = Remote{}
 
-// remoteError maps the API's fenced error back to ErrFenced.
+// remoteError maps the API's fenced and sandbox_busy errors back to ErrFenced and ErrSandboxBusy.
 func remoteError(err error) error {
 	var ae *api.Error
-	if errors.As(err, &ae) && ae.Code == api.CodeFenced {
-		return errors.Join(ErrFenced, err)
+	if errors.As(err, &ae) {
+		switch ae.Code {
+		case api.CodeFenced:
+			return errors.Join(ErrFenced, err)
+		case api.CodeSandboxBusy:
+			return errors.Join(ErrSandboxBusy, err)
+		}
 	}
 	return err
 }
@@ -40,7 +45,7 @@ func (r Remote) Queued(ctx context.Context) (int, error) {
 func (r Remote) Lease(ctx context.Context, runner string, placement Placement, ttl time.Duration) (Lease, bool, error) {
 	res, err := r.Client.RunnerLease(ctx, api.LeaseParams{Runner: runner, Placement: string(placement), TTLSeconds: seconds(ttl)})
 	if err != nil || !res.Leased {
-		return Lease{}, false, err
+		return Lease{}, false, remoteError(err)
 	}
 	l := res.Run
 	return Lease{

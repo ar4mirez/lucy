@@ -54,7 +54,7 @@ var methods = []Method{
 	{MethodResources, "The config resources the daemon loaded and their status, as conditions.", "query", ScopeRead, false, typeOf[ResourcesParams](), typeOf[ResourcesPage]()},
 	{MethodAudit, "Verify the audit hash chain against the event log.", "query", ScopeRead, false, typeOf[NoParams](), typeOf[AuditReport]()},
 	{MethodQueued, "How many runs wait for a runner. A runner polls this and leases only when it is not zero, so an idle runner adds nothing to the log.", "query", ScopeRun, false, typeOf[NoParams](), typeOf[QueuedResult]()},
-	{MethodLease, "Lease the oldest queued run under a new fencing token.", "command", ScopeRun, true, typeOf[LeaseParams](), typeOf[LeaseResult]()},
+	{MethodLease, "Lease the oldest queued run under a new fencing token. A runner placed in a container is never leased a run whose org's container is being restarted or stopped; when every queued run is such a run, it is refused with sandbox_busy and leases again later.", "command", ScopeRun, true, typeOf[LeaseParams](), typeOf[LeaseResult]()},
 	{MethodHeartbeat, "Renew a lease and record the run's newly streamed events, in one transaction.", "command", ScopeRun, true, typeOf[HeartbeatParams](), typeOf[HeartbeatResult]()},
 	{MethodFinish, "Finish a leased run with its outcome.", "command", ScopeRun, true, typeOf[FinishParams](), typeOf[FinishResult]()},
 	{MethodPermit, "Ask the policy engine whether a leased run's Pilot may use a prompted file tool; the decision is recorded before it is returned.", "command", ScopeRun, true, typeOf[PermitParams](), typeOf[PermitResult]()},

@@ -165,7 +165,8 @@ func (b *Broker) Queued(ctx context.Context) (int, error) {
 
 // Lease gives runner the oldest queued run, under a new fence that expires after ttl (clamped to
 // MinTTL..MaxTTL; DefaultTTL when zero). ok is false when nothing is queued. A runner placed in a
-// container is refused a run whose org's container is held (ErrSandboxBusy).
+// container is given the oldest queued run whose org's container is not held, and is refused
+// (ErrSandboxBusy) when every queued run's is.
 func (b *Broker) Lease(ctx context.Context, runner string, placement Placement, ttl time.Duration) (l Lease, ok bool, err error) {
 	if err := CheckRunnerID(runner); err != nil {
 		return Lease{}, false, err
@@ -175,25 +176,27 @@ func (b *Broker) Lease(ctx context.Context, runner string, placement Placement, 
 	}
 	ttl = clampTTL(ttl)
 	err = b.store.Update(ctx, func(tx *eventstore.Tx) error {
+		now := b.now()
 		ri, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runner_runs WHERE state = ?
-			ORDER BY queued_seq LIMIT 1`, string(StateQueued)))
+			AND (? != ? OR org NOT IN (SELECT org FROM runner_holds WHERE expires_ns > ?))
+			ORDER BY queued_seq LIMIT 1`, string(StateQueued), string(placement), string(PlacementContainer), now.UnixNano()))
 		if errors.Is(err, ErrNoRun) {
+			if placement != PlacementContainer {
+				return nil
+			}
+			var queued int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runner_runs WHERE state = ?`, string(StateQueued)).Scan(&queued); err != nil {
+				return err
+			}
+			if queued > 0 {
+				return ErrSandboxBusy
+			}
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		if placement == PlacementContainer {
-			var held int
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runner_holds WHERE org = ? AND expires_ns > ?`,
-				ri.Org, b.now().UnixNano()).Scan(&held); err != nil {
-				return err
-			}
-			if held > 0 {
-				return fmt.Errorf("%w: %s", ErrSandboxBusy, ri.Org)
-			}
-		}
-		exp := b.now().Add(ttl).UTC()
+		exp := now.Add(ttl).UTC()
 		evs, err := tx.Append(ctx, Stream(ri.Org, ri.Run), ri.Version, runnerActor(runner),
 			Leased{Runner: runner, Placement: placement, ExpiresAt: exp})
 		if err != nil {

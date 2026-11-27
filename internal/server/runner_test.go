@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/eventstore"
@@ -202,5 +203,42 @@ func TestRunnerPermitRedactsExecAndFetch(t *testing.T) {
 				t.Errorf("%s event holds %q: %s", e.Type, s, e.Payload)
 			}
 		}
+	}
+}
+
+// A runner placed in a container, on the far side of the socket, is told the org's container is
+// busy while it is held, takes it as lease again later, and leases once the hold is released.
+func TestContainerRunnerWaitsOutAHeldContainer(t *testing.T) {
+	f := start(t, os.Geteuid(), 0, withBroker)
+	b := f.srv.opts.Runs
+	if err := b.Submit(ctx, runner.Task{Run: "f1#1", Org: "acme", Project: "web", Flight: "f1", Generation: 1, Goal: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	if held, err := b.HoldContainer(ctx, "acme", nil, time.Minute); err != nil || !held {
+		t.Fatalf("hold: %v, %v", held, err)
+	}
+	remote := runner.Remote{Client: f.client}
+	if _, _, err := remote.Lease(ctx, "box", runner.PlacementContainer, time.Minute); !errors.Is(err, runner.ErrSandboxBusy) {
+		t.Fatalf("a container lease while acme is held: %v, want ErrSandboxBusy", err)
+	}
+	r, err := runner.New(runner.Config{ID: "box", Placement: runner.PlacementContainer, Protocol: remote, Executor: oneShotExecutor{},
+		Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Step(ctx); err != nil {
+		t.Fatalf("a step while acme is held: %v", err)
+	}
+	if ri, err := b.Run(ctx, "f1#1"); err != nil || ri.State != runner.StateQueued {
+		t.Fatalf("run while held: %+v, %v", ri, err)
+	}
+	if err := b.ReleaseContainer(ctx, "acme"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if ri, err := b.Run(ctx, "f1#1"); err != nil || ri.State != runner.StateLeased || ri.Runner != "box" {
+		t.Fatalf("run once released: %+v, %v", ri, err)
 	}
 }

@@ -35,7 +35,8 @@ const Version = 1
 // Revision 5 added the exec and fetch action kinds and renamed runner.permit's path to resource.
 // Revision 6 added hook events: the hook kind and its name on runner.heartbeat's events.
 // Revision 7 added questions.list and questions.answer.
-// Revision 8 added the container action kind: starting, restarting or stopping an org's container.
+// Revision 8 added the container action kind: starting, restarting or stopping an org's container,
+// and the sandbox_busy error runner.lease answers while it is.
 const SchemaRevision = 8
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.

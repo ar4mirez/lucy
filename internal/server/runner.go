@@ -30,7 +30,7 @@ func runnerError(err error) error {
 	case errors.Is(err, runner.ErrSequence):
 		return api.FieldError(api.CodeInvalidParams, "events", "number a run's events from 1 without gaps; resend from the accepted number")
 	case errors.Is(err, runner.ErrSandboxBusy):
-		return api.NewError(api.CodeUnavailable, "the run's org container is being restarted or stopped; lease again later")
+		return api.NewError(api.CodeSandboxBusy, "every queued run's org container is being restarted or stopped; lease again later")
 	case errors.Is(err, runner.ErrInvalid), errors.Is(err, runner.ErrExists):
 		return api.NewError(api.CodeInvalidParams, "check the runner id, placement, event kinds and outcome")
 	}

@@ -457,3 +457,32 @@ func TestAHoldNeedsTheSessionsDecidedOn(t *testing.T) {
 		t.Fatalf("hold on the live sessions: %v, %v", held, err)
 	}
 }
+
+func TestAHeldOrgDoesNotHoldUpAnotherOrgsRun(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	for _, tk := range []runner.Task{
+		{Run: runner.RunID("f9", 1), Org: "acme", Project: "web", Flight: "f9", Generation: 1, Goal: "g"},
+		{Run: runner.RunID("b1", 1), Org: "beta", Project: "web", Flight: "b1", Generation: 1, Goal: "g"},
+	} {
+		if err := f.b.Submit(ctx, tk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if held, err := f.b.HoldContainer(ctx, "acme", nil, sandbox.HoldTTL); err != nil || !held {
+		t.Fatalf("hold: %v, %v", held, err)
+	}
+	l, ok, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, time.Minute)
+	if err != nil || !ok || l.Org != "beta" {
+		t.Fatalf("a container lease with acme held: %+v, %v, %v; want beta's run", l, ok, err)
+	}
+	if _, _, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, time.Minute); !errors.Is(err, runner.ErrSandboxBusy) {
+		t.Fatalf("a container lease with only acme's run queued: %v, want ErrSandboxBusy", err)
+	}
+	if l, ok, err := f.b.Lease(ctx, "r3", runner.PlacementHost, time.Minute); err != nil || !ok || l.Org != "acme" {
+		t.Fatalf("a host lease with acme held: %+v, %v, %v", l, ok, err)
+	}
+	if _, ok, err := f.b.Lease(ctx, "r2", runner.PlacementContainer, time.Minute); err != nil || ok {
+		t.Fatalf("a container lease with nothing queued: %v, %v", ok, err)
+	}
+}

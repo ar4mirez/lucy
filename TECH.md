@@ -127,7 +127,7 @@ Operations: [daemon runbook](docs/runbooks/daemon.md).
   headers, 15 s per request body, 30 s to write, 60 s idle, 10 s per call; 64 connections. Params
   are decoded strictly: no unknown, duplicate or case-folded members, bounds from struct tags.
 - **Errors** (LUCY-API-008): JSON-RPC codes plus lucy's (-32001 forbidden, -32002 unsupported
-  version, -32003 too large, -32004 unavailable, -32005 timeout, -32006 fenced), one fixed message and `kind` per
+  version, -32003 too large, -32004 unavailable, -32005 timeout, -32006 fenced, -32007 sandbox busy), one fixed message and `kind` per
   code; internal errors are logged with a correlation id, which is all the caller sees.
 - **Remote transport (m1).** The handler is transport-neutral; HTTPS needs only a TLS listener and a
   device authenticator. No network listener exists in m0: remote HTTPS with device pairing, scoped

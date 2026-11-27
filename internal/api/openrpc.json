@@ -942,7 +942,7 @@
     },
     {
       "name": "runner.lease",
-      "summary": "Lease the oldest queued run under a new fencing token.",
+      "summary": "Lease the oldest queued run under a new fencing token. A runner placed in a container is never leased a run whose org's container is being restarted or stopped; when every queued run is such a run, it is refused with sandbox_busy and leases again later.",
       "paramStructure": "by-name",
       "params": [
         {
@@ -1650,6 +1650,10 @@
       "parse_error": {
         "code": -32700,
         "message": "parse error"
+      },
+      "sandbox_busy": {
+        "code": -32007,
+        "message": "org container busy"
       },
       "timeout": {
         "code": -32005,
