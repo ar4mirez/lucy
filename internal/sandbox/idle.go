@@ -24,8 +24,8 @@ type IdleResult struct {
 	Busy    bool      `json:"busy"`    // a run of the org is queued or live in its container
 	Last    time.Time `json:"last"`    // when the org last had work; zero when it never had any
 	Idle    bool      `json:"idle"`    // running, not busy, and no work for at least the idle time
-	// NotStartedByLucy: the container is running, but the latest operation lucy ran on it was not
-	// an `up` that succeeded, so someone else started it and it is left alone as unknown work.
+	// NotStartedByLucy: the container is running, but lucy has no successful `up` of it since its
+	// last successful `down`, so someone else started it and it is left alone as unknown work.
 	NotStartedByLucy bool    `json:"not_started_by_lucy,omitempty"`
 	Stop             *Result `json:"stop,omitempty"`  // the guarded stop, when it was idle
 	Error            string  `json:"error,omitempty"` // why this org could not be checked or stopped
@@ -36,9 +36,10 @@ type IdleResult struct {
 // (LUCY-SBX-001, D3a). The stop is an ordinary guarded `down` asked for by the daemon: it is
 // decided by the policy engine on the sessions live in the container, recorded before berth is
 // asked, and holds the container while it runs, so a session that started since the check is
-// never stopped without the owner's confirmation. Only a container lucy started is stopped: the
-// latest operation lucy ran on it must be an `up` that succeeded, and the idle time counts from
-// the later of that `up` and the org's last work. A stopped or busy container, or a running one
+// never stopped without the owner's confirmation. Only a container lucy started is stopped: of
+// the operations lucy ran on it that succeeded, the latest `up` or `down` must be an `up`, and the
+// idle time counts from the later of that `up` and the org's last work. A failed operation does
+// not change that, so a failed stop is tried again on the next check. A stopped or busy container, or a running one
 // lucy did not start (it may hold work lucy does not know of), is left alone, and nothing is
 // recorded for it. A restart of a container lucy started, made outside lucy, is not seen: that
 // needs the provider to report when the container started.

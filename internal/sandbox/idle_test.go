@@ -9,6 +9,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/runner"
 	"github.com/ar4mirez/lucy/internal/sandbox"
+	"github.com/ar4mirez/lucy/internal/sandbox/berth/berthtest"
 )
 
 // The oracle for these tests is LUCY-SBX-001 with LUCY-SBX-003: only orgs with active work keep a
@@ -119,14 +120,43 @@ func TestContainersLucyDidNotStartAreKept(t *testing.T) {
 		f.berth.SetRunning("acme", true)
 		keep(t, f)
 	})
-	t.Run("lucy's latest operation was a restart", func(t *testing.T) {
+	t.Run("lucy restarted a container it did not start", func(t *testing.T) {
 		f := open(t)
-		f.up("acme")
 		if r := f.request("acme", sandbox.OpRestart); !r.Acted {
 			t.Fatalf("restart: %+v", r)
 		}
 		keep(t, f)
 	})
+}
+
+// A restart by lucy of a container it started keeps it lucy's, so it is still stopped when idle.
+func TestALucyStartedContainerStaysLucysAfterARestart(t *testing.T) {
+	f := open(t)
+	f.up("acme")
+	if r := f.request("acme", sandbox.OpRestart); !r.Acted {
+		t.Fatalf("restart: %+v", r)
+	}
+	r := f.stopIdle("acme", time.Now().Add(after+time.Minute))
+	if r.NotStartedByLucy || !r.Idle || r.Stop == nil || !r.Stop.Acted || f.berth.Running("acme") {
+		t.Fatalf("%+v", r)
+	}
+}
+
+// A stop the provider failed leaves the container lucy's: the next check tries it again.
+func TestAFailedIdleStopIsRetried(t *testing.T) {
+	f := open(t)
+	f.up("acme")
+	f.ended("acme", "f1")
+	later := time.Now().Add(after + time.Minute)
+	f.berth.FailNext("acme", berthtest.ErrInjected)
+	r, err := f.sb.StopIdle(context.Background(), "acme", f.b, later, after)
+	if err == nil || !r.Idle || r.Stop != nil || !f.berth.Running("acme") {
+		t.Fatalf("failed stop: %+v, %v", r, err)
+	}
+	r = f.stopIdle("acme", later)
+	if r.NotStartedByLucy || !r.Idle || r.Stop == nil || !r.Stop.Acted || f.berth.Running("acme") {
+		t.Fatalf("retry: %+v", r)
+	}
 }
 
 func TestBusyContainersAreKept(t *testing.T) {

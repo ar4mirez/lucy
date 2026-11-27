@@ -300,7 +300,8 @@ var (
 
 // history is what an org's container stream says: its version, the latest holding request per
 // operation, the owner's confirmations no cleared request has retired, and when lucy last started
-// the container (zero unless the latest operation lucy ran on it was an `up` that succeeded).
+// the container: its latest successful `up`, zero when there is none or a successful `down`
+// followed it. A failed operation, or a successful restart, leaves it as it was.
 type history struct {
 	version   int64
 	holding   map[Op]Requested
@@ -356,9 +357,12 @@ func (s *Sandbox) history(ctx context.Context, org string) (history, error) {
 				if err != nil {
 					return history{}, err
 				}
-				h.started = time.Time{}
-				if a.Op == OpUp && a.Error == "" {
+				switch {
+				case a.Error != "":
+				case a.Op == OpUp:
 					h.started = e.Time
+				case a.Op == OpDown:
+					h.started = time.Time{}
 				}
 			}
 		}
