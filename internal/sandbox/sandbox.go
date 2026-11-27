@@ -251,9 +251,11 @@ func (s *Sandbox) Request(ctx context.Context, org string, op Op, by Requester) 
 // Confirm records the owner's confirmation of the latest request for op on org's container that
 // waits on the owner (Result.NeedsOwner): stopping exactly the sessions that request named, as the owner was shown them. It
 // approves nothing else: not another operation, not another container, and not the same one once
-// a session has started or ended since (the policy engine then denies it). The owner's word comes
-// only through the API, which calls Confirm for the authenticated owner and nobody else.
-func (s *Sandbox) Confirm(ctx context.Context, org string, op Op) (policy.Approval, error) {
+// a session has started or ended since (the policy engine then denies it). decision is the
+// waiting decision the owner was shown (Held); when a newer request has replaced it, Confirm
+// refuses with ErrStale, so the owner never confirms sessions they were not shown. The owner's
+// word comes only through the API, which calls Confirm for the authenticated owner and nobody else.
+func (s *Sandbox) Confirm(ctx context.Context, org string, op Op, decision int64) (policy.Approval, error) {
 	if err := checkOrg(org); err != nil {
 		return policy.Approval{}, err
 	}
@@ -270,6 +272,9 @@ func (s *Sandbox) Confirm(ctx context.Context, org string, op Op) (policy.Approv
 	if !ok {
 		return policy.Approval{}, fmt.Errorf("%w: %s of %s", ErrNothingHeld, op, org)
 	}
+	if held.DecisionSeq != decision {
+		return policy.Approval{}, fmt.Errorf("%w: %s of %s now waits on decision %d", ErrStale, op, org, held.DecisionSeq)
+	}
 	a := policy.Approval{
 		Decision:     fmt.Sprintf("%s#%d", Stream(org), h.version+1), // this event's own id
 		By:           policy.ByOwner,
@@ -285,8 +290,13 @@ func (s *Sandbox) Confirm(ctx context.Context, org string, op Op) (policy.Approv
 // ruleLiveSessions is the policy rule that holds an operation for the owner.
 const ruleLiveSessions = "container.live-sessions"
 
-// ErrNothingHeld is Confirm's error when no request for the operation is holding.
-var ErrNothingHeld = errors.New("sandbox: no request is holding for the owner")
+// Confirm's errors.
+var (
+	// ErrNothingHeld: no request for the operation waits on the owner.
+	ErrNothingHeld = errors.New("sandbox: no request is holding for the owner")
+	// ErrStale: the decision named is not the one waiting now.
+	ErrStale = errors.New("sandbox: the decision confirmed is no longer the one waiting")
+)
 
 // history is what an org's container stream says: its version, the latest holding request per
 // operation, and the owner's confirmations no cleared request has retired.

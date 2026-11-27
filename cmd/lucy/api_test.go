@@ -33,12 +33,17 @@ func lucy(args ...string) (int, string, string) {
 
 func TestClientCommandsWithoutADaemon(t *testing.T) {
 	sock := filepath.Join(shortTempDir(t), "none.sock")
-	for _, cmd := range [][]string{{"status"}, {"events"}, {"daemon", "stop"}, {"questions"}, {"answer", "f1", "yes"}} {
+	for _, cmd := range [][]string{{"status"}, {"events"}, {"daemon", "stop"}, {"questions"}, {"answer", "f1", "yes"},
+		{"sandbox", "held"}} {
 		code, out, errOut := lucy(append(cmd, "--socket", sock)...)
 		if code != 1 || out != "" || !strings.Contains(errOut, "lucy daemon is not running") ||
 			!strings.Contains(errOut, "help: start it with `lucy daemon`") {
 			t.Errorf("%v: code %d stdout %q stderr %q", cmd, code, out, errOut)
 		}
+	}
+	code, out, errOut := lucy("sandbox", "confirm", "--socket", sock, "acme", "restart", "7")
+	if code != 1 || out != "" || !strings.Contains(errOut, "lucy daemon is not running") {
+		t.Errorf("sandbox confirm: code %d stdout %q stderr %q", code, out, errOut)
 	}
 }
 
@@ -47,12 +52,15 @@ func TestUsageErrors(t *testing.T) {
 		{"status", "extra"}, {"events", "--limit", "x"}, {"daemon", "--nope"}, {"daemon", "stop", "x"},
 		{"runner"}, {"runner", "--id", "Bad Id", "--", "true"}, {"runner", "--placement", "moon", "--", "true"}, {"runner", "--nope"}, {"runner", "--harness", "nope"},
 		{"questions", "extra"}, {"answer"}, {"answer", "f1"},
+		{"sandbox"}, {"sandbox", "nope"}, {"sandbox", "held", "extra"}, {"sandbox", "confirm", "acme", "restart"},
+		{"sandbox", "confirm", "acme", "restart", "x"}, {"sandbox", "confirm", "acme", "restart", "0"},
 	} {
 		if code, _, errOut := lucy(args...); code != 2 || !strings.Contains(errOut, "help: run `lucy") {
 			t.Errorf("%v: code %d stderr %q", args, code, errOut)
 		}
 	}
-	for _, args := range [][]string{{"status", "--help"}, {"events", "-h"}, {"daemon", "--help"}, {"runner", "--help"}, {"questions", "--help"}, {"answer", "-h"}} {
+	for _, args := range [][]string{{"status", "--help"}, {"events", "-h"}, {"daemon", "--help"}, {"runner", "--help"}, {"questions", "--help"}, {"answer", "-h"},
+		{"sandbox", "--help"}, {"sandbox", "held", "--help"}, {"sandbox", "confirm", "-h"}} {
 		if code, out, _ := lucy(args...); code != 0 || !strings.Contains(out, "Usage:") {
 			t.Errorf("%v: code %d stdout %q", args, code, out)
 		}
@@ -145,6 +153,14 @@ func TestDaemonAndClients(t *testing.T) {
 	if code != 0 || !strings.HasPrefix(out, "audit: verified\nentries: 2\nhead: ") {
 		t.Errorf("audit verify: code %d stdout %q", code, out)
 	}
+	// No Sandbox binding is open: nothing waits on the owner, and a confirmation goes nowhere.
+	if code, out, errOut := lucy("sandbox", "held", "--socket", sock); code != 0 || out != "held[0]: no container operation waits on you\n" {
+		t.Errorf("sandbox held: code %d stdout %q stderr %q", code, out, errOut)
+	}
+	if code, out, errOut := lucy("sandbox", "confirm", "--socket", sock, "acme", "restart", "7"); code != 1 || out != "" ||
+		!strings.Contains(errOut, "(unavailable)") || !strings.Contains(errOut, "no Sandbox binding open") {
+		t.Errorf("sandbox confirm: code %d stdout %q stderr %q", code, out, errOut)
+	}
 	code, _, errOut = lucy("events", "--socket", sock, "--limit", "501")
 	if code != 1 || !strings.Contains(errOut, "error: invalid params (invalid_params)") || !strings.Contains(errOut, "help: must be at most 500") {
 		t.Errorf("events over the limit: code %d stderr %q", code, errOut)
@@ -193,5 +209,18 @@ func TestQuestionsEscapeUntrustedText(t *testing.T) {
 	}
 	if untrusted("a,\x00b") != `"a,\u0000b"` || untrusted("\U000E0041") != `\U000E0041` {
 		t.Error("untrusted escaping")
+	}
+}
+
+func TestHeldEscapesUntrustedText(t *testing.T) {
+	since := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	var out bytes.Buffer
+	writeHeld(&out, api.HeldList{Held: []api.HeldOp{{Org: "acme", Op: "restart", Decision: 41, Outcome: "holding",
+		LiveSessions: []string{"f1#1", "f2\x1b[2K#1"}, Since: since}}})
+	want := "held[1]{org,op,decision,outcome,since,live_sessions}:\n" +
+		`  acme,restart,41,holding,2026-11-27T10:00:00Z,f1#1 f2\u001B[2K#1` + "\n" +
+		"help: run `lucy sandbox confirm <org> <op> <decision>` to confirm stopping those sessions\n"
+	if got := out.String(); got != want {
+		t.Errorf("got\n%q\nwant\n%q", got, want)
 	}
 }

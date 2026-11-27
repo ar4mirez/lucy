@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 8
+version: 9
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -121,6 +121,21 @@ lucy answer f1 use the staging account   # relayed to the Pilot by the Tower; th
 
 The daemon does not host the Tower yet (m1 slice 7a): until it does, `lucy questions` lists
 nothing and `lucy answer` is refused as `unavailable`.
+
+## Container operations
+
+Starting, restarting or stopping an org's container stops every session in it, so while a session
+is live lucy holds the operation for you:
+
+```sh
+lucy sandbox held                       # what waits on you: org, op, decision, the sessions it stops
+lucy sandbox confirm acme restart 41    # confirm stopping exactly those sessions, once
+```
+
+A confirmation lapses if a session starts or ends before lucy asks again, and a newer decision
+replaces the one shown; run `lucy sandbox held` again. The daemon does not open an org's Sandbox
+binding yet (m1 slice 3): until it does, nothing is held and a confirmation is refused as
+`unavailable`.
 
 ## When something is wrong
 

@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 6
+version: 7
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -28,5 +28,11 @@ Changes since the last release. When a version is cut, its section moves to
   meanwhile it is refused with the new `sandbox_busy` error and leases again later.
   `runner.queued` takes the runner's placement for this; without one it counts as before. Every
   decision is recorded before the container is touched, and what berth did after it. The daemon
-  does not use the seam yet, so nothing acts on a live container, and the owner's confirmation has
-  no API or command yet.
+  does not use the seam yet, so nothing acts on a live container.
+- `lucy sandbox held` lists the container operations that wait on the owner (the org, the
+  operation, the waiting decision and the sessions it would stop), and
+  `lucy sandbox confirm <org> <op> <decision>` confirms stopping exactly those sessions; lucy's
+  next request for the operation is then cleared, once. A decision a newer request has replaced
+  is refused, so the owner confirms only what was shown. The API gains `sandbox.held` (read) and
+  `sandbox.confirm` (decide) (OpenRPC revision 9). Until the daemon opens an org's Sandbox
+  binding, nothing is held and a confirmation is reported unavailable.

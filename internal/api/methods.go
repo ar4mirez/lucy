@@ -40,6 +40,8 @@ const (
 	MethodQuestions = "questions.list"
 	MethodAnswer    = "questions.answer"
 	MethodRuns      = "runs.list"
+	MethodHeld      = "sandbox.held"
+	MethodConfirm   = "sandbox.confirm"
 )
 
 var methods = []Method{
@@ -61,6 +63,8 @@ var methods = []Method{
 	{MethodQuestions, "The Pilots' open questions, as the Tower records them: each flight that is asking, oldest first.", "query", ScopeRead, false, typeOf[NoParams](), typeOf[QuestionsList]()},
 	{MethodAnswer, "Answer a flight's open question; the Tower relays the answer to its Pilot and records only its digest.", "command", ScopeDecide, true, typeOf[AnswerParams](), typeOf[AnswerResult]()},
 	{MethodRuns, "Runs and their leases, in the order they were queued.", "query", ScopeRead, false, typeOf[RunsParams](), typeOf[RunsPage]()},
+	{MethodHeld, "Operations on an org's container that wait on the owner: each would stop the sessions live in it, oldest first.", "query", ScopeRead, false, typeOf[NoParams](), typeOf[HeldList]()},
+	{MethodConfirm, "Confirm stopping the live sessions a waiting container operation names; the daemon's next request for it is then cleared, while those sessions are unchanged.", "command", ScopeDecide, true, typeOf[ConfirmParams](), typeOf[ConfirmResult]()},
 }
 
 // NewParams returns a pointer to a new, zero params value for the method, ready for DecodeParams.
@@ -421,4 +425,33 @@ type AnswerParams struct {
 type AnswerResult struct {
 	Flight string `json:"flight" doc:"The flight answered."`
 	State  string `json:"state" doc:"The flight's state after the answer, normally flying."`
+}
+
+// HeldList answers sandbox.held.
+type HeldList struct {
+	Held []HeldOp `json:"held" doc:"Every container operation that waits on the owner, oldest first; empty when none does."`
+}
+
+// HeldOp is one container operation that waits on the owner.
+type HeldOp struct {
+	Org          string    `json:"org" doc:"The org whose container it is."`
+	Op           string    `json:"op" doc:"up, restart or down: each stops the work running in the container."`
+	Decision     int64     `json:"decision" doc:"The policy decision that waits; a confirmation names it."`
+	Outcome      string    `json:"outcome" doc:"holding, or denied when an earlier confirmation lapsed because the live sessions changed."`
+	LiveSessions []string  `json:"live_sessions" doc:"The runs live in the container, which the operation would stop."`
+	Since        time.Time `json:"since" doc:"When it was decided, UTC."`
+}
+
+// ConfirmParams confirms one waiting container operation.
+type ConfirmParams struct {
+	Org      string `json:"org" lucy:"required,maxlen=128" doc:"The org whose container it is."`
+	Op       string `json:"op" lucy:"required,maxlen=16" doc:"up, restart or down."`
+	Decision int64  `json:"decision" lucy:"min=1" doc:"The waiting decision, as sandbox.held shows it. A newer request replaces it, and a confirmation of the old one is refused."`
+}
+
+// ConfirmResult answers sandbox.confirm.
+type ConfirmResult struct {
+	Org      string `json:"org" doc:"The org confirmed."`
+	Op       string `json:"op" doc:"The operation confirmed."`
+	Approval string `json:"approval" doc:"The confirmation's own decision id, which the cleared request will name."`
 }
