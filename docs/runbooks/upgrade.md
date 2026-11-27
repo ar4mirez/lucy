@@ -36,15 +36,23 @@ are restarted, so the daemon goes first and they follow.
 5. **Move the runners** to the new binary without losing work: `lucy runner drain --org <org>`
    waits until each runner has finished its runs and exited (it leases nothing more meanwhile);
    then start each again (`lucy runner --org <org> ...`, or let the service manager restart it).
-   Queued runs wait for the new runners.
+   Queued runs wait for the new runners. Upgrading from 0.6.0, do this step as in "From 0.6.0"
+   instead.
 6. **Restart each gateway** (`lucy gateway --org <org> --passphrase-file <file>`); it unlocks the
    vault again at start.
 
 ## From 0.6.0
 
-0.6.0's runners name no org, and runners now must: after the daemon is upgraded, a 0.6.0 runner
-keeps every run it holds, renewing and finishing it as before, but its next lease is refused
-(`runner_org`). Drain and restart each one (step 5) with `--org`.
+A 0.6.0 runner predates the drain: it never registers in `runners/`, so `lucy runner drain` does
+not find it ("no live runner matches"), and SIGTERM or a service-manager restart stops it at once
+and reports its runs lost. 0.6.0's runners also name no org, and runners now must: after the daemon
+is upgraded, a 0.6.0 runner keeps every run it holds, renewing and finishing it as before, but its
+next lease is refused (`runner_org`), so it leases nothing new.
+
+So, for an upgrade from 0.6.0, step 5 is instead: leave each 0.6.0 runner running until every run
+it holds has ended (in `lucy events`, each `run.leased` naming that runner is followed by its run's
+`run.finished`, `run.expired` or `run.replaced`), then stop it and start a new runner with `--org`
+(`lucy runner --org <org> ...`). From then on step 5 applies as written.
 
 ## Rollback
 

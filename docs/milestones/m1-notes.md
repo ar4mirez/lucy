@@ -132,7 +132,9 @@ slice table, requirement status and exit tests stay in the plan.
   drain signals only live ones. An unplanned crash still loses the runner's runs, each replaced
   once; a per-run keeper process is a later option, to weigh with #36's per-run OS boundary, as
   both change how a run's process is owned. An in-place upgrade ([upgrade runbook](../runbooks/upgrade.md)) restarts the
-  daemon first, then drains and restarts the runners; `TestUpgradeFromV060` checks it against a
+  daemon first, then drains and restarts the runners (drain applies to runners from this release
+  on; a 0.6.0 runner is left to finish its runs, then replaced by one started with `--org`);
+  `TestUpgradeFromV060` checks it against a
   store v0.6.0's own code wrote with a run leased (`internal/daemon/testdata/upgrade/v0.6.0.sql`).
   Slice 5 is done.
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
