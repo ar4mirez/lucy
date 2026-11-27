@@ -402,7 +402,7 @@ func channelScenarios() []Scenario {
 		{
 			ID: "channel-04", Title: "A Pilot has no channel to the owner: every surface shows Pilot text only as the Tower's record of it",
 			Class: ClassChannel, Source: FromRule, Severity: High,
-			Pending: &Pending{Milestone: "m1", Requirements: []string{"LUCY-RUN-013"}, Needs: "the owner-facing surfaces and harness adapters"},
+			Pending: &Pending{Milestone: "m1", Requirements: []string{"LUCY-RUN-013"}, Needs: "the owner-facing surfaces that render the Tower's records of Pilot text; the harness adapter's half is built"},
 		},
 		{
 			ID: "channel-05", Title: "Only the owner's words close a decision; no agent can answer one on the owner's behalf",

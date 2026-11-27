@@ -1,0 +1,7 @@
+harness/claude-code activity "session started: claude-code 2.1.332, model claude-opus-5-5"
+harness/claude-code output "I will fix the failing test."
+harness/claude-code activity "tool: Bash"
+harness/claude-code activity "tool result"
+harness/claude-code output "Opened the pull request.\nlucy:pr=42"
+harness/claude-code activity "session ended: success after 3 turns"
+exit ok=true pr=42 reason=""

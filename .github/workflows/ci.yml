@@ -53,6 +53,11 @@ jobs:
       - name: Conformance corpus
         run: go test -count=1 -run 'TestConformance|TestCorpusWellFormed|TestCoverageDoc|TestHarnessCatchesViolations' -v ./internal/corpus
 
+      # The harness adapter's contract (LUCY-RUN-003): every recorded protocol transcript of the
+      # pinned Claude Code version, replayed without a harness, a model or a login.
+      - name: Harness contract
+        run: go test -count=1 -run 'TestContract|TestCheckVersion|TestArgs' -v ./internal/harness/...
+
       - name: Tests (race)
         run: go test -race ./...
 

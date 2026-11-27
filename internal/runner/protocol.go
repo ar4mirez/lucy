@@ -95,6 +95,7 @@ const (
 	MaxTTL       = 5 * time.Minute
 	MaxBatch     = 32   // events in one heartbeat
 	MaxTextBytes = 1024 // the text of one event, a question or a reason
+	MaxAnswer    = 4096 // the owner's answer to a question
 	maxIDBytes   = 200
 )
 
@@ -113,6 +114,8 @@ var (
 	ErrInvalid = errors.New("runner: invalid request")
 	// ErrNoInput is returned when the Tower answers a Pilot whose executor takes no input.
 	ErrNoInput = errors.New("runner: this run's executor takes no input")
+	// ErrNotAsking refuses an answer to a run that is not waiting on a question.
+	ErrNotAsking = errors.New("runner: the run is not asking")
 )
 
 // Task is one run of work, as a runner is leased it: a flight's Pilot generation.
@@ -153,6 +156,8 @@ type Beat struct {
 	Expires  time.Time // the lease's new expiry
 	Stop     bool      // the Tower asked for the run to stop: stop the work and finish it as stopped
 	Accepted int64     // the highest event number recorded for the run
+	Answer   string    // the owner's answer to the run's question, relayed by the Tower; given once
+	Asking   bool      // the run's last recorded event is a question still waiting on an answer
 }
 
 // RunID returns the run id of a flight's Pilot generation.

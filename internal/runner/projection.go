@@ -135,6 +135,9 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 		}
 		q = `UPDATE runner_runs SET version = ?, accepted = ?, activity_ns = ?, asking = ?, question = ? WHERE run = ?`
 		args = []any{e.StreamVersion, p.Seq, at, asking, question, run}
+	case Answered{}.EventType():
+		q = `UPDATE runner_runs SET version = ?, activity_ns = ?, asking = 0, question = '' WHERE run = ?`
+		args = []any{e.StreamVersion, at, run}
 	case StopRequested{}.EventType():
 		q = `UPDATE runner_runs SET version = ?, stop = 1 WHERE run = ?`
 		args = []any{e.StreamVersion, run}

@@ -14,12 +14,15 @@ import (
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/eventstore"
+	"github.com/ar4mirez/lucy/internal/harness"
+	"github.com/ar4mirez/lucy/internal/harness/claudecode"
 	"github.com/ar4mirez/lucy/internal/runner"
 )
 
 const runnerUsage = `Usage:
   lucy runner [--socket <path>] [--id <name>] [--root <dir>] [--placement host|container]
               [--ttl <seconds>] -- <command> [<args>...]
+  lucy runner [flags as above] --harness claude-code [-- <harness program> [<args>...]]
 
 Runs a runner in the foreground: it leases runs from the daemon over the runner protocol,
 runs <command> once per leased run, streams each line of its output into the daemon's event
@@ -32,6 +35,13 @@ deleted when the command exits. A lease not renewed within --ttl (60 s by defaul
 the run is lost and the daemon refuses anything sent under its fence afterwards. Ctrl-C,
 SIGTERM or a closed terminal (SIGHUP) stops the runner; it stops its runs and reports them lost.
 A runner started under nohup keeps ignoring SIGHUP and outlives its terminal.
+
+With --harness claude-code the runner drives Claude Code (` + "`claude`" + ` unless a program follows
+--) over its stream-json protocol instead of streaming lines: the harness must report version
+` + claudecode.Pinned + `, the one this lucy supports, or the run fails without starting. Each session gets no
+MCP servers, no user-level settings or hooks and no saved transcript; its question to the owner
+is streamed as asking and answered only with what the Tower relays, and every other permission
+prompt is refused.
 `
 
 // runnerSignalContext is swapped in tests.
@@ -53,6 +63,7 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 	root := fs.String("root", "", "")
 	placement := fs.String("placement", string(runner.PlacementHost), "")
 	ttl := fs.Int("ttl", int(runner.DefaultTTL/time.Second), "")
+	harnessName := fs.String("harness", "", "")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprint(stdout, runnerUsage)
@@ -62,6 +73,18 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	command := fs.Args()
+	var adapter harness.Adapter
+	switch *harnessName {
+	case "":
+	case claudecode.Name:
+		adapter = claudecode.Adapter{}
+		if len(command) == 0 {
+			command = []string{"claude"}
+		}
+	default:
+		fmt.Fprintf(stderr, "error: --harness %q is not a harness lucy supports\nhelp: run `lucy runner --help`; the supported harness is %s\n", *harnessName, claudecode.Name)
+		return 2
+	}
 	if len(command) == 0 {
 		fmt.Fprint(stderr, "error: no command to run\nhelp: run `lucy runner --help`; the command follows --\n")
 		return 2
@@ -96,7 +119,7 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	r, err := runner.New(runner.Config{
 		ID: *id, Placement: runner.Placement(*placement), Protocol: runner.Remote{Client: c},
-		Executor: &runner.ProcessExecutor{Root: dir, Command: command, Log: log},
+		Executor: &runner.ProcessExecutor{Root: dir, Command: command, Harness: adapter, Log: log},
 		TTL:      time.Duration(*ttl) * time.Second, Log: log,
 	})
 	if err != nil {
@@ -105,6 +128,9 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := runnerSignalContext()
 	defer cancel()
+	if adapter != nil {
+		log.Info("lucy runner drives a harness", "harness", adapter.Name(), "pinned", adapter.Pinned(), "program", command[0])
+	}
 	log.Info("lucy runner started", "id", *id, "socket", c.Socket(), "root", dir)
 	if err := r.Run(ctx, time.Second); err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)

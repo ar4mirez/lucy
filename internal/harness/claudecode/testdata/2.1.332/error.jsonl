@@ -1,0 +1,9 @@
+{"version":"2.1.332"}
+{"in":{"type":"user","message":{"role":"user"},"parent_tool_use_id":null}}
+{"out":{"type":"system","subtype":"init","cwd":"/work/run-1","session_id":"5f0c7d1e-0000-4000-8000-000000000001","tools":["Bash","Edit","Read","AskUserQuestion"],"mcp_servers":[],"model":"claude-opus-5-5","permissionMode":"manual","slash_commands":[],"apiKeySource":"none","claude_code_version":"2.1.332","output_style":"default","agents":[],"skills":[],"plugins":[],"uuid":"8a1d0000-0000-4000-8000-000000000001"}}
+{"stderr":"warning: something the harness logs"}
+{"out":"plain text the harness printed"}
+{"out":{"type":"system","subtype":"status","status":"compacting","session_id":"5f0c7d1e-0000-4000-8000-000000000001","uuid":"8a1d0000-0000-4000-8000-000000000002"}}
+{"out":{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"},"session_id":"5f0c7d1e-0000-4000-8000-000000000001","uuid":"8a1d0000-0000-4000-8000-000000000003"}}
+{"out":{"type":"message_from_a_later_version","session_id":"5f0c7d1e-0000-4000-8000-000000000001"}}
+{"out":{"type":"result","subtype":"error_max_turns","is_error":true,"duration_ms":60000,"duration_api_ms":58000,"num_turns":50,"session_id":"5f0c7d1e-0000-4000-8000-000000000001","total_cost_usd":1.2,"usage":{},"permission_denials":[],"errors":["Reached maximum number of turns (50)"],"uuid":"8a1d0000-0000-4000-8000-000000000004"}}

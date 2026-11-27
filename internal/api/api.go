@@ -30,7 +30,8 @@ const Version = 1
 // serves v1 (ADR D10), and until then also by renamed values. Revision 1 renamed the policy
 // outcomes to cleared, denied and holding, and the human role and input source to owner. Revision 2
 // added the runner protocol: the run scope, the fenced error and the runner and runs methods.
-const SchemaRevision = 2
+// Revision 3 added the owner's relayed answer and the asking state to runner.heartbeat's result.
+const SchemaRevision = 3
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"

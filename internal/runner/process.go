@@ -9,17 +9,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ar4mirez/lucy/internal/harness"
 	"github.com/ar4mirez/lucy/internal/pathguard"
 )
 
-// ProcessExecutor runs one program per leased run, directly on this machine: the local runner's
-// executor until the structured harness adapter lands (TODO(LUCY-RUN-002), m1 step 2). Each run
-// gets a fresh scratch directory under Root as its working directory and TMPDIR, and an
+// ProcessExecutor runs one program per leased run, directly on this machine. With a Harness it
+// drives an agent harness over the harness's structured protocol (LUCY-RUN-002); without one it
+// runs a plain program and streams its output. Each run gets a fresh scratch directory under Root as its working directory and TMPDIR, and an
 // environment of only PATH, HOME, TMPDIR and the run's LUCY_RUN_* variables, so nothing else in
 // the runner's environment, such as a token, reaches the work. Every line the program writes to
 // stdout or stderr is streamed as an output event; a line "lucy:pr=<n>" reports the pull request
@@ -37,16 +39,26 @@ type ProcessExecutor struct {
 	// StopGrace is how long a stopped program's output may stay open after it is killed;
 	// 2 s when zero.
 	StopGrace time.Duration
+	// Harness, when set, is the structured protocol the program speaks. Command is then the
+	// harness program; the adapter's arguments follow Command's own and its variables join the
+	// environment. Before each run the program must report the adapter's pinned version, or the
+	// run fails without starting (LUCY-RUN-003). Its standard output is decoded as the protocol,
+	// not streamed as lines; its standard error is streamed as output. The session's end is what
+	// the protocol reports, not the exit status, and the work takes the owner's answers, relayed
+	// by the Tower, on its input (LUCY-RUN-013).
+	Harness harness.Adapter
 }
 
 // Bounds on what one process run buffers between polls.
 const (
 	maxBufferedLines = 4096
 	maxLineBytes     = 64 << 10 // a longer line is cut into pieces of this size
+	maxProtocolLine  = 4 << 20  // a longer protocol message is dropped whole
+	versionTimeout   = 10 * time.Second
 )
 
 // prDirective is the line a program writes to report its pull request.
-const prDirective = "lucy:pr="
+const prDirective = harness.PRDirective
 
 // Start implements Executor.
 func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
@@ -86,9 +98,7 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 		log = slog.Default()
 	}
 	pe := &processExecution{guard: guard, dir: dir, log: log}
-	cmd := exec.Command(p.Command[0], p.Command[1:]...) // #nosec G204 -- the runner's own configured program, never text from a task
-	cmd.Dir = dir
-	cmd.Env = []string{
+	env := []string{
 		"PATH=" + path,
 		"HOME=" + home, // TODO(LUCY-RUN-006): a synthetic HOME per org (m1 step 6)
 		"TMPDIR=" + dir,
@@ -100,8 +110,35 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 		"LUCY_RUN_GOAL=" + l.Goal,
 		"LUCY_RUN_BASE=" + l.Base,
 	}
+	args := slices.Clip(p.Command[1:])
+	session := harness.Session{Goal: l.Goal, Dir: dir}
+	if p.Harness != nil {
+		env = append(env, p.Harness.Env()...)
+		if err := checkHarness(p.Harness, p.Command, dir, env); err != nil {
+			pe.cleanup()
+			return nil, err
+		}
+		args = append(args, p.Harness.Args(session)...)
+	}
+	cmd := exec.Command(p.Command[0], args...) // #nosec G204 -- the runner's own configured program, never text from a task
+	cmd.Dir = dir
+	cmd.Env = env
 	cmd.Stdout = pe
 	cmd.Stderr = pe
+	if p.Harness != nil {
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			pe.cleanup()
+			return nil, err
+		}
+		if pe.conn, err = p.Harness.Open(stdin, session); err != nil {
+			_ = stdin.Close()
+			pe.cleanup()
+			return nil, err
+		}
+		pe.proto = &protocolLines{pe: pe}
+		cmd.Stdout = pe.proto
+	}
 	ownProcessGroup(cmd)
 	cmd.WaitDelay = p.StopGrace
 	if cmd.WaitDelay <= 0 {
@@ -121,14 +158,115 @@ type processExecution struct {
 	dir   string
 	log   *slog.Logger
 	cmd   *exec.Cmd
+	conn  harness.Conn   // with a harness: the session's protocol
+	proto *protocolLines // with a harness: its standard output, split into messages
 
 	mu      sync.Mutex
 	partial []byte
 	lines   []Event
 	dropped int
 	pr      int
+	exit    *harness.Exit // with a harness: the session's end, as the protocol reported it
 	stopped bool
 	result  *Result
+}
+
+// checkHarness runs the harness program for its version and refuses any but the pinned one.
+func checkHarness(a harness.Adapter, command []string, dir string, env []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, command[0], append(slices.Clip(command[1:]), a.VersionArgs()...)...) // #nosec G204 -- as in Start
+	cmd.Dir, cmd.Env = dir, env
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("runner: %s did not report its version: %w", a.Name(), err)
+	}
+	_, err = a.CheckVersion(out)
+	return err
+}
+
+// protocolLines splits a harness's standard output into protocol messages, one per line. It is
+// written from one goroutine, and flushed once the program has exited.
+type protocolLines struct {
+	pe       *processExecution
+	partial  []byte
+	skipping bool // the rest of an overlong message is being dropped
+}
+
+func (w *protocolLines) Write(b []byte) (int, error) {
+	n := len(b)
+	for len(b) > 0 {
+		i := bytes.IndexByte(b, '\n')
+		if i < 0 {
+			if !w.skipping {
+				w.partial = append(w.partial, b...)
+				if len(w.partial) > maxProtocolLine {
+					w.partial, w.skipping = w.partial[:0], true
+					w.pe.message(nil, fmt.Sprintf("lucy: dropped a harness message over %d MiB", maxProtocolLine>>20))
+				}
+			}
+			return n, nil
+		}
+		if !w.skipping {
+			w.partial = append(w.partial, b[:i]...)
+			w.pe.harnessLine(w.partial)
+		}
+		w.partial, w.skipping = w.partial[:0], false
+		b = b[i+1:]
+	}
+	return n, nil
+}
+
+func (w *protocolLines) flush() {
+	if len(w.partial) > 0 && !w.skipping {
+		w.pe.harnessLine(w.partial)
+	}
+	w.partial = nil
+}
+
+// harnessLine decodes one protocol message. Decoding may answer the harness on its input, so it
+// runs without the lock.
+func (pe *processExecution) harnessLine(b []byte) {
+	evs, exit := pe.conn.Decode(b)
+	pe.message(exit, "")
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	for _, e := range evs {
+		kind := EventKind(e.Kind)
+		if !kind.Valid() {
+			kind = KindActivity
+		}
+		pe.push(Event{Kind: kind, Text: capText(e.Text)})
+	}
+}
+
+// message records a session's end, and a note from lucy itself as an activity event.
+func (pe *processExecution) message(exit *harness.Exit, note string) {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	if exit != nil && pe.exit == nil {
+		pe.exit = exit
+	}
+	if note != "" {
+		pe.push(Event{Kind: KindActivity, Text: note})
+	}
+}
+
+// push buffers one event; pe.mu is held.
+func (pe *processExecution) push(e Event) {
+	if len(pe.lines) >= maxBufferedLines {
+		pe.dropped++
+		return
+	}
+	pe.lines = append(pe.lines, e)
+}
+
+// Answer implements Answerer: it gives the harness the owner's answer to its question.
+func (pe *processExecution) Answer(text string) error {
+	if pe.conn == nil {
+		return ErrNoInput
+	}
+	return pe.conn.Answer(text)
 }
 
 // Write implements io.Writer for the program's stdout and stderr.
@@ -160,11 +298,7 @@ func (pe *processExecution) line(s string) {
 			return
 		}
 	}
-	if len(pe.lines) >= maxBufferedLines {
-		pe.dropped++
-		return
-	}
-	pe.lines = append(pe.lines, Event{Kind: KindOutput, Text: capText(s)})
+	pe.push(Event{Kind: KindOutput, Text: capText(s)})
 }
 
 func (pe *processExecution) wait() {
@@ -175,6 +309,9 @@ func (pe *processExecution) wait() {
 	if errors.Is(err, exec.ErrWaitDelay) && pe.cmd.ProcessState.Success() {
 		err = nil
 	}
+	if pe.proto != nil {
+		pe.proto.flush()
+	}
 	pe.mu.Lock()
 	if len(pe.partial) > 0 {
 		pe.line(string(pe.partial))
@@ -184,6 +321,16 @@ func (pe *processExecution) wait() {
 	switch {
 	case pe.stopped:
 		res = &Result{Outcome: OutcomeStopped, Reason: "stopped"}
+	case pe.conn != nil && pe.exit != nil && pe.exit.OK:
+		res = &Result{Outcome: OutcomeDone, PR: pe.exit.PR}
+	case pe.conn != nil && pe.exit != nil:
+		res = &Result{Outcome: OutcomeFailed, Reason: capText(pe.exit.Reason)}
+	case pe.conn != nil:
+		reason := "the harness ended without reporting a result"
+		if err != nil {
+			reason += ": " + err.Error()
+		}
+		res = &Result{Outcome: OutcomeFailed, Reason: capText(reason)}
 	case err != nil:
 		res = &Result{Outcome: OutcomeFailed, Reason: capText(err.Error())}
 	}

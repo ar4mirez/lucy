@@ -311,6 +311,8 @@ type HeartbeatResult struct {
 	ExpiresAt time.Time `json:"expires_at" doc:"The lease's new expiry, UTC."`
 	Stop      bool      `json:"stop" doc:"The Tower asked for the run to stop: stop the work and finish the run as stopped."`
 	Accepted  int64     `json:"accepted" doc:"The highest event number recorded for the run."`
+	Answer    string    `json:"answer,omitempty" doc:"The owner's answer to the run's question, relayed by the Tower; given once. Give it to the work."`
+	Asking    bool      `json:"asking" doc:"The run's last recorded event is a question still waiting on an answer. False with no answer after the runner asked means the answer was lost: ask again."`
 }
 
 // FinishParams ends a run.

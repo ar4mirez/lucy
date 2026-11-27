@@ -11,6 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ar4mirez/lucy/internal/harness"
+	"github.com/ar4mirez/lucy/internal/harness/claudecode"
+	"github.com/ar4mirez/lucy/internal/harness/harnesstest"
 	"github.com/ar4mirez/lucy/internal/pathguard"
 )
 
@@ -24,6 +27,9 @@ func TestMain(m *testing.M) {
 }
 
 func helper(goal string) int {
+	if rest, ok := strings.CutPrefix(goal, "harness "); ok {
+		return fakeHarness(rest)
+	}
 	switch goal {
 	case "work":
 		wd, _ := os.Getwd()
@@ -60,6 +66,35 @@ func helper(goal string) int {
 		return 0
 	}
 	return 9
+}
+
+// fakeHarness plays a recorded harness transcript: the goal is "harness <version> <path>", where
+// a version of "-" keeps the transcript's own.
+func fakeHarness(spec string) int {
+	version, path, _ := strings.Cut(spec, " ")
+	f, err := os.Open(path)
+	if err != nil {
+		return 8
+	}
+	tr, err := harnesstest.Parse(f)
+	_ = f.Close()
+	if err != nil {
+		return 8
+	}
+	if version != "-" {
+		tr.Header.Version = version
+	}
+	return harnesstest.Replay(tr, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
+}
+
+// transcript returns the absolute path of one of the Claude Code adapter's recorded transcripts.
+func transcript(t *testing.T, name string) string {
+	t.Helper()
+	p, err := filepath.Abs(filepath.Join("..", "harness", "claudecode", "testdata", claudecode.Pinned, name+".jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 type procFixture struct {
@@ -219,5 +254,95 @@ func TestRemoveScratchStaysInsideRoot(t *testing.T) {
 	}
 	if _, err := os.Stat(inside); !os.IsNotExist(err) {
 		t.Fatalf("inside the root was not deleted: %v", err)
+	}
+}
+
+// TestHarnessExecutorSpeaksTheProtocol runs recorded Claude Code sessions through the executor:
+// the protocol on the program's output becomes events and the session's result, not lines, and
+// the run's directory is still deleted afterwards.
+func TestHarnessExecutorSpeaksTheProtocol(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		want   Result
+		events []string
+	}{
+		{"done", Result{Outcome: OutcomeDone, PR: 42}, []string{"session started: claude-code " + claudecode.Pinned + ", model claude-opus-5-5",
+			"I will fix the failing test.", "tool: Bash", "tool result", "Opened the pull request.\nlucy:pr=42", "session ended: success after 3 turns"}},
+		{"refused", Result{Outcome: OutcomeDone}, nil},
+		{"error", Result{Outcome: OutcomeFailed, Reason: "error_max_turns: Reached maximum number of turns (50)"}, nil},
+		{"drift", Result{Outcome: OutcomeFailed, Reason: "claude-code reported version 2.1.400, lucy supports " + claudecode.Pinned}, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			pf := newProc(t)
+			pf.ex.Harness = claudecode.Adapter{}
+			x, err := pf.ex.Start(context.Background(), procLease("harness - "+transcript(t, c.name)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines, res := drain(t, x)
+			if res != c.want {
+				t.Fatalf("result %+v, want %+v; events %q", res, c.want, lines)
+			}
+			if c.events != nil && strings.Join(lines, "|") != strings.Join(c.events, "|") {
+				t.Errorf("events %q, want %q", lines, c.events)
+			}
+			if left, _ := os.ReadDir(pf.root); len(left) != 0 {
+				t.Errorf("scratch left behind: %v", left)
+			}
+		})
+	}
+}
+
+// TestHarnessExecutorHoldsAnUnpinnedHarness: a harness that reports any version but the pinned one
+// never starts a session (LUCY-RUN-003).
+func TestHarnessExecutorHoldsAnUnpinnedHarness(t *testing.T) {
+	pf := newProc(t)
+	pf.ex.Harness = claudecode.Adapter{}
+	_, err := pf.ex.Start(context.Background(), procLease("harness 2.1.400 "+transcript(t, "done")))
+	if !errors.Is(err, harness.ErrUnpinned) {
+		t.Fatalf("Start = %v, want ErrUnpinned", err)
+	}
+	if left, _ := os.ReadDir(pf.root); len(left) != 0 {
+		t.Errorf("scratch left behind: %v", left)
+	}
+}
+
+// TestPlainProcessTakesNoAnswer: a plain program has no input channel at all.
+func TestPlainProcessTakesNoAnswer(t *testing.T) {
+	pf := newProc(t)
+	x, err := pf.ex.Start(context.Background(), procLease("work"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := x.(Answerer).Answer("yes"); !errors.Is(err, ErrNoInput) {
+		t.Fatalf("Answer = %v, want ErrNoInput", err)
+	}
+	drain(t, x)
+}
+
+// TestHarnessExecutorAnswers: the session's question is streamed as asking, and the answer given
+// to the execution goes back to the harness on its input.
+func TestHarnessExecutorAnswers(t *testing.T) {
+	pf := newProc(t)
+	pf.ex.Harness = claudecode.Adapter{}
+	x, err := pf.ex.Start(context.Background(), procLease("harness - "+transcript(t, "ask")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for asked := false; !asked; {
+		if time.Now().After(deadline) {
+			t.Fatal("the session never asked")
+		}
+		for _, e := range x.Poll().Events {
+			asked = asked || e.Kind == KindAsking
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := x.(Answerer).Answer("use the staging account"); err != nil {
+		t.Fatal(err)
+	}
+	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7}) {
+		t.Fatalf("result %+v", res)
 	}
 }

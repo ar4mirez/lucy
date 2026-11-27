@@ -34,6 +34,12 @@ type Execution interface {
 	Stop()
 }
 
+// Answerer is an Execution that takes input: the owner's answer to the question its work asked,
+// as the Tower relays it in a heartbeat. An Execution that never streams a question needs none.
+type Answerer interface {
+	Answer(text string) error
+}
+
 // Update is what an Execution reports on one Poll. Its events' Seq is ignored: the runner numbers
 // a run's events.
 type Update struct {
@@ -70,6 +76,8 @@ type held struct {
 	beatAt   time.Time
 	result   *Result
 	stopping bool
+	question string // the work's question, streamed and not yet answered
+	heard    bool   // the broker has reported question as asking
 }
 
 // New returns a Runner.
@@ -136,9 +144,7 @@ func (r *Runner) Step(ctx context.Context) error {
 func (r *Runner) tend(ctx context.Context, h *held) error {
 	u := h.exec.Poll()
 	for _, ev := range u.Events {
-		ev.Seq, ev.Text = h.next, capText(ev.Text)
-		h.next++
-		h.pending = append(h.pending, ev)
+		h.queue(ev)
 	}
 	if u.Result != nil && h.result == nil {
 		h.result = u.Result
@@ -162,6 +168,20 @@ func (r *Runner) tend(ctx context.Context, h *held) error {
 		if len(batch) > 0 && len(h.pending) == before {
 			return fmt.Errorf("the broker recorded none of events %d..%d", batch[0].Seq, batch[len(batch)-1].Seq)
 		}
+		switch {
+		case beat.Answer != "":
+			h.question, h.heard = "", false
+			r.answer(h, beat.Answer)
+		case len(h.pending) > 0 || h.question == "":
+		case beat.Asking:
+			h.heard = true
+		case h.heard && h.result == nil:
+			// The broker held the question and holds it no more, yet no answer came: it was
+			// answered and the answer was lost, as when the daemon restarted before this
+			// heartbeat. Ask again.
+			r.cfg.Log.Warn("runner lost a run's answer; asking again", "run", h.lease.Run)
+			h.queue(Event{Kind: KindAsking, Text: h.question})
+		}
 		if beat.Stop && !h.stopping {
 			h.exec.Stop()
 			h.stopping = true
@@ -176,6 +196,30 @@ func (r *Runner) tend(ctx context.Context, h *held) error {
 	}
 	delete(r.runs, h.lease.Run)
 	return nil
+}
+
+// answer gives the work the owner's answer. One that cannot be given is logged, not retried: the
+// work is still asking, so the Tower asks the owner again.
+func (r *Runner) answer(h *held, text string) {
+	a, ok := h.exec.(Answerer)
+	if !ok {
+		r.cfg.Log.Warn("runner got an answer for a run whose work takes no input", "run", h.lease.Run)
+		return
+	}
+	if err := a.Answer(text); err != nil {
+		r.cfg.Log.Warn("runner could not give a run its answer", "run", h.lease.Run, "err", err)
+	}
+}
+
+// queue numbers one of the work's events for streaming and tracks its open question.
+func (h *held) queue(ev Event) {
+	ev.Seq, ev.Text = h.next, capText(ev.Text)
+	h.next++
+	h.pending = append(h.pending, ev)
+	h.question, h.heard = "", false
+	if ev.Kind == KindAsking {
+		h.question = ev.Text
+	}
 }
 
 func (r *Runner) drop(h *held, why string) {
@@ -223,9 +267,7 @@ func (r *Runner) Shutdown(ctx context.Context, grace time.Duration) error {
 		for h.result == nil && time.Now().Before(deadline) {
 			u := h.exec.Poll()
 			for _, ev := range u.Events {
-				ev.Seq, ev.Text = h.next, capText(ev.Text)
-				h.next++
-				h.pending = append(h.pending, ev)
+				h.queue(ev)
 			}
 			h.result = u.Result
 			if h.result == nil {

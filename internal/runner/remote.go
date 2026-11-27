@@ -59,7 +59,7 @@ func (r Remote) Heartbeat(ctx context.Context, runner, run string, fence int64, 
 	if err != nil {
 		return Beat{}, remoteError(err)
 	}
-	return Beat{Expires: res.ExpiresAt, Stop: res.Stop, Accepted: res.Accepted}, nil
+	return Beat{Expires: res.ExpiresAt, Stop: res.Stop, Accepted: res.Accepted, Answer: res.Answer, Asking: res.Asking}, nil
 }
 
 // Finish implements Protocol.

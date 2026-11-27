@@ -78,7 +78,7 @@ func (s *Server) runnerHeartbeat(ctx context.Context, p *api.HeartbeatParams) (a
 	if err != nil {
 		return api.HeartbeatResult{}, runnerError(err)
 	}
-	return api.HeartbeatResult{ExpiresAt: beat.Expires, Stop: beat.Stop, Accepted: beat.Accepted}, nil
+	return api.HeartbeatResult{ExpiresAt: beat.Expires, Stop: beat.Stop, Accepted: beat.Accepted, Answer: beat.Answer, Asking: beat.Asking}, nil
 }
 
 func (s *Server) runnerFinish(ctx context.Context, p *api.FinishParams) (api.FinishResult, error) {

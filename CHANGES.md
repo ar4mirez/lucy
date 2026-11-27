@@ -29,6 +29,16 @@ Changes since the last release. When a version is cut, its section moves to
   path guard when the command exits. The command runs in its own process group, which is killed when
   the run ends or stops. Ctrl-C, SIGTERM or a closed terminal (SIGHUP, unless started under `nohup`)
   stops the runner and its runs.
+- `lucy runner --harness claude-code`: the runner drives Claude Code over its stream-json protocol
+  instead of streaming lines. The runner refuses any Claude Code version but the one lucy is
+  pinned to (2.1.332), so an upgrade is held until it passes the adapter's contract. Each session
+  starts with no MCP servers, no user-level settings or hooks and no saved transcript. A Pilot's
+  question is streamed as `asking` and answered only with the owner's answer, which the Tower
+  relays through the runner's heartbeat and the log keeps only as a digest; every other permission
+  prompt is refused. The `runner.heartbeat` result gains `answer` and `asking` (OpenRPC revision 3).
+- The harness contract: recorded protocol transcripts of the pinned Claude Code version, replayed
+  in CI without a harness, a model or a login, and a nightly check of the newest release that
+  reports it ready or held and never fails.
 - The flight state machine can start Pilots through the runner protocol; simulated flights land
   through it, including a crashed Pilot, a runner cut off past its lease and daemon restarts.
 
