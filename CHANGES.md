@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 27
+version: 28
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,12 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Added
+
+- Flights have a readiness check: a `Flight` resource states its `goal`, its delivery path
+  (`runway`, and `delivery`: `pull-request` for a ship Flight, `report` for a research one), its
+  `autonomy` posture (`owner`, `green` or `client`) and its `acceptance` test. Every admitted Flight
+  carries a `Ready` condition in `lucy config status` saying what it lacks, and a flight that lacks
+  any of them is never dispatched; the Tower no longer assumes the owner posture when none is given.
 
 - Runs work in their own checkout: a run placed on the host, of a project whose Runway names a
   `repository`, gets a slot of the daemon's worktree pool, reset to the Runway's `defaultBranch` on

@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 11
+version: 12
 owner: ar4mirez
 requirements: []
 ---
@@ -158,6 +158,15 @@ slice table, requirement status and exit tests stay in the plan.
   7a) and private repositories (credentials through the gateway). The path guard's delete executor
   (`Guard.RemoveAll`, through an `os.Root`) takes both recursive deletes; the inventory of deletes
   is in SECURITY.md. Slice 6 is done but for those two.
+- **7a, task lifecycle.** Readiness (LUCY-SPEC-012): a `Flight` resource states `goal`, `runway`,
+  `delivery` (pull-request for a ship Flight, report for a research one), `autonomy` (owner, green
+  or client; never assumed) and `acceptance`; each load gives every admitted Flight a `Ready`
+  condition (`spec.FlightReadiness`), True only when it has all of them and its runway is an admitted
+  Runway of its namespace, else False naming what it lacks. The Tower refuses to dispatch a flight
+  that is not ready (`tower.Readiness`, `ErrNotReady`) and records nothing; it no longer assumes the
+  owner posture. Left in 7a: the daemon hosting the Tower and dispatching ready Flights, decisions
+  as Decision resources (LUCY-SPEC-013), pipelines (LUCY-SPEC-014), roles (LUCY-SPEC-015) and Core
+  conformance (LUCY-SPEC-017).
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real

@@ -2,6 +2,7 @@ package tower_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -40,20 +41,44 @@ func TestNewNeedsEverySeam(t *testing.T) {
 func TestDispatchRefuses(t *testing.T) {
 	ctx := context.Background()
 	w := world(t)
-	ok := tower.Spec{ID: "f1", Org: "acme", Project: "web", Goal: "g"}
+	ok := tower.Spec{ID: "f1", Org: "acme", Project: "web", Goal: "g", Posture: policy.PostureOwner, Delivery: tower.DeliveryPullRequest, Acceptance: "the checks pass"}
 	if err := w.Tower.Dispatch(ctx, ok); err != nil {
 		t.Fatal(err)
 	}
+	ready := func(f func(*tower.Spec)) tower.Spec { s := ok; s.ID = "f2"; f(&s); return s }
 	for name, s := range map[string]tower.Spec{
-		"duplicate":  ok,
-		"no goal":    {ID: "f2", Org: "acme", Project: "web"},
-		"no project": {ID: "f2", Org: "acme", Goal: "g"},
-		"slash id":   {ID: "a/b", Org: "acme", Project: "web", Goal: "g"},
-		"hash org":   {ID: "f2", Org: "ac#me", Project: "web", Goal: "g"},
+		"duplicate": ok,
+		"slash id":  ready(func(s *tower.Spec) { s.ID = "a/b" }),
+		"hash org":  ready(func(s *tower.Spec) { s.Org = "ac#me" }),
 	} {
 		if err := w.Tower.Dispatch(ctx, s); err == nil {
 			t.Errorf("%s: dispatched", name)
 		}
+	}
+	// Readiness (LUCY-SPEC-012): each missing part is refused and named, and nothing is recorded.
+	for name, c := range map[string]struct {
+		s    tower.Spec
+		want string
+	}{
+		"no goal":             {ready(func(s *tower.Spec) { s.Goal = " " }), "a goal"},
+		"no runway":           {ready(func(s *tower.Spec) { s.Project = "" }), "a delivery path (its runway)"},
+		"no delivery":         {ready(func(s *tower.Spec) { s.Delivery = "" }), "a delivery path (pull-request)"},
+		"a research delivery": {ready(func(s *tower.Spec) { s.Delivery = "report" }), "a delivery path the Tower flies"},
+		"no autonomy":         {ready(func(s *tower.Spec) { s.Posture = "" }), "an autonomy posture"},
+		"an unknown autonomy": {ready(func(s *tower.Spec) { s.Posture = "yolo" }), "a known autonomy posture"},
+		"no acceptance test":  {ready(func(s *tower.Spec) { s.Acceptance = "" }), "an acceptance test"},
+	} {
+		err := w.Tower.Dispatch(ctx, c.s)
+		if !errors.Is(err, tower.ErrNotReady) || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want a refusal naming %q", name, err, c.want)
+		}
+		if _, ok := w.Tower.Flight("f2"); ok {
+			t.Fatalf("%s: an unready flight was recorded", name)
+		}
+	}
+	all := tower.Readiness(tower.Spec{ID: "f3", Org: "acme"})
+	if len(all) != 4 {
+		t.Errorf("an empty flight lacks %v; want the goal, delivery path, autonomy and acceptance test", all)
 	}
 	if st, _ := w.Tower.Flight("f1"); st.State != tower.StateDispatched {
 		t.Fatalf("status %+v", st)
@@ -66,7 +91,7 @@ func TestDispatchRefuses(t *testing.T) {
 func TestOwnerCallsNeedTheRightState(t *testing.T) {
 	ctx := context.Background()
 	w := world(t)
-	if err := w.Tower.Dispatch(ctx, tower.Spec{ID: "f1", Org: "acme", Project: "web", Goal: "g"}); err != nil {
+	if err := w.Tower.Dispatch(ctx, tower.Spec{ID: "f1", Org: "acme", Project: "web", Goal: "g", Posture: policy.PostureOwner, Delivery: tower.DeliveryPullRequest, Acceptance: "the checks pass"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.Tower.Approve(ctx, "f1", policy.ByOwner); err == nil || !strings.Contains(err.Error(), "no pull request") {
@@ -88,7 +113,7 @@ func TestQuestionCapped(t *testing.T) {
 	ctx := context.Background()
 	w := world(t)
 	q := strings.Repeat("é", 2000)
-	if err := w.Dispatch(ctx, tower.Spec{ID: "f1", Org: "acme", Project: "web", Goal: "g"}, sim.Ask(q)); err != nil {
+	if err := w.Dispatch(ctx, tower.Spec{ID: "f1", Org: "acme", Project: "web", Goal: "g", Posture: policy.PostureOwner, Delivery: tower.DeliveryPullRequest, Acceptance: "the checks pass"}, sim.Ask(q)); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.Run(ctx, sim.RunOptions{}); err != nil {

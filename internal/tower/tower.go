@@ -88,8 +88,46 @@ type Spec struct {
 	Project    string             // the runway
 	Goal       string             // what the flight is for
 	Base       string             // the branch to land on; "main" when empty
-	Posture    policy.Posture     // the project's merge posture; owner when empty
+	Delivery   string             // where the result goes: DeliveryPullRequest
+	Posture    policy.Posture     // the project's merge posture: how much the flight may do on its own
+	Acceptance string             // the acceptance test: what must hold for the flight to be done
 	Exceptions []policy.Exception // fixed-list categories the change touches
+}
+
+// DeliveryPullRequest is the delivery path of a ship flight: a pull request against the runway's
+// base branch. It is the only one the Tower flies so far; a research flight's report is later.
+const DeliveryPullRequest = "pull-request"
+
+// ErrNotReady refuses to dispatch a flight that is not ready (LUCY-SPEC-012).
+var ErrNotReady = errors.New("tower: the flight is not ready to dispatch")
+
+// Readiness returns what s lacks before it may be dispatched, in a fixed order, empty when it is
+// ready: a goal, a delivery path (its runway and a delivery the Tower flies), an autonomy posture
+// stated rather than assumed, and an acceptance test (LUCY-SPEC-012).
+func Readiness(s Spec) []string {
+	var missing []string
+	if strings.TrimSpace(s.Goal) == "" {
+		missing = append(missing, "a goal")
+	}
+	switch {
+	case s.Project == "":
+		missing = append(missing, "a delivery path (its runway)")
+	case s.Delivery == "":
+		missing = append(missing, "a delivery path (pull-request)")
+	case s.Delivery != DeliveryPullRequest:
+		missing = append(missing, fmt.Sprintf("a delivery path the Tower flies (pull-request, not %q)", s.Delivery))
+	}
+	switch s.Posture {
+	case policy.PostureOwner, policy.PostureGreen, policy.PostureClient:
+	case "":
+		missing = append(missing, "an autonomy posture (owner, green or client)")
+	default:
+		missing = append(missing, fmt.Sprintf("a known autonomy posture (owner, green or client, not %q)", s.Posture))
+	}
+	if strings.TrimSpace(s.Acceptance) == "" {
+		missing = append(missing, "an acceptance test")
+	}
+	return missing
 }
 
 // Status is a flight as the Tower sees it.
@@ -210,8 +248,11 @@ func (t *Tower) add(id string, d Dispatched) *flight {
 
 // Dispatch starts a flight. Its Pilot starts on the next Step.
 func (t *Tower) Dispatch(ctx context.Context, s Spec) error {
-	if s.ID == "" || s.Org == "" || s.Project == "" || s.Goal == "" {
-		return errors.New("tower: a flight needs an id, an org, a project and a goal")
+	if s.ID == "" || s.Org == "" {
+		return errors.New("tower: a flight needs an id and an org")
+	}
+	if missing := Readiness(s); len(missing) > 0 {
+		return fmt.Errorf("%w: it needs %s", ErrNotReady, strings.Join(missing, ", "))
 	}
 	if strings.ContainsAny(s.ID+s.Org, "/#") {
 		return errors.New("tower: a flight id or org may not contain '/' or '#'")
@@ -222,10 +263,8 @@ func (t *Tower) Dispatch(ctx context.Context, s Spec) error {
 	if s.Base == "" {
 		s.Base = "main"
 	}
-	if s.Posture == "" {
-		s.Posture = policy.PostureOwner
-	}
-	d := Dispatched{Org: s.Org, Project: s.Project, Goal: s.Goal, Base: s.Base, Posture: s.Posture, Exceptions: s.Exceptions}
+	d := Dispatched{Org: s.Org, Project: s.Project, Goal: s.Goal, Base: s.Base, Posture: s.Posture, Exceptions: s.Exceptions,
+		Delivery: s.Delivery, Acceptance: capText(s.Acceptance)}
 	evs, err := t.cfg.Store.Append(ctx, streamPrefix+s.Org+"/"+s.ID, eventstore.NoStream, ActorDaemon, d)
 	if err != nil {
 		return err

@@ -25,7 +25,7 @@ func newWorld(t *testing.T, seed uint64) *World {
 }
 
 func spec(id string, posture policy.Posture) tower.Spec {
-	return tower.Spec{ID: id, Org: "acme", Project: "web", Goal: "fix the login page", Posture: posture}
+	return tower.Spec{ID: id, Org: "acme", Project: "web", Goal: "fix the login page", Posture: posture, Delivery: tower.DeliveryPullRequest, Acceptance: "the checks pass"}
 }
 
 func run(t *testing.T, w *World, opts RunOptions) {
@@ -159,7 +159,7 @@ func TestTakeoffGreenPosture(t *testing.T) {
 func TestOwnerPostureHoldsUntilApproved(t *testing.T) {
 	ctx := context.Background()
 	w := newWorld(t, 2)
-	dispatch(t, w, spec("f1", ""))
+	dispatch(t, w, spec("f1", policy.PostureOwner))
 	run(t, w, RunOptions{})
 	wantState(t, w, "f1", tower.StateHolding, "")
 	if len(w.Forge.Merges()) != 0 {
@@ -583,7 +583,7 @@ var demoOutcomes = map[string]string{
 // every Run, so a fault hook sees the whole demo.
 func demo(ctx context.Context, w *World, opts RunOptions) error {
 	flight := func(id string, posture policy.Posture) tower.Spec {
-		return tower.Spec{ID: id, Org: "acme", Project: "web", Goal: "demo flight " + id, Posture: posture}
+		return tower.Spec{ID: id, Org: "acme", Project: "web", Goal: "demo flight " + id, Posture: posture, Delivery: tower.DeliveryPullRequest, Acceptance: "the checks pass"}
 	}
 	w.Runtime.Script("f-crash", Work(7*time.Minute), Crash())
 	w.Runtime.Script("f-crash", DefaultScript()...)

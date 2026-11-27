@@ -345,7 +345,7 @@ func flightSpec(ctx context.Context, e *Env, id string) (tower.Spec, error) {
 		}
 		d, err := eventstore.DecodeAs[tower.Dispatched](e.World.Store.Registry(), ev)
 		if err == nil {
-			s = tower.Spec{ID: id, Org: d.Org, Project: d.Project, Posture: d.Posture, Exceptions: d.Exceptions}
+			s = tower.Spec{ID: id, Org: d.Org, Project: d.Project, Posture: d.Posture, Exceptions: d.Exceptions, Delivery: d.Delivery, Acceptance: d.Acceptance}
 		}
 		return err
 	})

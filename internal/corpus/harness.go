@@ -50,7 +50,7 @@ type Flight struct {
 
 // Fly is a Flight in Org and Project with the given posture, its first Pilot scripted by steps.
 func Fly(id string, posture policy.Posture, steps ...sim.Step) Flight {
-	f := Flight{Spec: tower.Spec{ID: id, Org: Org, Project: Project, Goal: "corpus flight " + id, Posture: posture}}
+	f := Flight{Spec: tower.Spec{ID: id, Org: Org, Project: Project, Goal: "corpus flight " + id, Posture: posture, Delivery: tower.DeliveryPullRequest, Acceptance: "the checks pass"}}
 	if len(steps) > 0 {
 		f.Scripts = [][]sim.Step{steps}
 	}
