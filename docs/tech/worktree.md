@@ -2,7 +2,7 @@
 id: tech-worktree
 title: The worktree pool
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-RUN-007]
 ---
@@ -73,9 +73,21 @@ Where a run's checkout of its repository comes from (TECH.md section 6). The cod
   (`checkout --force`, `reset --hard`, `clean -ffdx`). That is safe only because a slot becomes
   free only after a release has proven its work landed; a held slot is never reset.
 
+- **Placing runs.** A run of a project whose Runway (`lucy/v1alpha1` `Runway`, in the org's
+  namespace) names a `repository` (`owner/name`) works in a slot of it (`worktree.Source`): when a
+  runner leases the run, the daemon leases the run its slot, reset to the run's base (the Runway's
+  `defaultBranch`, `main` by default), and `runner.lease` returns the slot's path and branch
+  (`worktree`, `branch`). The runner runs the work there: it is the program's working directory,
+  where its prompted file tools are allowed and where its harness reads the repository's
+  instructions, while its TMPDIR stays the run's scratch directory and its HOME the org's. A slot
+  that cannot be leased is reported (`worktree_error`), and the runner fails the run without
+  starting it; a project whose Runway names no repository gets no checkout. When the run finishes,
+  the daemon gives its slot back if its work landed; otherwise the slot stays leased, the refusal
+  recorded. The remote is `https://github.com/<owner>/<name>.git`; the daemon's git has no
+  credentials of its own, so a private repository cannot be fetched yet.
+
 ## Not built yet
 
-- TODO(LUCY-RUN-007): runs placed in their slot (the runner's working directory is the slot's
-  worktree, with its synthetic HOME and TMPDIR kept), the Tower releasing a slot with its takeoff's
-  merge as the proof, `lucy worktree ls`, and removing a broken slot through the path guard
-  (LUCY-SEC-005).
+- TODO(LUCY-RUN-007): the Tower giving a slot back at takeoff with its merge as the proof (the daemon
+  hosts the Tower in slice 7a), `lucy worktree ls`, fetching a private repository (its credentials
+  through the org's gateway), and removing a broken slot through the path guard (LUCY-SEC-005).

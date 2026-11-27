@@ -440,6 +440,12 @@ func (p *Pool) refuse(ctx context.Context, repo Repo, slot int, run, head, reaso
 	return why
 }
 
+// Held returns the slot of repo that run holds leased, or ErrNotHeld.
+func (p *Pool) Held(ctx context.Context, repo Repo, run string) (SlotInfo, error) {
+	return scanSlot(p.Store.QueryRowContext(ctx, `SELECT `+slotColumns+` FROM worktree_slots WHERE org = ? AND repo = ? AND state = ? AND run = ?
+		ORDER BY slot LIMIT 1`, repo.Org, repo.Name, StateLeased, run))
+}
+
 // Slots returns org's repo's slots, by number.
 func (p *Pool) Slots(ctx context.Context, org, repo string) ([]SlotInfo, error) {
 	rows, err := p.Store.QueryContext(ctx, `SELECT `+slotColumns+` FROM worktree_slots WHERE org = ? AND repo = ? ORDER BY slot`, org, repo)

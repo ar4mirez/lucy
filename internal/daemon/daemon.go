@@ -88,8 +88,13 @@ type Options struct {
 	// ResourcesDir holds the spec resources the daemon loads at start; config.ResourcesDir when
 	// empty. A missing directory means no resources.
 	ResourcesDir string
-	Version      string       // lucy's version
-	Log          *slog.Logger // slog.Default when nil
+	// WorktreeRoot holds the worktree pool's clones and slots; worktrees/ in lucy's data directory
+	// when empty. WorktreeRemote names a Runway repository's remote (tests point it at local
+	// repositories); https://github.com/<owner>/<name>.git when nil.
+	WorktreeRoot   string
+	WorktreeRemote func(repository string) string
+	Version        string       // lucy's version
+	Log            *slog.Logger // slog.Default when nil
 	// OnReady is called once the socket accepts connections.
 	OnReady func(socketPath string)
 }
@@ -170,6 +175,19 @@ func Run(ctx context.Context, opts Options) error {
 		log.Info("runner leases resumed after a restart", "runs", n, "down", time.Since(stoppedAt).Round(time.Millisecond))
 	}
 	caps := &capability.Issuer{Store: store, Leases: broker}
+	wtRoot := opts.WorktreeRoot
+	if wtRoot == "" {
+		data, err := eventstore.DataDir()
+		if err != nil {
+			return err
+		}
+		wtRoot = filepath.Join(data, "worktrees")
+	}
+	if wtRoot, err = filepath.Abs(wtRoot); err != nil {
+		return err
+	}
+	worktrees := &worktree.Source{Pool: &worktree.Pool{Store: store, Root: wtRoot}, Remote: opts.WorktreeRemote}
+	worktrees.SetRunways(set.Admitted())
 	gateways.Capabilities = caps
 	srv, err := server.New(server.Options{
 		Store:        store,
@@ -180,6 +198,7 @@ func Run(ctx context.Context, opts Options) error {
 		Runs:         broker,
 		Gateways:     gateways,
 		Capabilities: caps,
+		Worktrees:    worktrees,
 	})
 	if err != nil {
 		return err

@@ -168,6 +168,12 @@ type Lease struct {
 	// Capability is the run's capability token for its org's gateway (LUCY-CRED-003), when the
 	// daemon issued one. It is never serialized, logged or given to the work's environment.
 	Capability string `json:"-"`
+	// Worktree is the run's slot of the worktree pool, when its project names a repository: the
+	// checkout the work runs in, on Branch (LUCY-RUN-007). WorktreeError is why none could be
+	// leased, when the project names one; the run then fails without starting.
+	Worktree      string `json:"worktree,omitempty"`
+	Branch        string `json:"branch,omitempty"`
+	WorktreeError string `json:"worktree_error,omitempty"`
 }
 
 // Event is one streamed event. Seq numbers a run's events from 1, without gaps.

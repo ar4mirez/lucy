@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 26
+version: 27
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,15 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Added
+
+- Runs work in their own checkout: a run of a project whose Runway names a `repository` is leased
+  a slot of the daemon's worktree pool when a runner leases it, reset to the Runway's
+  `defaultBranch` on a branch of its own, and the runner runs the work there (its working
+  directory, where its file tools are allowed and where its harness reads the repository's
+  instructions), keeping the run's scratch directory as its TMPDIR. `runner.lease` returns the
+  slot's `worktree` and `branch`, or `worktree_error` when none could be leased, in which case the
+  run fails without starting (OpenRPC revision 14). When the run finishes, its slot is given back if
+  its work landed and kept otherwise. Only public repositories can be fetched for now.
 
 - The path guard's delete executor: every recursive delete lucy makes now deletes only a path
   strictly inside a declared root, never `/`, your home or a root itself, through an `os.Root` on

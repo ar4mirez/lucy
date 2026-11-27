@@ -92,6 +92,17 @@ func (s *Server) runnerLease(ctx context.Context, p *api.LeaseParams) (api.Lease
 		}
 		res.Run.Capability = tok
 	}
+	if s.opts.Worktrees != nil {
+		// The run's checkout: a slot of its project's repository, leased to it until its work lands.
+		// A slot that cannot be leased is reported, and the runner fails the run.
+		wt, ok, err := s.opts.Worktrees.Acquire(ctx, l.Org, l.Project, l.Run, l.Base)
+		switch {
+		case err != nil:
+			res.Run.WorktreeError = capWorktreeError(err.Error())
+		case ok:
+			res.Run.Worktree, res.Run.Branch = wt.Path, wt.Branch
+		}
+	}
 	return res, nil
 }
 
@@ -154,6 +165,13 @@ func (s *Server) runnerFinish(ctx context.Context, p *api.FinishParams) (api.Fin
 	if err != nil {
 		return api.FinishResult{}, err
 	}
+	if s.opts.Worktrees != nil {
+		// Its slot is given back if its work landed; otherwise it stays leased, and the refusal is
+		// recorded, until the Tower gives it back at takeoff.
+		if err := s.opts.Worktrees.Release(ctx, ri.Org, ri.Project, ri.Run); err != nil {
+			s.opts.Log.Warn("could not release a run's worktree slot", "run", ri.Run, "err", err)
+		}
+	}
 	return api.FinishResult{State: string(ri.State)}, nil
 }
 
@@ -214,4 +232,12 @@ func (s *Server) runnerHostOrg(ctx context.Context, p *api.HostOrgParams) (api.H
 		return api.HostOrgResult{}, runnerError(err)
 	}
 	return api.HostOrgResult{Org: p.Org}, nil
+}
+
+// capWorktreeError bounds the reason a slot could not be leased, as the API reports it.
+func capWorktreeError(s string) string {
+	if len(s) > 512 {
+		return s[:512]
+	}
+	return s
 }

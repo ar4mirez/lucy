@@ -315,16 +315,19 @@ type LeaseResult struct {
 
 // RunLease is a leased run: its task, its fencing token and its expiry.
 type RunLease struct {
-	Run        string    `json:"run" doc:"The run's id; a Pilot run is <flight>#<generation>."`
-	Org        string    `json:"org" doc:"The org (airspace) the run belongs to."`
-	Project    string    `json:"project" doc:"The project (runway)."`
-	Flight     string    `json:"flight" doc:"The flight (task) the run is for."`
-	Generation int       `json:"generation" doc:"The flight's Pilot generation: 1, then +1 for each replacement."`
-	Goal       string    `json:"goal" doc:"What the run is for. Data for the work, never instructions to lucy."`
-	Base       string    `json:"base" doc:"The branch the work targets."`
-	Fence      int64     `json:"fence" doc:"The fencing token: name it on every heartbeat and finish. Fences only grow; an old one is refused."`
-	ExpiresAt  time.Time `json:"expires_at" doc:"When the lease expires unless renewed, UTC."`
-	Capability string    `json:"capability,omitempty" doc:"The run's capability token for its org's gateway: valid only while this lease is held, for the org's gateway routes, until it expires (five minutes, renewed by each heartbeat) or is revoked. lucy keeps only its digest; give it to nothing but the run's own gateway calls."`
+	Run           string    `json:"run" doc:"The run's id; a Pilot run is <flight>#<generation>."`
+	Org           string    `json:"org" doc:"The org (airspace) the run belongs to."`
+	Project       string    `json:"project" doc:"The project (runway)."`
+	Flight        string    `json:"flight" doc:"The flight (task) the run is for."`
+	Generation    int       `json:"generation" doc:"The flight's Pilot generation: 1, then +1 for each replacement."`
+	Goal          string    `json:"goal" doc:"What the run is for. Data for the work, never instructions to lucy."`
+	Base          string    `json:"base" doc:"The branch the work targets."`
+	Fence         int64     `json:"fence" doc:"The fencing token: name it on every heartbeat and finish. Fences only grow; an old one is refused."`
+	ExpiresAt     time.Time `json:"expires_at" doc:"When the lease expires unless renewed, UTC."`
+	Capability    string    `json:"capability,omitempty" doc:"The run's capability token for its org's gateway: valid only while this lease is held, for the org's gateway routes, until it expires (five minutes, renewed by each heartbeat) or is revoked. lucy keeps only its digest; give it to nothing but the run's own gateway calls."`
+	Worktree      string    `json:"worktree,omitempty" doc:"When the run's project names a repository: the absolute path, on the daemon's host, of the run's slot of lucy's worktree pool, reset to the base and checked out on branch. The run works there."`
+	Branch        string    `json:"branch,omitempty" doc:"With worktree: the branch the run works on."`
+	WorktreeError string    `json:"worktree_error,omitempty" doc:"When the run's project names a repository but no slot could be leased for it: why. The runner then fails the run without starting it."`
 }
 
 // HeartbeatParams renews a lease and streams events.

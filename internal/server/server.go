@@ -28,6 +28,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/gateway"
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/runner"
+	"github.com/ar4mirez/lucy/internal/worktree"
 )
 
 // Timeouts. They bound how long one slow or stuck client can hold a connection or a handler.
@@ -94,6 +95,17 @@ type Options struct {
 	// Capabilities issues each leased run its capability token and serves capabilities.list and
 	// capability.revoke. Nil means no tokens are issued, so the gateway refuses every request.
 	Capabilities *capability.Issuer
+	// Worktrees leases each run a slot of its project's repository when the run is leased, and
+	// gives it back when the run finishes (LUCY-RUN-007). Nil means runs get no checkout.
+	Worktrees Worktrees
+}
+
+// Worktrees places runs in the worktree pool: a *worktree.Source.
+type Worktrees interface {
+	// Acquire leases run its slot; ok is false when the project names no repository.
+	Acquire(ctx context.Context, org, project, run, base string) (l worktree.Lease, ok bool, err error)
+	// Release gives the run's slot back if its work landed.
+	Release(ctx context.Context, org, project, run string) error
 }
 
 // Server is the API's HTTP handler.

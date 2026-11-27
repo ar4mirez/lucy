@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 10
+version: 11
 owner: ar4mirez
 requirements: []
 ---
@@ -147,10 +147,13 @@ slice table, requirement status and exit tests stay in the plan.
   child of the root, never the home. A harness's model login has to be set up in the org home
   (D3c). The worktree pool ([worktree](../tech/worktree.md), `internal/worktree`) has its core:
   slots of a bare clone per org and repository, leased in the store, reset on acquire and freed
-  only once the work landed, including a squash merge the forge reports. Left: runs placed in their
-  slot and the Tower releasing it at takeoff (which also points the harness's instruction reader at
-  the checkout), and `lucy worktree ls`. The path guard's delete executor (`Guard.RemoveAll`,
+  only once the work landed, including a squash merge the forge reports. A run of a project whose
+  Runway names a repository is leased its slot with its lease (`runner.lease`'s `worktree`, OpenRPC
+  revision 14) and works there, the harness reading the checkout's instructions; the slot is given
+  back when the run finishes if its work landed. Left: the Tower giving it back at takeoff (slice
+  7a), `lucy worktree ls`, private repositories (credentials through the gateway). The path guard's delete executor (`Guard.RemoveAll`,
   through an `os.Root`) takes every recursive delete; the inventory of deletes is in SECURITY.md.
+  Slice 6 is done but for those three.
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real
