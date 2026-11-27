@@ -40,8 +40,9 @@ With --harness claude-code the runner drives Claude Code (` + "`claude`" + ` unl
 --) over its stream-json protocol instead of streaming lines: the harness must report version
 ` + claudecode.Pinned + `, the one this lucy supports, or the run fails without starting. Each session gets no
 MCP servers, no settings file but lucy's own (so neither the user's nor a repository's committed
-.claude settings apply: nothing is pre-allowed, and hooks, skills and slash commands are off) and
-no saved transcript. lucy reads the run directory's CLAUDE.md (or AGENTS.md) and the files it
+.claude settings apply: nothing is pre-allowed, no settings file can add a hook, and skills and
+slash commands are off) and no saved transcript. Each lifecycle hook the session fires is recorded
+as a hook event and never acted on. lucy reads the run directory's CLAUDE.md (or AGENTS.md) and the files it
 imports with @path inside that directory, one level deep and size-capped, and appends them to the
 system prompt as repository text, which grants no permission; until the worktree pool (m1 slice
 6) checks the repository out there, the run directory is empty and nothing is injected. Its

@@ -17,10 +17,10 @@ Claude Code adapter is `internal/harness/claudecode`; `lucy runner --harness cla
   program's structured output into events tagged with their source (LUCY-RUN-002, LUCY-RUN-003).
 - **Session limits.** `claudecode` runs `claude --print` over stream-json both ways, with an empty
   MCP set (`--strict-mcp-config`), no settings file but lucy's own (no user, project or local
-  source; nothing pre-allowed; no hooks of its own; skills and slash commands off), no saved session, and every
-  permission prompt sent to the adapter. The run directory's CLAUDE.md, or AGENTS.md, is appended
-  to the system prompt as framed repository text that grants no permission; the directory is
-  empty until slice 6 puts the checkout there.
+  source; nothing pre-allowed; no hooks of its own; skills and slash commands off), no saved
+  session, and every permission prompt sent to the adapter. The run directory's CLAUDE.md, or
+  AGENTS.md, is appended to the system prompt as framed repository text that grants no
+  permission; the directory is empty until slice 6 puts the checkout there.
 - **Tool prompts.** File tools on paths inside the run's directory, Bash (`exec`) and
   WebFetch or WebSearch (`fetch`) go to `runner.permit`, decided by the policy engine with the
   Pilot as a worker of the lease's org; no rule allows `exec` or `fetch` yet. Exec and fetch text

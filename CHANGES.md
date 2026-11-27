@@ -43,9 +43,9 @@ Changes since the last release. When a version is cut, its section moves to
 ### Changed
 
 - A Claude Code session loads no user, project or local settings, only lucy's own: nothing is
-  pre-allowed, no settings file can add a hook, and skills and slash commands are off. A repository's committed `.claude`
-  settings, hooks or MCP config can no longer widen what a Pilot may do, and every tool prompt
-  still reaches lucy. A contract test runs a session in a fixture repository whose settings
+  pre-allowed, no settings file can add a hook, and skills and slash commands are off. A
+  repository's committed `.claude` settings, hooks or MCP config can no longer widen what a Pilot
+  may do, and every tool prompt still reaches lucy. A contract test runs a session in a fixture repository whose settings
   pre-allow Bash, add a hook and enable its `.mcp.json` server, and checks that none takes effect.
   So a Pilot still follows a repository's agent instructions, lucy reads the run directory's
   `CLAUDE.md` (or `AGENTS.md` when there is none) and the files it imports with `@path`, and
