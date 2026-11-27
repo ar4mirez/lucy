@@ -10,14 +10,16 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ar4mirez/lucy/internal/api"
+	"github.com/ar4mirez/lucy/internal/api/client"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/vault"
 )
 
 const vaultUsage = `Usage:
-  lucy vault set [--dir <dir>] --org <org> <name>    the value is read from stdin
+  lucy vault set [--dir <dir>] [--socket <path>] --org <org> <name>    the value is read from stdin
   lucy vault ls  [--dir <dir>] --org <org>
-  lucy vault rm  [--dir <dir>] --org <org> <name>
+  lucy vault rm  [--dir <dir>] [--socket <path>] --org <org> <name>
 
 The per-org credential vault: credentials encrypted at rest with a key per org, read only by
 that org's credential gateway (` + "`lucy gateway`" + `). A route's credential is the name it
@@ -29,6 +31,9 @@ has here.
         it would show as you type. One trailing newline is dropped.
   ls    lists the org's credentials by name and when each was set; never a value.
   rm    deletes one credential.
+
+Every set and rm is recorded in the daemon's audit chain, by name only, before the vault is touched
+and again once it is done or has failed; with no daemon running the change is refused.
 
 The vault is vault/ in lucy's data directory by default: keys/ holds each org's key, orgs/ the
 sealed credentials, all only its owner can open.
@@ -85,6 +90,7 @@ func runVault(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(io.Discard)
 	dir := fs.String("dir", "", "")
 	org := fs.String("org", "", "")
+	sock := fs.String("socket", "", "")
 	if code, ok := parseFlagsAllowingArgs(fs, args[1:], vaultUsage, "lucy vault --help", stdout, stderr); !ok {
 		return code
 	}
@@ -132,11 +138,8 @@ func runVault(args []string, stdout, stderr io.Writer) int {
 	defer v.Close()
 	switch sub {
 	case "set":
-		if err := v.Set(*org, name, value); err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "set: %s/%s\n", *org, name)
+		return recordedChange(*sock, *org, name, vault.OpSet, func() error { return v.Set(*org, name, value) },
+			fmt.Sprintf("set: %s/%s\n", *org, name), stdout, stderr)
 	case "ls":
 		entries, err := v.Names(*org)
 		if err != nil {
@@ -152,12 +155,48 @@ func runVault(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "  %s,%s\n", e.Name, e.Updated.Format(time.RFC3339))
 		}
 	case "rm":
-		if err := v.Remove(*org, name); err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
+		return recordedChange(*sock, *org, name, vault.OpRemove, func() error { return v.Remove(*org, name) },
+			fmt.Sprintf("removed: %s/%s\n", *org, name), stdout, stderr)
+	}
+	return 0
+}
+
+// recordedChange makes one change to the vault, recorded in the daemon's audit chain before
+// (requested) and after (applied or failed), by name only. When the daemon cannot record the
+// request, nothing is changed.
+func recordedChange(sock, org, name, op string, change func() error, done string, stdout, stderr io.Writer) int {
+	c, code := dial(sock, stderr)
+	if c == nil {
+		return code
+	}
+	defer c.Close()
+	record := func(phase, why string) error {
+		ctx, cancel := context.WithTimeout(context.Background(), client.DefaultTimeout)
+		defer cancel()
+		_, err := c.VaultRecord(ctx, api.VaultRecordParams{Org: org, Name: name, Op: op, Phase: phase, Error: why})
+		return err
+	}
+	if err := record(vault.PhaseRequested, ""); err != nil {
+		fmt.Fprint(stderr, "error: the change was not made: lucy records every vault change in the audit chain first, and could not\n")
+		return callFailed(err, c, stderr)
+	}
+	if err := change(); err != nil {
+		why := err.Error()
+		if len(why) > 256 {
+			why = why[:256]
+		}
+		if rerr := record(vault.PhaseFailed, why); rerr != nil {
+			fmt.Fprintf(stderr, "error: %v\nerror: the failure could not be recorded either: %v\n", err, rerr)
 			return 1
 		}
-		fmt.Fprintf(stdout, "removed: %s/%s\n", *org, name)
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
 	}
+	if err := record(vault.PhaseApplied, ""); err != nil {
+		fmt.Fprintf(stderr, "error: the change was made, but recording it failed: %v\nhelp: its request is recorded; check `lucy events`\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, done)
 	return 0
 }
 

@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 12
+version: 13
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -143,7 +143,7 @@ An org's gateway is configured by an `AdapterBinding` in the resources directory
 ([gateway](../tech/gateway.md)) and runs as its own process, next to the daemon:
 
 ```sh
-pass show acme/github | lucy vault set --org acme github   # the route's credential, from stdin only
+pass show acme/github | lucy vault set --org acme github   # from stdin only; recorded by name in the log
 lucy vault ls --org acme                # names and when each was set; never a value
 lucy gateway --org acme                 # routes from the daemon; socket gateway/acme.sock, 0600
 lucy events                             # each request: gateway.forwarded / gateway.denied / gateway.completed

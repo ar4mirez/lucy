@@ -49,6 +49,7 @@ const (
 	MethodGwDone    = "gateway.complete"
 	MethodCaps      = "capabilities.list"
 	MethodRevoke    = "capability.revoke"
+	MethodVaultRec  = "vault.record"
 )
 
 var methods = []Method{
@@ -79,6 +80,7 @@ var methods = []Method{
 	{MethodGwDone, "Record how a forwarded gateway request ended.", "command", ScopeGateway, true, typeOf[GatewayCompleteParams](), typeOf[GatewayRecorded]()},
 	{MethodCaps, "The capability tokens issued to runs, by id, never the tokens: newest first, only those not yet expired unless all.", "query", ScopeRead, false, typeOf[CapabilitiesParams](), typeOf[CapabilitiesList]()},
 	{MethodRevoke, "Revoke a capability token by its id: the gateway refuses it from then on.", "command", ScopeDecide, true, typeOf[RevokeParams](), typeOf[CapabilityInfo]()},
+	{MethodVaultRec, "Record one phase of a change to an org's vault, by name only: before the change (requested) and after it (applied or failed).", "command", ScopeAdmin, true, typeOf[VaultRecordParams](), typeOf[VaultRecorded]()},
 }
 
 // NewParams returns a pointer to a new, zero params value for the method, ready for DecodeParams.
@@ -573,4 +575,18 @@ type CapabilityInfo struct {
 type RevokeParams struct {
 	ID     string `json:"id" lucy:"required,maxlen=16" doc:"The capability's id, as capabilities.list shows it."`
 	Reason string `json:"reason,omitempty" lucy:"maxlen=200" doc:"Why, for the record."`
+}
+
+// VaultRecordParams records one phase of a vault change.
+type VaultRecordParams struct {
+	Org   string `json:"org" lucy:"required,maxlen=63" doc:"The org whose vault changes."`
+	Name  string `json:"name" lucy:"required,maxlen=63" doc:"The credential's name; never its value."`
+	Op    string `json:"op" lucy:"required,maxlen=8" doc:"set or remove."`
+	Phase string `json:"phase" lucy:"required,maxlen=10" doc:"requested (before the change), applied or failed (after it)."`
+	Error string `json:"error,omitempty" lucy:"maxlen=256" doc:"Why it failed, when it did; never a value."`
+}
+
+// VaultRecorded answers vault.record.
+type VaultRecorded struct {
+	Seq int64 `json:"seq" doc:"The recorded event's sequence number."`
 }

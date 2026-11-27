@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.11.0"
+    "version": "1.12.0"
   },
   "servers": [
     {
@@ -2378,6 +2378,81 @@
         }
       },
       "x-lucy-scope": "decide",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
+    },
+    {
+      "name": "vault.record",
+      "summary": "Record one phase of a change to an org's vault, by name only: before the change (requested) and after it (applied or failed).",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "org",
+          "description": "The org whose vault changes.",
+          "required": true,
+          "schema": {
+            "maxLength": 63,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "name",
+          "description": "The credential's name; never its value.",
+          "required": true,
+          "schema": {
+            "maxLength": 63,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "op",
+          "description": "set or remove.",
+          "required": true,
+          "schema": {
+            "maxLength": 8,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "phase",
+          "description": "requested (before the change), applied or failed (after it).",
+          "required": true,
+          "schema": {
+            "maxLength": 10,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "name": "error",
+          "description": "Why it failed, when it did; never a value.",
+          "required": false,
+          "schema": {
+            "maxLength": 256,
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "seq": {
+              "description": "The recorded event's sequence number.",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "seq"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "admin",
       "x-lucy-mutating": true,
       "x-lucy-group": "command"
     }

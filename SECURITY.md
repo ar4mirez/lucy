@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 10
+version: 11
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-SEC-002, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -108,7 +108,8 @@ can be matched across records without being stored. `runner.permit`'s `api.comma
 only a digest of its parameters. The gateway's records (`gateway.forwarded`, `gateway.denied`,
 `gateway.completed`) hold the route, method, redacted path, upstream host, status, the policy
 decision, and the run and capability id, never a credential, a capability token, a query string or
-a body.
+a body. A vault change (`vault.changed`) is recorded before and after it is made, by org, name and
+operation only; none is made unrecorded.
 
 The owner's security checklist (38 items in five areas) is mapped to milestones and requirements in the
 [checklist map](docs/security/checklist.md). The threat model is re-checked at every milestone exit and each

@@ -2,7 +2,7 @@
 id: tech-vault
 title: The per-org credential vault
 status: active
-version: 1
+version: 2
 owner: ar4mirez
 requirements: [LUCY-CRED-002]
 ---
@@ -43,9 +43,14 @@ the threat model: [SECURITY.md](../../SECURITY.md).
   the environment, so it is in no shell history or process list, and refuses a terminal, where it
   would show as it is typed; pipe it in. One trailing newline is dropped.
 
+- **Audit.** `lucy vault set` and `rm` record each change through the daemon (`vault.record`,
+  scope `admin`) as `vault.changed` on the org's `vault/<org>` stream: once before the vault is
+  touched (`requested`) and once after (`applied`, or `failed` with why), by name and operation
+  only, never a value. With no daemon to record the request, the change is refused and the vault
+  is left as it was. `ls` is a read and records nothing.
+
 ## Not built yet
 
-- TODO(LUCY-CRED-002): vault changes (set, remove) recorded in the audit chain, by name only.
 - TODO(LUCY-CRED-006): rotation, and offboarding that deletes an org's key and every leftover
   `keys/<org>.key.tmp-*` copy of it (m2).
 - TODO(LUCY-CRED-002): keeping the keys in an OS keystore instead of a file, if the owner wants it;

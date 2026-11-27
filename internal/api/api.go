@@ -42,7 +42,8 @@ const Version = 1
 // gateway.complete.
 // Revision 11 added capability tokens: runner.lease's and runner.heartbeat's capability,
 // gateway.use's capability, gateway.verify, capabilities.list and capability.revoke.
-const SchemaRevision = 11
+// Revision 12 added vault.record.
+const SchemaRevision = 12
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"
