@@ -25,6 +25,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/policy"
+	"github.com/ar4mirez/lucy/internal/runner"
 )
 
 // Timeouts. They bound how long one slow or stuck client can hold a connection or a handler.
@@ -71,6 +72,9 @@ type Options struct {
 	// PolicyFacts gathers the facts policy.evaluate decides on, from the daemon's trusted sources.
 	// Nil means no facts are known, so every privileged action is denied or escalated.
 	PolicyFacts func(ctx context.Context, req policy.Request) (policy.Facts, error)
+	// Runs is the runner protocol's broker, which the runner and runs methods serve. Nil means
+	// this daemon serves no runners: those methods answer unavailable. Its store must be Store.
+	Runs *runner.Broker
 }
 
 // Server is the API's HTTP handler.

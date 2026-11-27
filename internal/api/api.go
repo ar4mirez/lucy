@@ -28,8 +28,9 @@ const Version = 1
 // SchemaRevision is the minor part of the OpenRPC document's version (Version.SchemaRevision.0). It is
 // bumped whenever the schema changes within a major version: by additive changes once a release
 // serves v1 (ADR D10), and until then also by renamed values. Revision 1 renamed the policy
-// outcomes to cleared, denied and holding, and the human role and input source to owner.
-const SchemaRevision = 1
+// outcomes to cleared, denied and holding, and the human role and input source to owner. Revision 2
+// added the runner protocol: the run scope, the fenced error and the runner and runs methods.
+const SchemaRevision = 2
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"
@@ -56,10 +57,11 @@ const (
 	ScopeAttachView  Scope = "attach-view"
 	ScopeAttachInput Scope = "attach-input"
 	ScopeAdmin       Scope = "admin"
+	ScopeRun         Scope = "run" // a runner: lease runs, heartbeat, stream their events, finish them
 )
 
 // AllScopes lists every scope, in a stable order.
-var AllScopes = []Scope{ScopeRead, ScopeDecide, ScopeSteer, ScopeAttachView, ScopeAttachInput, ScopeAdmin}
+var AllScopes = []Scope{ScopeRead, ScopeDecide, ScopeSteer, ScopeAttachView, ScopeAttachInput, ScopeAdmin, ScopeRun}
 
 // Caller is who sent a request, as established by the transport: the kernel's peer credentials on
 // the unix socket, and (m1) a paired device's credential over HTTPS. It rides on the request

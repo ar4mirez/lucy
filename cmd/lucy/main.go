@@ -1,8 +1,8 @@
 // Command lucy is a headless supervisor for autonomous coding agents.
 //
-// m0 so far: version, help, self-update, the daemon, the first API clients (status, events),
-// config validation and audit chain verification.
-// Everything else lands in later m0 slices (see docs/milestones/m0.md).
+// So far: version, help, self-update, the daemon, the first API clients (status, events),
+// config validation, audit chain verification and the local runner.
+// Everything else lands in the m1 slices (see docs/milestones/m1.md).
 package main
 
 import (
@@ -29,6 +29,7 @@ Usage:
   lucy config validate [<dir>]
   lucy config status
   lucy audit verify
+  lucy runner [--socket <path>] [--id <name>] [--root <dir>] -- <command> [<args>...]
 
 Flags:
   -h, --help       show this help
@@ -42,10 +43,11 @@ Commands:
   events         list events from the daemon's log
   config         validate spec resources; show the daemon's view of them
   audit          verify the hash-chained audit log
+  runner         run a runner on this machine: lease runs, run a command for each
 
 Run ` + "`lucy <command> --help`" + ` for a command's flags.
 
-Status: m0 in progress; only these commands exist so far.
+Status: m1 in progress; only these commands exist so far.
 Docs: https://github.com/ar4mirez/lucy
 `
 
@@ -78,6 +80,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runConfig(args[1:], stdout, stderr)
 	case "audit":
 		return runAudit(args[1:], stdout, stderr)
+	case "runner":
+		return runRunner(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "error: unknown command or flag %q\nhelp: run `lucy --help`\n", args[0])
 		return 2

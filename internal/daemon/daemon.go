@@ -23,6 +23,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/config"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/policy"
+	"github.com/ar4mirez/lucy/internal/runner"
 	"github.com/ar4mirez/lucy/internal/server"
 	"github.com/ar4mirez/lucy/internal/spec"
 )
@@ -57,14 +58,19 @@ func (Stopped) EventVersion() int { return 1 }
 
 // Registry returns the event registry the daemon opens the store with.
 func Registry() (*eventstore.Registry, error) {
-	return eventstore.NewRegistry(append(spec.Payloads(), Started{}, Stopped{}, server.CommandEvent{}, policy.DecisionRecord{})...)
+	payloads := append(spec.Payloads(), Started{}, Stopped{}, server.CommandEvent{}, policy.DecisionRecord{})
+	return eventstore.NewRegistry(append(payloads, runner.Payloads()...)...)
 }
 
-// Projectors returns the projections the daemon's store maintains: resource status and the
-// audit hash chain, which every event extends in its own append transaction.
+// Projectors returns the projections the daemon's store maintains: resource status, the runner
+// protocol's runs and leases, and the audit hash chain, which every event extends in its own
+// append transaction.
 func Projectors() []eventstore.Projector {
-	return []eventstore.Projector{spec.StatusProjector{}, audit.Projector{}}
+	return []eventstore.Projector{spec.StatusProjector{}, runner.Projector{}, audit.Projector{}}
 }
+
+// ExpiryInterval is how often the daemon expires runner leases that were not renewed in time.
+const ExpiryInterval = 5 * time.Second
 
 // Options configures Run.
 type Options struct {
@@ -137,12 +143,14 @@ func Run(ctx context.Context, opts Options) error {
 	pl.OnRefuse = func(cred server.PeerCred, err error) {
 		log.Warn("socket connection refused", "uid", cred.UID, "pid", cred.PID, "err", err)
 	}
+	broker := runner.NewBroker(store, nil)
 	srv, err := server.New(server.Options{
 		Store:      store,
 		Version:    opts.Version,
 		Log:        log,
 		OnShutdown: func() { stop(errAPIStop) },
 		Refused:    pl.Refused,
+		Runs:       broker,
 	})
 	if err != nil {
 		return err
@@ -154,6 +162,11 @@ func Run(ctx context.Context, opts Options) error {
 	hs := srv.HTTPServer()
 	served := make(chan error, 1)
 	go func() { served <- hs.Serve(pl) }()
+	expiring := make(chan struct{})
+	go func() {
+		defer close(expiring)
+		expireLeases(ctx, broker, log)
+	}()
 	log.Info("lucy daemon serving", "socket", sock, "api", api.Path, "version", opts.Version)
 	if opts.OnReady != nil {
 		opts.OnReady(sock)
@@ -174,6 +187,8 @@ func Run(ctx context.Context, opts Options) error {
 	if err := hs.Shutdown(shutdownCtx); err != nil {
 		log.Warn("graceful shutdown timed out", "err", err)
 	}
+	stop(nil)
+	<-expiring
 	if _, err := store.Append(shutdownCtx, DaemonStream, eventstore.AnyVersion, "daemon",
 		Stopped{PID: os.Getpid(), Reason: reason}); err != nil {
 		log.Warn("could not record daemon.stopped", "err", err)
@@ -183,6 +198,27 @@ func Run(ctx context.Context, opts Options) error {
 		return serveErr
 	}
 	return nil
+}
+
+// expireLeases expires runner leases that were not renewed in time, every ExpiryInterval, until
+// ctx ends. A run whose runner went silent is then lost, and its fence refused (LUCY-RUN-001).
+func expireLeases(ctx context.Context, b *runner.Broker, log *slog.Logger) {
+	t := time.NewTicker(ExpiryInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		n, err := b.Expire(ctx)
+		switch {
+		case err != nil && ctx.Err() == nil:
+			log.Warn("could not expire runner leases", "err", err)
+		case n > 0:
+			log.Info("runner leases expired", "runs", n)
+		}
+	}
 }
 
 func openStore(ctx context.Context, opts Options) (*eventstore.Store, error) {

@@ -2,9 +2,9 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 5
+version: 6
 owner: ar4mirez
-requirements: [LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
+requirements: [LUCY-RUN-001, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
 
 # The daemon and its API
@@ -84,6 +84,25 @@ A decision with rule `engine.error` means the engine failed safe: the facts coul
 a rule failed. The daemon's log has the cause. A changed rule set is a new `ruleset_version`; compare
 `ruleset_sha256` across decisions to see which rules decided.
 
+## Runners
+
+A runner leases runs from the daemon over the runner protocol ([TECH.md](../../TECH.md) section 6).
+Nothing queues runs through the API yet; the Tower does, through `runner.Runtime`, once the daemon
+flies flights.
+
+```sh
+lucy runner -- ./do-the-work.sh   # this machine's runner, id "local"; Ctrl-C stops it and its runs
+lucy runner --id spare --ttl 30 --root /path/to/scratch -- ./do-the-work.sh
+lucy events --after 0             # run.queued, run.leased, run.event, run.renewed, run.finished, run.expired
+```
+
+Each run gets a fresh directory under `--root` (default `$XDG_DATA_HOME/lucy/runner`, created 0700),
+deleted through the path guard when the command exits; the command sees only PATH, HOME, TMPDIR
+and the `LUCY_RUN_*` variables. A runner that goes silent for longer than its lease (`--ttl`,
+60 s by default) loses the run: the daemon records `run.expired` within 5 s and refuses anything
+the runner sends under that fence afterwards (`fenced`). A runner that gets `fenced` drops the run
+and stops its work; that is expected after a long pause, not an error to retry.
+
 ## When something is wrong
 
 | Symptom | Cause and fix |
@@ -97,6 +116,8 @@ a rule failed. The daemon's log has the cause. A changed rule set is a new `rule
 | `internal error` with a `request_id` | The daemon's stderr log has the details under that id; the client never sees them |
 | `spec: cannot load config` at start | The resources path is not a readable directory, or is over the limits. Fix it, or point `--resources` elsewhere |
 | `config loaded ... refused=N` in the log | N documents were refused; `lucy config validate` shows why |
+| `runner dropped a run ... why=fenced` in a runner's log | Its lease expired or was replaced while it was cut off. The Tower has already replaced the Pilot; nothing to do |
+| `runner kept a run's scratch directory` | The path guard refused the delete (the directory left `--root`, or `--root` is `/`, the home directory or one of its parents). Check `--root` and remove the directory by hand |
 
 ## Add an API method
 

@@ -2,14 +2,14 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 12
+version: 13
 owner: ar4mirez
 requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-001, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-009, LUCY-SIM-001, LUCY-SIM-002, LUCY-RUN-001, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007, LUCY-SEC-002]
 ---
 
 # lucy: technical specification
 
-Status: m0 done. The skeleton, the release pipeline, the event store (section 3), the first part of the
+Status: m0 done; m1 has begun with the runner protocol (section 6). The skeleton, the release pipeline, the event store (section 3), the first part of the
 API with `lucy daemon` (section 4), the policy engine (section 5), lucy's settings file (section
 2), the spec model with the audit chain (section 10) and the flight state machine with its
 simulation harness (section 11) and lucy's own security scans (section 9) exist; the rest
@@ -110,14 +110,15 @@ Operations: [daemon runbook](docs/runbooks/daemon.md).
   whether it mutates, and its params and result types; `internal/api/openrpc.json` is generated
   from it, committed and served by `rpc.discover` (LUCY-API-007). Built so far: `hello`, `health`,
   `status.get`, `events.list` (pages the event log), `rpc.discover`, `daemon.shutdown`,
-  `policy.evaluate` and `policy.decisions` (section 5), and `resources.list` and `audit.verify`
-  (section 10).
+  `policy.evaluate` and `policy.decisions` (section 5), `resources.list` and `audit.verify`
+  (section 10), and the runner protocol's `runner.queued`, `runner.lease`, `runner.heartbeat`,
+  `runner.finish` and `runs.list` (section 6).
 - **Transport and identity.** `lucy daemon` listens on `$XDG_RUNTIME_DIR/lucy/lucy.sock` (0600 in a
   0700 dir, one daemon per dir by `flock`). Each connection's peer credentials (SO_PEERCRED on
   Linux, LOCAL_PEERCRED on macOS) must name the daemon's own uid, or it is closed unread; the
   accepted caller (uid, gid, pid, device `local`) rides on the request context (LUCY-API-003).
 - **Authorization seam.** An `Authorizer` grants scopes (read, decide, steer, attach-view,
-  attach-input, admin) and checks each call's scope before its params are decoded. Today only the
+  attach-input, admin, run) and checks each call's scope before its params are decoded. Today only the
   local owner holds scopes; the policy engine adds org and task checks (LUCY-API-004).
 - **Recording.** A mutating call is appended as an `api.command` event (method, request id, caller,
   params digest) before it runs, and does not run if the append fails (LUCY-API-005).
@@ -125,7 +126,7 @@ Operations: [daemon runbook](docs/runbooks/daemon.md).
   headers, 15 s per request body, 30 s to write, 60 s idle, 10 s per call; 64 connections. Params
   are decoded strictly: no unknown, duplicate or case-folded members, bounds from struct tags.
 - **Errors** (LUCY-API-008): JSON-RPC codes plus lucy's (-32001 forbidden, -32002 unsupported
-  version, -32003 too large, -32004 unavailable, -32005 timeout), one fixed message and `kind` per
+  version, -32003 too large, -32004 unavailable, -32005 timeout, -32006 fenced), one fixed message and `kind` per
   code; internal errors are logged with a correlation id, which is all the caller sees.
 - **Remote transport (m1).** The handler is transport-neutral; HTTPS needs only a TLS listener and a
   device authenticator. No network listener exists in m0: remote HTTPS with device pairing, scoped
@@ -144,8 +145,21 @@ before returning it. The request model, facts, rule order, decision record and p
 
 - **Isolation per org:** harness config dir, GitHub token, git identity and key, repo allowlist,
   memory rows, merge rules, container. The daemon refuses any cross-org read or write.
-- **Runner protocol** (LUCY-RUN-001): lease a task, stream events, heartbeat, fencing token. This
-  machine is the first runner; a cloud runner later uses the same protocol.
+- **Runner protocol** (LUCY-RUN-001), built in `internal/runner`: a runner polls `runner.queued`
+  (a read), leases the oldest queued run with `runner.lease`, renews it with `runner.heartbeat` at a
+  third of its life (60 s by default, 5 s to 5 min), streaming the run's new events in the same
+  call, and ends it with `runner.finish`. Each call is an `api.command` plus `run.*` events on
+  `run/<org>/<run>`; the `runner_runs` projection is the broker's whole state, so a daemon restart
+  keeps every lease. The fence is the sequence number of the event that granted the lease, so
+  fences only grow; a lease not renewed in time expires (the daemon sweeps every 5 s) and the run
+  is lost, and any later call under that fence is refused `fenced`. Streamed events are numbered
+  per run, so a batch resent after a lost reply is recorded once. `runner.Runtime` is the Tower's
+  Runtime seam over the protocol: starting a Pilot queues run `<flight>#<generation>`.
+  `lucy runner -- <command>` is this machine's runner: a process executor runs the command once per
+  run in a fresh scratch directory (its TMPDIR), with only PATH, HOME, TMPDIR and `LUCY_RUN_*` in its
+  environment, and deletes the directory through the path guard. The same binary runs in an org
+  container (`--placement container`) once berth mounts the socket and per-runner credentials exist
+  (m1 slices 3, 4); a cloud runner later speaks the same protocol.
 - **Sessions:** structured protocols first (Claude Agent SDK or `claude -p --output-format
   stream-json`; Codex app-server; ACP). Leases with generation and heartbeat; reattach before spawn;
   fence, then replace.
@@ -195,7 +209,7 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 
 | Path | Contents |
 |---|---|
-| `cmd/lucy/` | The binary's entrypoint: version, help, self-update, `daemon`, `status`, `events`, `config`, `audit` |
+| `cmd/lucy/` | The binary's entrypoint: version, help, self-update, `daemon`, `status`, `events`, `config`, `audit`, `runner` |
 | `internal/api/` | The API's method table, wire format, errors and generated OpenRPC schema (section 4) |
 | `internal/api/client/` | The Go client of the API |
 | `internal/server/` | The API's HTTP handler, peer-credential listener and authorizer seam |
@@ -209,6 +223,7 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 | `internal/eventstore/` | The SQLite event store: event log, projections, consumers, migrations (section 3) |
 | `internal/pathguard/` | The path guard every delete passes (section 5) |
 | `internal/policy/` | The policy engine: request model, rules, rule-set hash, decision record (section 5) |
+| `internal/runner/` | The runner protocol: broker and its projection, the Tower's Runtime over it, the runner loop, the process executor (section 6) |
 | `internal/tower/` | The flight state machine and its seams: Pilot runtime, forge, clock (section 11) |
 | `internal/sim/` | The simulation harness: virtual clock, fake forge, fake Pilot runtime, fault hooks (section 11) |
 | `internal/corpus/` | The conformance corpus: scenario format, runner, corpus v1 (section 11) |

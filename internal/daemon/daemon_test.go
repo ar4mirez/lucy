@@ -118,6 +118,13 @@ func TestRunServesThenStopsThroughTheAPI(t *testing.T) {
 	if err != nil || st.EventHead < 1 {
 		t.Fatalf("status = %+v, %v", st, err)
 	}
+	// The daemon serves the runner protocol; with nothing queued a runner's poll is a read.
+	if q, err := c.RunnerQueued(ctx); err != nil || q.Queued != 0 {
+		t.Fatalf("runner.queued = %+v, %v", q, err)
+	}
+	if l, err := c.RunnerLease(ctx, api.LeaseParams{Runner: "local"}); err != nil || l.Leased {
+		t.Fatalf("runner.lease = %+v, %v", l, err)
+	}
 
 	// A second daemon on the same runtime dir is refused while the first holds the lock.
 	if err := Run(ctx, opts(dir)); !errors.Is(err, ErrAlreadyRunning) {
@@ -152,10 +159,10 @@ func TestRunServesThenStopsThroughTheAPI(t *testing.T) {
 	for _, e := range evs {
 		types = append(types, e.Type)
 	}
-	if got := strings.Join(types, ","); got != "config.loaded,daemon.started,api.command,daemon.stopped" {
+	if got := strings.Join(types, ","); got != "config.loaded,daemon.started,api.command,api.command,daemon.stopped" {
 		t.Errorf("events = %s", got)
 	}
-	stopped, err := eventstore.DecodeAs[Stopped](reg, evs[3])
+	stopped, err := eventstore.DecodeAs[Stopped](reg, evs[4])
 	if err != nil || stopped.Reason != "api" {
 		t.Errorf("daemon.stopped = %+v, %v", stopped, err)
 	}
