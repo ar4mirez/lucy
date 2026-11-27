@@ -14,7 +14,7 @@ import (
 type Protocol interface {
 	Queued(ctx context.Context) (int, error)
 	Lease(ctx context.Context, runner string, placement Placement, ttl time.Duration) (Lease, bool, error)
-	Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event) (Beat, error)
+	Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event, acked string) (Beat, error)
 	Finish(ctx context.Context, runner, run string, fence int64, res Result) error
 }
 
@@ -78,6 +78,8 @@ type held struct {
 	stopping bool
 	question *Event // the work's question, streamed and not yet answered
 	heard    bool   // the broker has reported question as asking
+	answered string // the id of the question whose answer the work took last
+	ack      string // the id to acknowledge on the next heartbeat
 }
 
 // New returns a Runner.
@@ -152,13 +154,17 @@ func (r *Runner) tend(ctx context.Context, h *held) error {
 	now := r.cfg.Now()
 	for len(h.pending) > 0 || !now.Before(h.beatAt) {
 		batch := h.pending[:min(len(h.pending), MaxBatch)]
-		beat, err := r.cfg.Protocol.Heartbeat(ctx, r.cfg.ID, h.lease.Run, h.lease.Fence, r.cfg.TTL, batch)
+		acked := h.ack
+		beat, err := r.cfg.Protocol.Heartbeat(ctx, r.cfg.ID, h.lease.Run, h.lease.Fence, r.cfg.TTL, batch, acked)
 		if errors.Is(err, ErrFenced) {
 			r.drop(h, "fenced")
 			return nil
 		}
 		if err != nil {
 			return err // kept: resent on the next Step, and the broker skips what it already has
+		}
+		if h.ack == acked {
+			h.ack = ""
 		}
 		before := len(h.pending)
 		for len(h.pending) > 0 && h.pending[0].Seq <= beat.Accepted {
@@ -170,8 +176,7 @@ func (r *Runner) tend(ctx context.Context, h *held) error {
 		}
 		switch {
 		case beat.Answer != "":
-			h.question, h.heard = nil, false
-			r.answer(h, beat.Answer)
+			r.answer(h, beat)
 		case len(h.pending) > 0 || h.question == nil:
 		case beat.Asking:
 			h.heard = true
@@ -198,17 +203,23 @@ func (r *Runner) tend(ctx context.Context, h *held) error {
 	return nil
 }
 
-// answer gives the work the owner's answer. One that cannot be given is logged, not retried: the
-// work is still asking, so the Tower asks the owner again.
-func (r *Runner) answer(h *held, text string) {
-	a, ok := h.exec.(Answerer)
-	if !ok {
-		r.cfg.Log.Warn("runner got an answer for a run whose work takes no input", "run", h.lease.Run)
-		return
+// answer gives the work the owner's answer to a question once, however often the broker sends
+// it, and acknowledges it once the work took it. One the work cannot take is logged and not
+// acknowledged: the question stays open, and the broker sends the answer again.
+func (r *Runner) answer(h *held, beat Beat) {
+	if beat.Question != h.answered {
+		a, ok := h.exec.(Answerer)
+		if !ok {
+			r.cfg.Log.Warn("runner got an answer for a run whose work takes no input", "run", h.lease.Run)
+			return
+		}
+		if err := a.Answer(beat.Answer); err != nil {
+			r.cfg.Log.Warn("runner could not give a run its answer", "run", h.lease.Run, "err", err)
+			return
+		}
+		h.answered, h.question, h.heard = beat.Question, nil, false
 	}
-	if err := a.Answer(text); err != nil {
-		r.cfg.Log.Warn("runner could not give a run its answer", "run", h.lease.Run, "err", err)
-	}
+	h.ack = beat.Question
 }
 
 // queue numbers one of the work's events for streaming and tracks its open question.

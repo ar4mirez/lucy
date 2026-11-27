@@ -25,7 +25,7 @@ type RunInfo struct {
 	Asking    bool      // the last streamed event was a question
 	Question  string    // when asking
 	// QuestionID is the asked question's id, when asking; Answered is the id of the last
-	// question whose answer a heartbeat handed to the runner under Fence.
+	// question whose answer the runner under Fence acknowledged.
 	QuestionID string
 	Answered   string
 	Stop       bool   // a stop was requested

@@ -32,8 +32,8 @@ func (p live) Queued(ctx context.Context) (int, error) { return p.f.b.Queued(ctx
 func (p live) Lease(ctx context.Context, r string, pl Placement, ttl time.Duration) (Lease, bool, error) {
 	return p.f.b.Lease(ctx, r, pl, ttl)
 }
-func (p live) Heartbeat(ctx context.Context, r, run string, fence int64, ttl time.Duration, evs []Event) (Beat, error) {
-	return p.f.b.Heartbeat(ctx, r, run, fence, ttl, evs)
+func (p live) Heartbeat(ctx context.Context, r, run string, fence int64, ttl time.Duration, evs []Event, acked string) (Beat, error) {
+	return p.f.b.Heartbeat(ctx, r, run, fence, ttl, evs, acked)
 }
 func (p live) Finish(ctx context.Context, r, run string, fence int64, res Result) error {
 	return p.f.b.Finish(ctx, r, run, fence, res)
@@ -49,7 +49,7 @@ func TestAnswerRelay(t *testing.T) {
 	if err := f.b.Answer(ctx, "f1#1", "now"); !errors.Is(err, ErrNotAsking) {
 		t.Fatalf("answer before a question = %v", err)
 	}
-	beat, err := f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, []Event{{Seq: 1, Kind: KindAsking, Text: "which account?"}})
+	beat, err := f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, []Event{{Seq: 1, Kind: KindAsking, Text: "which account?", Question: "q1"}}, "")
 	if err != nil || !beat.Asking || beat.Answer != "" {
 		t.Fatalf("beat %+v, %v", beat, err)
 	}
@@ -65,16 +65,21 @@ func TestAnswerRelay(t *testing.T) {
 	if ri := f.run("f1#1"); ri.Asking {
 		t.Fatalf("still asking after the answer: %+v", ri)
 	}
-	if _, err := f.b.Heartbeat(ctx, "r9", "f1#1", l.Fence, 0, nil); !errors.Is(err, ErrFenced) {
+	if _, err := f.b.Heartbeat(ctx, "r9", "f1#1", l.Fence, 0, nil, ""); !errors.Is(err, ErrFenced) {
 		t.Fatalf("another runner's heartbeat = %v", err)
 	}
 	f.submit("f1#2") // the answer is not anyone else's
-	beat, err = f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, nil)
-	if err != nil || beat.Answer != "the staging account, ref 7731" || beat.Asking {
-		t.Fatalf("beat %+v, %v", beat, err)
+	for range 2 {    // given until acknowledged
+		beat, err = f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, nil, "")
+		if err != nil || beat.Answer != "the staging account, ref 7731" || beat.Question != "q1" || beat.Asking {
+			t.Fatalf("beat %+v, %v", beat, err)
+		}
 	}
-	if beat, err = f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, nil); err != nil || beat.Answer != "" {
-		t.Fatalf("the answer was given twice: %+v, %v", beat, err)
+	if beat, err = f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, nil, "q1"); err != nil || beat.Answer != "" {
+		t.Fatalf("the acknowledging beat %+v, %v", beat, err)
+	}
+	if beat, err = f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, nil, ""); err != nil || beat.Answer != "" {
+		t.Fatalf("the answer was given after its acknowledgement: %+v, %v", beat, err)
 	}
 	evs, err := f.store.ReadAfter(ctx, 0, 1000)
 	if err != nil {
@@ -90,23 +95,43 @@ func TestAnswerRelay(t *testing.T) {
 	}
 }
 
+// TestQuestionIDRequired: an asking event must name its question's id, and no other event may.
+func TestQuestionIDRequired(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	f.submit("f1#1")
+	l := f.lease("r1", 0)
+	for name, ev := range map[string]Event{
+		"a question without an id": {Seq: 1, Kind: KindAsking, Text: "which account?"},
+		"output with an id":        {Seq: 1, Kind: KindOutput, Text: "hello", Question: "q1"},
+	} {
+		if _, err := f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, []Event{ev}, ""); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v, want ErrInvalid", name, err)
+		}
+	}
+	if ri := f.run("f1#1"); ri.Accepted != 0 || ri.Asking {
+		t.Fatalf("a refused heartbeat recorded: %+v", ri)
+	}
+}
+
 // TestRepeatedQuestionWhileAnswerWaits: a heartbeat that streams the question again, by its id,
 // while the owner's answer to it waits gets the answer, and the run stays not asking; once the
-// answer is handed over, the question's id stays answered, across a daemon restart too, so the
-// Tower never asks the owner an answered question. A new question still asks.
+// runner acknowledges the answer, the question's id stays answered, across a daemon restart too,
+// so the Tower never asks the owner an answered question. A new question still asks.
 func TestRepeatedQuestionWhileAnswerWaits(t *testing.T) {
 	f := open(t)
 	ctx := context.Background()
 	f.submit("f1#1")
 	l := f.lease("r1", 0)
 	seq := int64(0)
+	acked := ""
 	beat := func(evs ...Event) Beat {
 		t.Helper()
 		for i := range evs {
 			seq++
 			evs[i].Seq = seq
 		}
-		b, err := f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, evs)
+		b, err := f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, evs, acked)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -120,9 +145,12 @@ func TestRepeatedQuestionWhileAnswerWaits(t *testing.T) {
 	if b := beat(ask); b.Answer != "staging" || b.Asking || b.Accepted != 2 {
 		t.Fatalf("beat %+v", b)
 	}
+	acked = "q1"
+	beat()
+	acked = ""
 	f.reopen()
 	if b := beat(Event{Kind: KindOutput, Text: "warning"}, ask); b.Asking || b.Answer != "" {
-		t.Fatalf("after the handover and a restart, beat %+v", b)
+		t.Fatalf("after the acknowledgement and a restart, beat %+v", b)
 	}
 	if ri := f.run("f1#1"); ri.Asking {
 		t.Fatalf("the answered question re-opened: %+v", ri)
@@ -223,5 +251,58 @@ func TestRunnerDeliversAndReasks(t *testing.T) {
 	step(t, r2)
 	if got := ex.execs["f2#1"].answers; len(got) != 1 || got[0] != "production" {
 		t.Fatalf("f2 answers %q", got)
+	}
+}
+
+// TestRunnerAcknowledgesAnAnswerOnce: the reply carrying an answer is lost after the broker
+// recorded the heartbeat. The broker gives the answer again, the work takes it exactly once, the
+// runner acknowledges it, and the run ends not asking with the owner asked once.
+func TestRunnerAcknowledgesAnAnswerOnce(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	ex := &answeringExecutor{execs: map[string]*answering{}}
+	p := &flaky{Broker: f.b}
+	r := newRunner(t, f, "r1", ex, p)
+	f.submit("f1#1")
+	step(t, r)
+	a := ex.execs["f1#1"]
+	ask := Event{Kind: KindAsking, Text: "which account?", Question: "req_1"}
+	a.queue = append(a.queue, Update{Events: []Event{ask}})
+	step(t, r)
+	if err := f.b.Answer(ctx, "f1#1", "staging"); err != nil {
+		t.Fatal(err)
+	}
+	f.clock.Advance(11 * time.Second)
+	p.fail = true
+	if err := r.Step(ctx); err == nil {
+		t.Fatal("a lost reply was not reported")
+	}
+	p.fail = false
+	if len(a.answers) != 0 {
+		t.Fatalf("the work took an answer whose reply was lost: %q", a.answers)
+	}
+	a.queue = append(a.queue, Update{Events: []Event{{Kind: KindOutput, Text: "warning"}, ask}})
+	step(t, r) // the answer comes again, with a repeat of its question
+	a.queue = append(a.queue, Update{Events: []Event{{Kind: KindActivity, Text: "tool result"}}})
+	step(t, r) // the acknowledgement
+	f.clock.Advance(11 * time.Second)
+	step(t, r)
+	if len(a.answers) != 1 || a.answers[0] != "staging" {
+		t.Fatalf("answers %q", a.answers)
+	}
+	if ri := f.run("f1#1"); ri.Asking || ri.Answered != "req_1" {
+		t.Fatalf("after the acknowledgement: %+v", ri)
+	}
+	asks := 0
+	for _, typ := range f.types("acme", "f1#1") {
+		if typ == "run.answered" {
+			asks++
+		}
+	}
+	if asks != 1 {
+		t.Fatalf("the owner answered %d times", asks)
+	}
+	if err := f.b.Answer(ctx, "f1#1", "again"); !errors.Is(err, ErrNotAsking) {
+		t.Fatalf("the owner could answer again: %v", err)
 	}
 }

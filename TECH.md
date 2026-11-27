@@ -168,9 +168,9 @@ before returning it. The request model, facts, rule order, decision record and p
   settings only, no saved session and every permission prompt sent to it; it allows only
   AskUserQuestion, streamed as `asking` with the question's id on it and on every repeat. The
   Tower's answer reaches the broker, which records `run.answered` (the id and a digest) and gives
-  the text to the runner once, in its next heartbeat reply, recording the id on `run.renewed`; an
-  asking event for an answered id is recorded as activity, so no buffer can re-open the question. A
-  runner whose answer a restart lost asks again under the same id, which was never handed over. The recorded transcripts in `testdata/<version>`
+  the text in every heartbeat reply until the runner acknowledges the id (on `run.renewed`) once
+  its work took it. An asking event for an answered id is recorded as activity, so no buffer
+  re-opens the question; an answer a restart lost was never acknowledged, so the runner asks again. The recorded transcripts in `testdata/<version>`
   are the contract, replayed in CI.
 - **Sessions:** structured protocols first (Claude Code's stream-json, built; Codex app-server; ACP
   later). Leases with generation and heartbeat; reattach before spawn; fence, then replace.

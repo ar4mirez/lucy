@@ -27,7 +27,7 @@ type Leased struct {
 }
 
 // Renewed records a heartbeat: the lease under Fence now expires at ExpiresAt. Answered is the id
-// of the question whose answer the heartbeat handed to the runner, if any.
+// of the question whose answer the runner acknowledged giving its work, if any.
 type Renewed struct {
 	Fence     int64     `json:"fence"`
 	ExpiresAt time.Time `json:"expires_at"`

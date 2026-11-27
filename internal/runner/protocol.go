@@ -142,8 +142,8 @@ type Event struct {
 	Seq  int64     `json:"seq"`
 	Kind EventKind `json:"kind"`
 	Text string    `json:"text,omitempty"`
-	// Question, when asking, is the question's id: every repeat of a question carries the same
-	// one. A question without one is given its event's own.
+	// Question is the question's id: required when asking, the same on every repeat of a
+	// question, and empty on any other event.
 	Question string `json:"question,omitempty"`
 }
 
@@ -159,7 +159,8 @@ type Beat struct {
 	Expires  time.Time // the lease's new expiry
 	Stop     bool      // the Tower asked for the run to stop: stop the work and finish it as stopped
 	Accepted int64     // the highest event number recorded for the run
-	Answer   string    // the owner's answer to the run's question, relayed by the Tower; given once
+	Answer   string    // the owner's answer to the run's question, relayed by the Tower; given until acknowledged
+	Question string    // with Answer: the id of the question it answers, to acknowledge
 	Asking   bool      // the run's last recorded event is a question still waiting on an answer
 }
 

@@ -169,20 +169,26 @@ func (b *Broker) held(ctx context.Context, runner, run string, fence int64, fn f
 }
 
 // repeatedQuestion records a question the Pilot streamed again after the owner answered it: its
-// answer waits for the runner or was handed over, so the question does not re-open. An answer a
-// daemon restart lost was never handed over, so its question re-opens and the owner is asked again.
+// answer waits for the runner or the runner acknowledged it, so the question does not re-open. An
+// answer a daemon restart lost was never acknowledged, so its question re-opens and the owner is
+// asked again.
 const repeatedQuestion = "the Pilot repeated a question the owner answered"
 
 // Heartbeat renews runner's lease on run for another ttl and records the streamed events, in one
 // transaction. Events numbered at or below what the broker already recorded are a resent batch
-// and are skipped; the rest must continue the numbering without a gap.
-func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event) (Beat, error) {
+// and are skipped; the rest must continue the numbering without a gap. Every asking event names
+// its question's id. acked, when set, is the id of the question whose answer the runner gave its
+// work: only then is the question answered for good, and until then each reply carries the answer.
+func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event, acked string) (Beat, error) {
 	if len(events) > MaxBatch {
 		return Beat{}, fmt.Errorf("%w: at most %d events per heartbeat", ErrInvalid, MaxBatch)
 	}
+	if len(acked) > maxIDBytes {
+		return Beat{}, fmt.Errorf("%w: an acknowledged question id is at most %d bytes", ErrInvalid, maxIDBytes)
+	}
 	for _, ev := range events {
-		if !ev.Kind.Valid() || ev.Seq < 1 || len(ev.Question) > maxIDBytes {
-			return Beat{}, fmt.Errorf("%w: event %d of kind %q", ErrInvalid, ev.Seq, ev.Kind)
+		if !ev.Kind.Valid() || ev.Seq < 1 || len(ev.Question) > maxIDBytes || (ev.Kind == KindAsking) != (ev.Question != "") {
+			return Beat{}, fmt.Errorf("%w: event %d of kind %q with question id %q; a question, and only a question, names its id", ErrInvalid, ev.Seq, ev.Kind, ev.Question)
 		}
 	}
 	ttl = clampTTL(ttl)
@@ -192,6 +198,9 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 		// The answer is read inside the transaction, which no Answer can interleave with, so the
 		// runner sees it together with the asking state it belongs to.
 		given = b.peekAnswer(run, fence)
+		if acked != "" && given.question == acked {
+			given = answer{}
+		}
 		accepted := ri.Accepted
 		var payloads []eventstore.Payload
 		for _, ev := range events {
@@ -202,18 +211,13 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 				return fmt.Errorf("%w: got %d after %d", ErrSequence, ev.Seq, accepted)
 			}
 			accepted = ev.Seq
-			if ev.Kind != KindAsking {
-				ev.Question = ""
-			} else if ev.Question == "" {
-				ev.Question = fmt.Sprintf("seq-%d", ev.Seq)
-			}
-			if ev.Kind == KindAsking && (ev.Question == ri.Answered || ev.Question == given.question) {
+			if ev.Kind == KindAsking && (ev.Question == ri.Answered || ev.Question == given.question || ev.Question == acked) {
 				ev.Kind, ev.Text, ev.Question = KindActivity, repeatedQuestion, ""
 			}
 			payloads = append(payloads, Streamed{Fence: fence, Seq: ev.Seq, Kind: ev.Kind, Text: capText(ev.Text), Question: ev.Question})
 		}
 		exp := b.now().Add(ttl).UTC()
-		payloads = append(payloads, Renewed{Fence: fence, ExpiresAt: exp, Answered: given.question})
+		payloads = append(payloads, Renewed{Fence: fence, ExpiresAt: exp, Answered: acked})
 		if _, err := tx.Append(ctx, Stream(ri.Org, ri.Run), ri.Version, runnerActor(runner), payloads...); err != nil {
 			return err
 		}
@@ -221,23 +225,24 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 		if n := len(payloads) - 1; n > 0 {
 			asking = payloads[n-1].(Streamed).Kind == KindAsking
 		}
-		beat = Beat{Expires: exp, Stop: ri.Stop, Accepted: accepted, Asking: asking, Answer: given.text}
+		beat = Beat{Expires: exp, Stop: ri.Stop, Accepted: accepted, Asking: asking, Answer: given.text, Question: given.question}
 		return nil
 	})
 	if err != nil {
 		return Beat{}, err // a refused heartbeat leaves the holder's answer waiting
 	}
-	if given.text != "" {
-		b.handedOver(run, given) // the heartbeat committed: the answer is delivered once
+	if acked != "" {
+		b.acknowledged(run, fence, acked)
 	}
 	return beat, nil
 }
 
 // Answer relays the owner's answer to a leased run that is asking; only the Tower calls it
 // (Runtime.Answer), so a Pilot hears from the owner through the Tower and nothing else
-// (LUCY-RUN-013). The log records the answer's digest; the text goes to the run's runner once, on
-// its next heartbeat. An answer the runner never received, because the daemon restarted first,
-// is noticed by the runner, which asks again, so the Tower asks the owner again.
+// (LUCY-RUN-013). The log records the answer's digest; the text goes to the run's runner on
+// each heartbeat until it acknowledges it. An answer the runner never received, because the
+// daemon restarted first, is noticed by the runner, which asks again, so the Tower asks the owner
+// again.
 func (b *Broker) Answer(ctx context.Context, run, text string) error {
 	if text == "" || len(text) > MaxAnswer {
 		return fmt.Errorf("%w: an answer is 1 to %d bytes", ErrInvalid, MaxAnswer)
@@ -279,12 +284,11 @@ func (b *Broker) peekAnswer(run string, fence int64) answer {
 	return a
 }
 
-// handedOver forgets a, the answer a committed heartbeat gave run's runner, unless a newer
-// answer has replaced it since.
-func (b *Broker) handedOver(run string, a answer) {
+// acknowledged forgets the answer to question that run's runner, under fence, gave its work.
+func (b *Broker) acknowledged(run string, fence int64, question string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.answers[run] == a {
+	if a := b.answers[run]; a.fence == fence && a.question == question {
 		delete(b.answers, run)
 	}
 }

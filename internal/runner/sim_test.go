@@ -49,7 +49,7 @@ func (x *simExecution) Poll() runner.Update {
 	case tower.PilotAsking:
 		if rep.Question != x.asked {
 			x.asked = rep.Question
-			u.Events = append(u.Events, runner.Event{Kind: runner.KindAsking, Text: rep.Question})
+			u.Events = append(u.Events, runner.Event{Kind: runner.KindAsking, Text: rep.Question, Question: rep.Question})
 		}
 	case tower.PilotDone:
 		u.Result = &runner.Result{Outcome: runner.OutcomeDone, PR: rep.PR}
@@ -129,8 +129,8 @@ func (s socket) Lease(ctx context.Context, id string, p runner.Placement, ttl ti
 	return s.w.broker.Lease(ctx, id, p, ttl)
 }
 
-func (s socket) Heartbeat(ctx context.Context, id, run string, fence int64, ttl time.Duration, evs []runner.Event) (runner.Beat, error) {
-	return s.w.broker.Heartbeat(ctx, id, run, fence, ttl, evs)
+func (s socket) Heartbeat(ctx context.Context, id, run string, fence int64, ttl time.Duration, evs []runner.Event, acked string) (runner.Beat, error) {
+	return s.w.broker.Heartbeat(ctx, id, run, fence, ttl, evs, acked)
 }
 
 func (s socket) Finish(ctx context.Context, id, run string, fence int64, res runner.Result) error {

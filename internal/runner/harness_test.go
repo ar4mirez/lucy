@@ -2,6 +2,7 @@ package runner_test
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -21,7 +22,8 @@ import (
 // as the Tower's record; the owner's answer reaches the session only through the Tower, the
 // broker and the runner's heartbeat; and the log keeps the answer's digest, never its text. While
 // the question waits the harness writes to its standard error and sends a message the adapter does
-// not know, each repeating the question, and the owner is still asked once.
+// not know, each repeating the question, and the reply that first carries the answer is lost; the
+// owner is still asked once, and the session takes the answer once.
 func TestPilotReachesTheOwnerOnlyThroughTheTower(t *testing.T) {
 	w := newWorld(t, 0)
 	exe, err := os.Executable()
@@ -44,7 +46,8 @@ func TestPilotReachesTheOwnerOnlyThroughTheTower(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := t.TempDir()
-	r, err := runner.New(runner.Config{ID: "local", Protocol: socket{w}, Now: w.sim.Clock.Now, TTL: 3 * time.Minute,
+	p := &loseOneAnswer{socket: socket{w}}
+	r, err := runner.New(runner.Config{ID: "local", Protocol: p, Now: w.sim.Clock.Now, TTL: 3 * time.Minute,
 		Executor: &runner.ProcessExecutor{Root: filepath.Join(t.TempDir(), "runner"), Home: home, Command: []string{exe},
 			Harness: claudecode.Adapter{}, StopGrace: time.Second},
 		Log: slog.New(slog.DiscardHandler)})
@@ -74,7 +77,7 @@ func TestPilotReachesTheOwnerOnlyThroughTheTower(t *testing.T) {
 			}
 			answered = true
 		}
-		if err := r.Step(ctx); err != nil {
+		if err := r.Step(ctx); err != nil && !errors.Is(err, errReplyLost) {
 			t.Fatal(err)
 		}
 		if err := w.tower.Step(ctx); err != nil {
@@ -87,8 +90,11 @@ func TestPilotReachesTheOwnerOnlyThroughTheTower(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if st := w.flight("f1"); !answered || st.PR != 7 {
-		t.Fatalf("answered %v, flight %+v", answered, st)
+	if st := w.flight("f1"); !answered || st.PR != 7 || !p.lost {
+		t.Fatalf("answered %v, reply lost %v, flight %+v", answered, p.lost, st)
+	}
+	if ri := w.runs()[0]; ri.Asking {
+		t.Fatalf("the run ended asking: %+v", ri)
 	}
 	evs, err := w.store.ReadAfter(ctx, 0, 10000)
 	if err != nil {
@@ -113,4 +119,22 @@ func TestPilotReachesTheOwnerOnlyThroughTheTower(t *testing.T) {
 			t.Errorf("no %s event in %v", want, types)
 		}
 	}
+}
+
+var errReplyLost = errors.New("reply lost")
+
+// loseOneAnswer loses the first heartbeat reply that carries an answer, after the broker recorded
+// the heartbeat.
+type loseOneAnswer struct {
+	socket
+	lost bool
+}
+
+func (p *loseOneAnswer) Heartbeat(ctx context.Context, id, run string, fence int64, ttl time.Duration, evs []runner.Event, acked string) (runner.Beat, error) {
+	b, err := p.socket.Heartbeat(ctx, id, run, fence, ttl, evs, acked)
+	if err == nil && b.Answer != "" && !p.lost {
+		p.lost = true
+		return runner.Beat{}, errReplyLost
+	}
+	return b, err
 }

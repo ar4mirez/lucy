@@ -35,8 +35,10 @@ Changes since the last release. When a version is cut, its section moves to
   starts with no MCP servers, no user-level settings or hooks and no saved transcript. A Pilot's
   question is streamed as `asking` and answered only with the owner's answer, which the Tower
   relays through the runner's heartbeat and the log keeps only as a digest; every other permission
-  prompt is refused. The `runner.heartbeat` result gains `answer` and `asking`, and its events an
-  optional `question` id, so a question the owner answered never re-opens (OpenRPC revision 3).
+  prompt is refused. The `runner.heartbeat` result gains `answer`, its `question` id and `asking`;
+  its params gain `acked`, the id of an answer the work took, and an asking event must carry its
+  `question` id. An answer comes again until acknowledged, and a question the owner answered
+  never re-opens (OpenRPC revision 3).
 - The harness contract: recorded protocol transcripts of the pinned Claude Code version, replayed
   in CI without a harness, a model or a login, and a nightly check of the newest release that
   reports it ready or held and never fails.

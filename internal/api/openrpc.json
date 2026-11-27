@@ -1109,7 +1109,7 @@
                   "type": "string"
                 },
                 "question": {
-                  "description": "For asking: the question's id, the same on every repeat of the question. An asking event for an answered question is recorded as activity; a question without an id is given its event's own.",
+                  "description": "The question's id: required on an asking event and the same on every repeat of the question, refused on any other. An asking event for an answered question is recorded as activity.",
                   "maxLength": 200,
                   "type": "string"
                 },
@@ -1133,6 +1133,15 @@
             "maxItems": 32,
             "type": "array"
           }
+        },
+        {
+          "name": "acked",
+          "description": "The id of the question whose answer, from an earlier heartbeat's result, the runner gave its work. Until it is acknowledged the answer comes again in every result.",
+          "required": false,
+          "schema": {
+            "maxLength": 200,
+            "type": "string"
+          }
         }
       ],
       "result": {
@@ -1145,7 +1154,7 @@
               "type": "integer"
             },
             "answer": {
-              "description": "The owner's answer to the run's question, relayed by the Tower; given once. Give it to the work.",
+              "description": "The owner's answer to the run's question, relayed by the Tower. Give it to the work once, then acknowledge it; it comes again in every result until acknowledged.",
               "type": "string"
             },
             "asking": {
@@ -1155,6 +1164,10 @@
             "expires_at": {
               "description": "The lease's new expiry, UTC.",
               "format": "date-time",
+              "type": "string"
+            },
+            "question": {
+              "description": "With answer: the id of the question it answers, to send back as acked.",
               "type": "string"
             },
             "stop": {
