@@ -80,7 +80,7 @@ func readRootOrg(marker string) (string, error) {
 	if !fi.Mode().IsRegular() || !ownedByMe(fi) {
 		return "", bad(fmt.Sprintf("must be a plain file owned by uid %d, not a symlink (it is %v)", os.Geteuid(), fi.Mode()))
 	}
-	f, err := os.OpenFile(marker, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	f, err := os.OpenFile(marker, os.O_RDONLY|syscall.O_NOFOLLOW, 0) // #nosec G304 -- the constant marker name in the runner's own root, checked above to be a plain file of this user's
 	if err != nil {
 		return "", err
 	}
