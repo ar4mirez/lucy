@@ -112,7 +112,7 @@ Operations: [daemon runbook](docs/runbooks/daemon.md).
   `status.get`, `events.list` (pages the event log), `rpc.discover`, `daemon.shutdown`,
   `policy.evaluate` and `policy.decisions` (section 5), `resources.list` and `audit.verify`
   (section 10), and the runner protocol's `runner.queued`, `runner.lease`, `runner.heartbeat`,
-  `runner.finish` and `runs.list` (section 6).
+  `runner.finish`, `runner.permit` and `runs.list` (section 6).
 - **Transport and identity.** `lucy daemon` listens on `$XDG_RUNTIME_DIR/lucy/lucy.sock` (0600 in a
   0700 dir, one daemon per dir by `flock`). Each connection's peer credentials (SO_PEERCRED on
   Linux, LOCAL_PEERCRED on macOS) must name the daemon's own uid, or it is closed unread; the
