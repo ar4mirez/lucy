@@ -1,4 +1,5 @@
 {"version":"2.1.332"}
+{"in":{"type":"control_request","request_id":"lucy_init","request":{"subtype":"initialize"}}}
 {"in":{"type":"user","message":{"role":"user"},"parent_tool_use_id":null}}
 {"out":{"type":"system","subtype":"init","cwd":"/work/run-1","session_id":"5f0c7d1e-0000-4000-8000-000000000001","tools":["Bash","Edit","Read","AskUserQuestion"],"mcp_servers":[],"model":"claude-opus-5-5","permissionMode":"manual","slash_commands":[],"apiKeySource":"none","claude_code_version":"2.1.332","output_style":"default","agents":[],"skills":[],"plugins":[],"uuid":"8a1d0000-0000-4000-8000-000000000001"}}
 {"out":{"type":"assistant","message":{"id":"msg_01","type":"message","role":"assistant","model":"claude-opus-5-5","content":[{"type":"tool_use","id":"toolu_01","name":"Edit","input":{"file_path":"/work/run-1/main.go","old_string":"x := 1","new_string":"x := 2"}}],"stop_reason":"tool_use"},"parent_tool_use_id":null,"session_id":"5f0c7d1e-0000-4000-8000-000000000001","uuid":"8a1d0000-0000-4000-8000-000000000002"}}

@@ -52,7 +52,7 @@ func fakePermit(tool string, access harness.Access, path string) (bool, string) 
 }
 
 // required are the transcripts every pinned version must have: the contract.
-var required = []string{"ask", "done", "drift", "error", "permitted", "project", "refused"}
+var required = []string{"ask", "done", "drift", "error", "hooks", "permitted", "project", "refused"}
 
 // TestContract replays every recorded transcript of the pinned version through the adapter: what
 // the adapter writes must match each recorded input, and what it reports must match the golden
@@ -200,11 +200,11 @@ func TestArgs(t *testing.T) {
 		Permissions struct {
 			Allow []string `json:"allow"`
 		} `json:"permissions"`
-		DisableAllHooks bool `json:"disableAllHooks"`
+		Hooks map[string]any `json:"hooks"`
 	}
 	if v, _ := value("--settings"); json.Unmarshal([]byte(v), &settings) != nil || len(settings.Permissions.Allow) != 0 ||
-		!settings.DisableAllHooks {
-		t.Errorf("--settings %q must pre-allow nothing and disable every hook", v)
+		settings.Hooks != nil {
+		t.Errorf("--settings %q must pre-allow nothing and define no hooks of its own", v)
 	}
 	if !slices.Contains(argv, "--disable-slash-commands") {
 		t.Error("skills and slash commands are enabled; a skill's allowed tools would skip the prompt")
@@ -467,5 +467,36 @@ func TestInstructionsFitOneArgument(t *testing.T) {
 	prompt := argv[slices.Index(argv, "--append-system-prompt")+1]
 	if !strings.Contains(prompt, strings.Repeat("x", harness.MaxInstructionTotal)) || len(prompt) >= 128<<10 {
 		t.Errorf("--append-system-prompt is %d bytes at the instructions cap, want under %d", len(prompt), 128<<10)
+	}
+}
+
+// TestInitializeRegistersHooks: the session's first message registers lucy, the host, for a
+// callback on every lifecycle hook, each under its own id.
+func TestInitializeRegistersHooks(t *testing.T) {
+	in := &capture{}
+	if _, err := (Adapter{}).Open(in, harness.Session{Goal: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	var first struct {
+		Type    string `json:"type"`
+		Request struct {
+			Subtype string `json:"subtype"`
+			Hooks   map[string][]struct {
+				Matcher *string  `json:"matcher"`
+				IDs     []string `json:"hookCallbackIds"`
+			} `json:"hooks"`
+		} `json:"request"`
+	}
+	if err := json.Unmarshal(in.lines()[0], &first); err != nil || first.Type != "control_request" || first.Request.Subtype != "initialize" {
+		t.Fatalf("first message %s: %v", in.lines()[0], err)
+	}
+	if len(first.Request.Hooks) != len(harness.Hooks) {
+		t.Errorf("registered %d hooks, want %d", len(first.Request.Hooks), len(harness.Hooks))
+	}
+	for _, h := range harness.Hooks {
+		m := first.Request.Hooks[h]
+		if len(m) != 1 || m[0].Matcher != nil || len(m[0].IDs) != 1 || m[0].IDs[0] != "lucy_hook_"+h {
+			t.Errorf("%s registered as %+v", h, m)
+		}
 	}
 }

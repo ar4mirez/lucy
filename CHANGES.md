@@ -16,6 +16,13 @@ Changes since the last release. When a version is cut, its section moves to
 
 ### Added
 
+- Harness hooks are typed events: a Claude Code session registers lucy, its host, for a callback
+  on every lifecycle hook (SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Notification,
+  Stop, SubagentStop, PreCompact, SessionEnd) over stream-json, and each callback is recorded as a
+  `hook` run event naming it. lucy never acts on a hook, and since no settings file loads, these
+  callbacks are the session's only hooks. The hook events are tested against protocol transcripts
+  only, and are unverified against a real Claude Code 2.1.332 session until real captures land
+  (D3c). The `runner.heartbeat` events gain the `hook` kind and its `hook` name (OpenRPC revision 6).
 - `runner.permit`: a Pilot's prompted file tool (read, edit or write) on a path inside its run's
   directory is decided by the daemon's policy engine, with the Pilot as a ship worker of the run's
   org, and the decision is recorded before the tool runs; a path outside the directory, also
@@ -36,9 +43,9 @@ Changes since the last release. When a version is cut, its section moves to
 ### Changed
 
 - A Claude Code session loads no user, project or local settings, only lucy's own: nothing is
-  pre-allowed, and hooks, skills and slash commands are off. A repository's committed `.claude`
-  settings, hooks or MCP config can no longer widen what a Pilot may do, and every tool prompt
-  still reaches lucy. A contract test runs a session in a fixture repository whose settings
+  pre-allowed, no settings file can add a hook, and skills and slash commands are off. A
+  repository's committed `.claude` settings, hooks or MCP config can no longer widen what a Pilot
+  may do, and every tool prompt still reaches lucy. A contract test runs a session in a fixture repository whose settings
   pre-allow Bash, add a hook and enable its `.mcp.json` server, and checks that none takes effect.
   So a Pilot still follows a repository's agent instructions, lucy reads the run directory's
   `CLAUDE.md` (or `AGENTS.md` when there is none) and the files it imports with `@path`, and

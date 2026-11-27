@@ -86,10 +86,13 @@ const (
 	KindOutput   EventKind = "output"   // a line of the work's output
 	KindActivity EventKind = "activity" // the work did something: a tool call, a step
 	KindAsking   EventKind = "asking"   // the work asks a question and waits on an answer
+	KindHook     EventKind = "hook"     // a harness lifecycle hook fired; Event.Hook names it
 )
 
 // Valid reports whether k is a known kind.
-func (k EventKind) Valid() bool { return k == KindOutput || k == KindActivity || k == KindAsking }
+func (k EventKind) Valid() bool {
+	return k == KindOutput || k == KindActivity || k == KindAsking || k == KindHook
+}
 
 // Limits of the protocol.
 const (
@@ -148,6 +151,9 @@ type Event struct {
 	// Question is the question's id: required when asking, the same on every repeat of a
 	// question, and empty on any other event.
 	Question string `json:"question,omitempty"`
+	// Hook is the hook event's name, one of harness.Hooks: required on a hook event and refused
+	// on any other.
+	Hook string `json:"hook,omitempty"`
 }
 
 // Result is how a run ended, as its runner reports it.

@@ -305,9 +305,10 @@ type HeartbeatParams struct {
 // RunEvent is one event a runner streams.
 type RunEvent struct {
 	Seq      int64  `json:"seq" lucy:"min=1" doc:"The event's number in its run, from 1."`
-	Kind     string `json:"kind" lucy:"required,maxlen=16" doc:"output, activity or asking."`
+	Kind     string `json:"kind" lucy:"required,maxlen=16" doc:"output, activity, asking or hook."`
 	Text     string `json:"text,omitempty" lucy:"maxlen=1024" doc:"The event's text: a line of output, a summary, or the question. Untrusted."`
 	Question string `json:"question,omitempty" lucy:"maxlen=200" doc:"The question's id: required on an asking event and the same on every repeat of the question, refused on any other. An asking event for an answered question is recorded as activity."`
+	Hook     string `json:"hook,omitempty" lucy:"maxlen=32" doc:"The harness lifecycle hook that fired: required on a hook event, refused on any other. SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Notification, Stop, SubagentStop, PreCompact or SessionEnd."`
 }
 
 // HeartbeatResult answers runner.heartbeat.

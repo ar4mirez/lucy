@@ -2,7 +2,7 @@
 id: agentic
 title: "lucy: agent model and documentation rules"
 status: active
-version: 2
+version: 3
 owner: ar4mirez
 requirements: [LUCY-POL-001, LUCY-POL-002, LUCY-POL-004, LUCY-POL-005, LUCY-VIEW-004, LUCY-REPO-002, LUCY-REPO-003, LUCY-REPO-004, LUCY-REPO-005]
 ---
@@ -73,7 +73,9 @@ by lucy and granted only by the owner.
   `lucy_report`, `lucy_preflight`, `lucy_peek`. Each is a thin mapping onto the one API.
 - **CLI**: AXI conventions: compact structured output, definitive empty states, structured errors with
   a next step, stable exit codes.
-- **Hooks** (`lucy hook <event>`): harness events become typed events in lucy's log.
+- **Hooks**: harness events become typed events in lucy's log; Claude Code hooks arrive as stream-json
+  host callbacks ([harness](docs/tech/harness.md)), and `lucy hook <event>` is the entrypoint for
+  harnesses with only command hooks, not built yet.
 
 ## 6. Safety rules carried over
 

@@ -310,7 +310,7 @@ func (pe *processExecution) keepAsking() {
 
 // harnessEvent is one of the harness's events as kind, capped.
 func harnessEvent(kind EventKind, e harness.Event) Event {
-	return Event{Kind: kind, Text: capText(e.Text), Question: e.Question}
+	return Event{Kind: kind, Text: capText(e.Text), Question: e.Question, Hook: e.Hook}
 }
 
 // Answer implements Answerer: it gives the harness the owner's answer to its question.

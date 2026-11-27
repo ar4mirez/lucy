@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.5.0"
+    "version": "1.6.0"
   },
   "servers": [
     {
@@ -1102,8 +1102,13 @@
             "items": {
               "additionalProperties": false,
               "properties": {
+                "hook": {
+                  "description": "The harness lifecycle hook that fired: required on a hook event, refused on any other. SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Notification, Stop, SubagentStop, PreCompact or SessionEnd.",
+                  "maxLength": 32,
+                  "type": "string"
+                },
                 "kind": {
-                  "description": "output, activity or asking.",
+                  "description": "output, activity, asking or hook.",
                   "maxLength": 16,
                   "minLength": 1,
                   "type": "string"

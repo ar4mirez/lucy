@@ -2,7 +2,7 @@
 id: extensions
 title: "lucy: configuration and extension specification"
 status: active
-version: 3
+version: 4
 owner: ar4mirez
 requirements: [LUCY-SPEC-001, LUCY-SPEC-002, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-006, LUCY-SPEC-016, LUCY-SBX-002, LUCY-VAL-010, LUCY-BRD-001]
 ---
@@ -130,7 +130,9 @@ or an external process behind a versioned contract test.
   version, source and content hash.
 - **Quality gates:** a project declares its build, test, lint, SAST and dependency-scan commands; lucy
   runs them as deterministic gates.
-- **Hooks:** harness hooks call `lucy hook <event>`; lucy owns their installation.
+- **Hooks:** Claude Code hooks arrive as stream-json host callbacks
+  ([harness](docs/tech/harness.md)); harnesses with only command hooks will call `lucy hook <event>`
+  (not built yet), and lucy owns their installation.
 
 ## 6. Rules for extensions
 

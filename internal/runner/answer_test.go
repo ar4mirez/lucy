@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ar4mirez/lucy/internal/eventstore"
 )
 
 // answering is a scripted Execution that takes answers.
@@ -329,5 +331,43 @@ func TestRunnerAcknowledgesAnAnswerOnce(t *testing.T) {
 	}
 	if err := f.b.Answer(ctx, "f1#1", "again"); !errors.Is(err, ErrNotAsking) {
 		t.Fatalf("the owner could answer again: %v", err)
+	}
+}
+
+// TestHookEvents: a hook event is recorded with its name; a hook without a known name, or a name
+// on another kind, is refused.
+func TestHookEvents(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	f.submit("f1#1")
+	l := f.lease("r1", 0)
+	if _, err := f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, []Event{{Seq: 1, Kind: KindHook, Text: "PreToolUse Bash", Hook: "PreToolUse"}}, ""); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := f.store.ReadStream(ctx, Stream("acme", "f1#1"), 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []Streamed
+	for _, e := range evs {
+		if e.Type == (Streamed{}).EventType() {
+			s, err := eventstore.DecodeAs[Streamed](f.store.Registry(), e)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got = append(got, s)
+		}
+	}
+	if len(got) != 1 || got[0].Kind != KindHook || got[0].Hook != "PreToolUse" {
+		t.Fatalf("streamed %+v", got)
+	}
+	for _, bad := range []Event{
+		{Seq: 2, Kind: KindHook, Text: "x"},
+		{Seq: 2, Kind: KindHook, Hook: "BeforeEverything"},
+		{Seq: 2, Kind: KindActivity, Hook: "Stop"},
+	} {
+		if _, err := f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, []Event{bad}, ""); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%+v: %v", bad, err)
+		}
 	}
 }

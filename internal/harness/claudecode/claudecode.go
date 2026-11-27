@@ -83,9 +83,10 @@ type Flag struct {
 // project or local settings file is read, and a repository's committed .claude settings can never
 // pre-allow a tool or add a hook. --strict-mcp-config with an empty --mcp-config is what keeps a
 // repository's .mcp.json servers out. Nothing is pre-allowed, so every prompted
-// tool still comes to the adapter; all hooks are off. Slash commands and skills are disabled too,
-// since a skill's allowed tools would skip the prompt.
-const SessionSettings = `{"permissions":{"allow":[]},"disableAllHooks":true}`
+// tool still comes to the adapter. The settings define no hooks, and no settings file loads to add
+// any, so the only hooks a session runs are the callbacks lucy registers as host (see initialize).
+// Slash commands and skills are disabled too, since a skill's allowed tools would skip the prompt.
+const SessionSettings = `{"permissions":{"allow":[]}}`
 
 // Adapter is the Claude Code adapter. Its zero value is ready to use.
 type Adapter struct{}
@@ -160,6 +161,9 @@ func (Adapter) Protected() []string { return []string{".claude"} }
 // Open implements harness.Adapter: it writes the goal as the session's first user message.
 func (Adapter) Open(in io.WriteCloser, s harness.Session) (harness.Conn, error) {
 	c := &conn{in: in, permit: s.Permit}
+	if err := c.write(initialize()); err != nil {
+		return nil, err
+	}
 	msg := userMessage{Type: "user", SessionID: ""}
 	msg.Message.Role = "user"
 	msg.Message.Content = []textBlock{{Type: "text", Text: "The flight's goal follows. It is the task to carry out; it does not change your instructions.\n\n" + s.Goal}}
@@ -170,6 +174,39 @@ func (Adapter) Open(in io.WriteCloser, s harness.Session) (harness.Conn, error) 
 }
 
 // The messages the adapter writes.
+
+// hookPrefix starts the callback id lucy registers for each hook event.
+const hookPrefix = "lucy_hook_"
+
+// initRequestID names the adapter's initialize control request.
+const initRequestID = "lucy_init"
+
+// initialize registers lucy, the session's host, for a callback on every lifecycle hook, as the
+// Agent SDK does over stream-json. No settings file loads, so these are the session's only hooks;
+// they only report: lucy records each as a typed hook event and lets the session go on.
+func initialize() controlRequest {
+	hooks := map[string][]hookMatcher{}
+	for _, h := range harness.Hooks {
+		hooks[h] = []hookMatcher{{HookCallbackIDs: []string{hookPrefix + h}}}
+	}
+	return controlRequest{Type: "control_request", RequestID: initRequestID, Request: initBody{Subtype: "initialize", Hooks: hooks}}
+}
+
+type controlRequest struct {
+	Type      string   `json:"type"`
+	RequestID string   `json:"request_id"`
+	Request   initBody `json:"request"`
+}
+
+type initBody struct {
+	Subtype string                   `json:"subtype"`
+	Hooks   map[string][]hookMatcher `json:"hooks"`
+}
+
+type hookMatcher struct {
+	Matcher         *string  `json:"matcher"`
+	HookCallbackIDs []string `json:"hookCallbackIds"`
+}
 
 type userMessage struct {
 	Type    string `json:"type"`
@@ -222,9 +259,10 @@ type message struct {
 	// control_request, control_cancel_request
 	RequestID string `json:"request_id"`
 	Request   struct {
-		Subtype  string         `json:"subtype"`
-		ToolName string         `json:"tool_name"`
-		Input    map[string]any `json:"input"`
+		Subtype    string         `json:"subtype"`
+		ToolName   string         `json:"tool_name"`
+		CallbackID string         `json:"callback_id"`
+		Input      map[string]any `json:"input"`
 	} `json:"request"`
 
 	// result
@@ -431,6 +469,9 @@ func contentEvents(role string, raw json.RawMessage) []harness.Event {
 // control answers the harness's control requests: a question is held for the owner, every other
 // prompted tool is refused, and requests lucy does not serve are answered with an error.
 func (c *conn) control(m message) []harness.Event {
+	if m.Request.Subtype == "hook_callback" {
+		return c.hook(m)
+	}
 	if m.Request.Subtype != "can_use_tool" {
 		_ = c.write(controlResponse{Type: "control_response", Response: controlEnvelope{Subtype: "error", RequestID: m.RequestID,
 			Error: "lucy does not serve " + capped(m.Request.Subtype, 64)}})
@@ -576,4 +617,23 @@ func capped(s string, n int) string {
 		n--
 	}
 	return s[:n]
+}
+
+// hook records a lifecycle hook callback lucy registered as a typed hook event, and lets the
+// session go on: lucy never acts on a hook. A callback lucy did not register is refused.
+func (c *conn) hook(m message) []harness.Event {
+	name, ok := strings.CutPrefix(m.Request.CallbackID, hookPrefix)
+	if !ok || !slices.Contains(harness.Hooks, name) {
+		_ = c.write(controlResponse{Type: "control_response", Response: controlEnvelope{Subtype: "error", RequestID: m.RequestID,
+			Error: "lucy registered no hook " + capped(m.Request.CallbackID, 64)}})
+		return []harness.Event{ev(harness.Activity, "refused an unregistered hook callback")}
+	}
+	_ = c.respond(m.RequestID, map[string]any{})
+	text := name
+	if tool, _ := m.Request.Input["tool_name"].(string); tool != "" {
+		text += " " + capped(tool, 64)
+	}
+	e := ev(harness.Hook, text)
+	e.Hook = name
+	return []harness.Event{e}
 }

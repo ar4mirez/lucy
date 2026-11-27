@@ -2,7 +2,7 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 16
+version: 17
 owner: ar4mirez
 requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-001, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-009, LUCY-SIM-001, LUCY-SIM-002, LUCY-RUN-001, LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-013, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007, LUCY-SEC-002]
 ---
@@ -25,7 +25,7 @@ One Go binary ([D1](docs/decisions/D1-language-go.md)); every box is a mode of i
 | `lucy runner` | Owns agent processes on one machine or inside one org container; speaks the runner protocol |
 | `lucy gateway` | Per-org egress credential gateway, a separate process outside the agents' container |
 | `lucy mcp` | MCP server for Claude chat; `--remote` forwards to a daemon over the tailnet |
-| `lucy hook <event>` | Harness hook entrypoint; posts typed events |
+| `lucy hook <event>` | Hook entrypoint for harnesses with only command hooks; not built yet (Claude Code hooks arrive as stream-json host callbacks: [harness](docs/tech/harness.md)) |
 | CLI, TUI, `lucy attach` | Thin clients of the API |
 
 ```
@@ -162,16 +162,9 @@ before returning it. The request model, facts, rule order, decision record and p
   an org container (`--placement container`) once berth mounts the socket and per-runner
   credentials exist (m1 slices 3, 4); a cloud runner later speaks the same protocol.
 - **Harness adapters** (LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-013), in `internal/harness`: an
-  `Adapter` gives a session's arguments, refuses any but its pinned version (the upgrade is held)
-  and decodes structured output into tagged events. `claudecode` runs `claude --print` over
-  stream-json, with an empty MCP set, only lucy's settings (plus the run dir's CLAUDE.md or
-  AGENTS.md as framed repo text; empty until slice 6), no saved session and every prompt sent to
-  it: file tools in the run's dir, Bash (`exec`) and WebFetch/WebSearch (`fetch`) go to
-  `runner.permit` (decided as the lease org's worker; nothing allows exec/fetch yet);
-  AskUserQuestion streams as `asking`, its id on every repeat; the rest are refused. The broker
-  records `run.answered` (id, digest) and resends the text each heartbeat until the runner acks
-  the id; asking for an answered id is activity, and an answer lost to a restart was never acked,
-  so the runner asks again. `testdata/<version>` transcripts are the CI contract.
+  `Adapter` drives one harness over its structured protocol, pinned to one version; `claudecode`
+  runs Claude Code over stream-json. Session limits, tool prompts, questions, hooks and the
+  contract: [docs/tech/harness.md](docs/tech/harness.md).
 - **Sessions:** structured protocols first (Claude Code's stream-json, built; Codex app-server; ACP
   later). Leases with generation and heartbeat; reattach before spawn; fence, then replace.
 - **Worktree pool:** `git worktree` slots per org and repo, leased in SQLite, reset on acquire,
