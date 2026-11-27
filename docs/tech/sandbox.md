@@ -84,8 +84,8 @@ first provider, is `internal/sandbox/berth` ([D3a](../decisions/D3a-berth-sandbo
   nothing, so a failed idle stop is tried again on the next check under the same rules. When
   lucy's latest successful one is a `down`, or there is none, a running container was started by
   someone else and may hold work lucy does not know of: it is left alone and reported as
-  `not_started_by_lucy`. A stopped container and a busy one
-  are left alone too, and nothing is recorded for any of these. Seeing a restart of a container
+  `not_started_by_lucy`. A stopped container and a busy one are left alone too, and nothing is
+  recorded for any of these. Seeing a restart of a container
   lucy started, made outside lucy, needs berth to report when the container started (a berth
   follow-up). `StopIdleOrgs` checks only the orgs it is given, those whose Sandbox binding lucy
   holds, never another.

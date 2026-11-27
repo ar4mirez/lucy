@@ -41,6 +41,5 @@ Changes since the last release. When a version is cut, its section moves to
   session that starts in the meantime holds the stop for the owner. Only orgs lucy holds a Sandbox
   binding for are checked, and only a container lucy started itself (lucy's latest successful `up`
   or `down` of it is an `up`) is stopped; one someone else started is left alone, and a failed
-  stop is tried again on the next check. Noticing a
-  restart made outside lucy needs berth to report the container's start time (a berth
-  follow-up). The daemon does not run it yet.
+  stop is tried again on the next check. Noticing a restart made outside lucy needs berth to
+  report the container's start time (a berth follow-up). The daemon does not run it yet.

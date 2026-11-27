@@ -39,9 +39,9 @@ type IdleResult struct {
 // never stopped without the owner's confirmation. Only a container lucy started is stopped: of
 // the operations lucy ran on it that succeeded, the latest `up` or `down` must be an `up`, and the
 // idle time counts from the later of that `up` and the org's last work. A failed operation does
-// not change that, so a failed stop is tried again on the next check. A stopped or busy container, or a running one
-// lucy did not start (it may hold work lucy does not know of), is left alone, and nothing is
-// recorded for it. A restart of a container lucy started, made outside lucy, is not seen: that
+// not change that, so a failed stop is tried again on the next check. A stopped or busy
+// container, or a running one lucy did not start (it may hold work lucy does not know of), is
+// left alone, and nothing is recorded for it. A restart of a container lucy started, made outside lucy, is not seen: that
 // needs the provider to report when the container started.
 func (s *Sandbox) StopIdle(ctx context.Context, org string, act Activity, now time.Time, after time.Duration) (IdleResult, error) {
 	res := IdleResult{Org: org}
