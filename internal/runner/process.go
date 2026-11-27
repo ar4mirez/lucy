@@ -70,7 +70,10 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 	if err != nil {
 		return nil, err
 	}
-	dir, err := os.MkdirTemp(p.Root, "run-")
+	// Make the scratch directory under the guard's symlink-resolved root (on macOS /var is a
+	// symlink to /private/var), so the path the program sees as its cwd and TMPDIR and the path
+	// the guard checks before the delete are the same spelling.
+	dir, err := os.MkdirTemp(guard.Roots()[0].Path, "run-")
 	if err != nil {
 		return nil, err
 	}

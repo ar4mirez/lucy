@@ -210,7 +210,7 @@ func TestRemoveScratchStaysInsideRoot(t *testing.T) {
 			t.Errorf("%s was deleted: %v", p, err)
 		}
 	}
-	inside := filepath.Join(pf.root, "run-1")
+	inside := filepath.Join(guard.Roots()[0].Path, "run-1") // the resolved root, as Start uses
 	if err := os.MkdirAll(filepath.Join(inside, "deep"), 0o700); err != nil {
 		t.Fatal(err)
 	}
