@@ -27,11 +27,13 @@ resources in $XDG_CONFIG_HOME/lucy/resources (or --resources) the way ` + "`lucy
 does and records their status in the event store; refused resources are recorded, not
 admitted. Stop it with Ctrl-C, SIGTERM or ` + "`lucy daemon stop`" + `.
 
-The daemon hosts the Tower but dispatches no Flight unless started with --dispatch; each Ready
-Flight's status then says DispatchDisabled. Even with --dispatch, a Flight whose Runway names a
-repository is dispatched only when its remote is a local fixture under lucy's data directory or
-the system temp directory: a real repository is refused (TakeoverGate) until runs have an OS
-boundary of their own (issue #36) and the owner's go/no-go.
+The daemon hosts the Tower and steps the flights in its log, but dispatches a Ready Flight only
+when started with --dispatch. Without it, a Ready Flight that nothing flies shows Dispatched
+False / DispatchDisabled, and a flight the Tower is already flying from its log shows InFlight.
+Even with --dispatch, a Flight whose Runway names a repository is dispatched only when its remote
+is a local fixture under lucy's data directory or the system temp directory: a real repository
+is refused at the takeover gate (TakeoverGate) until runs have an OS boundary of their own
+(issue #36) and the owner's go/no-go.
 `
 
 // signalContext is swapped in tests.

@@ -20,7 +20,8 @@ Lists the Pilots' open questions, as the Tower records them: each flight that is
 its airspace and runway, when it started asking and its question, oldest first. A Pilot has no
 other way to reach you. Answer one with ` + "`lucy answer`" + `.
 
-The daemon hosts the Tower, which flies the Ready Flights in the config directory.
+The questions come from the flights the daemon's hosted Tower flies; it dispatches Ready Flights
+only when the daemon was started with --dispatch.
 `
 
 const answerUsage = `Usage:
