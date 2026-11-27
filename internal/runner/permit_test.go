@@ -86,7 +86,7 @@ func TestPermitForStaysInsideTheRun(t *testing.T) {
 	}
 	l := Lease{Task: Task{Run: "f1#1"}, Runner: "r1", Fence: 3}
 	pm := &fakePermitter{perm: Permission{Outcome: policy.Cleared}}
-	permit := permitFor(dir, l, pm, slog.New(slog.DiscardHandler))
+	permit := permitFor(dir, nil, l, pm, slog.New(slog.DiscardHandler))
 	for _, p := range []string{"/etc/hosts", filepath.Join(dir, "..", "x"), filepath.Join(dir, "escape", "x"), "escape/x", "~/.ssh/id_rsa", "$HOME/x"} {
 		if ok, why := permit("Write", harness.Write, p); ok || !strings.Contains(why, "outside") {
 			t.Errorf("%s: %v %q", p, ok, why)
@@ -128,7 +128,7 @@ func TestPermitForSearchGlobs(t *testing.T) {
 		t.Fatal(err)
 	}
 	pm := &fakePermitter{perm: Permission{Outcome: policy.Cleared}}
-	session := harness.Session{Permit: permitFor(dir, Lease{Task: Task{Run: "f1#1"}, Runner: "r1", Fence: 3}, pm, slog.New(slog.DiscardHandler))}
+	session := harness.Session{Permit: permitFor(dir, claudecode.Adapter{}.Protected(), Lease{Task: Task{Run: "f1#1"}, Runner: "r1", Fence: 3}, pm, slog.New(slog.DiscardHandler))}
 	for _, c := range []struct {
 		tool, input string
 		allowed     bool
@@ -163,3 +163,41 @@ func TestPermitForSearchGlobs(t *testing.T) {
 type recorder struct{ strings.Builder }
 
 func (*recorder) Close() error { return nil }
+
+// TestPermitForProtectsHarnessConfig: a write to the harness's own configuration inside the run, in
+// any spelling and at any depth, is refused without asking the engine; a read of it and a write to
+// a file merely named like it are asked about.
+func TestPermitForProtectsHarnessConfig(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pm := &fakePermitter{perm: Permission{Outcome: policy.Cleared}}
+	permit := permitFor(dir, claudecode.Adapter{}.Protected(), Lease{Task: Task{Run: "f1#1"}, Runner: "r1", Fence: 3}, pm, slog.New(slog.DiscardHandler))
+	for _, c := range []struct{ tool, path string }{
+		{"Write", ".claude/settings.json"},
+		{"Edit", ".CLAUDE/settings.local.json"},
+		{"Write", "sub/.Claude/hooks.json"},
+		{"NotebookEdit", filepath.Join(dir, ".claude", "agents", "a.md")},
+	} {
+		if ok, why := permit(c.tool, harness.Write, c.path); ok || !strings.Contains(why, "configuration") {
+			t.Errorf("%s %s: %v %q", c.tool, c.path, ok, why)
+		}
+	}
+	if len(pm.asked) != 0 {
+		t.Fatalf("the engine was asked about the harness's configuration: %+v", pm.asked)
+	}
+	if ok, why := permit("Write", harness.Write, "src/claude.go"); !ok {
+		t.Fatalf("src/claude.go refused: %q", why)
+	}
+	if ok, why := permit("Read", harness.Read, ".claude/settings.json"); !ok {
+		t.Fatalf("a read of the configuration refused: %q", why)
+	}
+	want := []PermitRequest{
+		{Tool: "Write", Kind: policy.KindWrite, Path: filepath.Join(dir, "src", "claude.go")},
+		{Tool: "Read", Kind: policy.KindRead, Path: filepath.Join(dir, ".claude", "settings.json")},
+	}
+	if !slices.Equal(pm.asked, want) {
+		t.Fatalf("asked %+v, want %+v", pm.asked, want)
+	}
+}

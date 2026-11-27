@@ -93,6 +93,9 @@ type Adapter interface {
 	Args(s Session) []string
 	// Env is what the adapter adds to the session's environment, as KEY=value.
 	Env() []string
+	// Protected are the path elements, compared case-insensitively, that name the harness's own
+	// configuration; a prompted write to a path inside the run holding one is refused.
+	Protected() []string
 	// Open starts the session's protocol on the program's input, writing the opening message.
 	Open(in io.WriteCloser, s Session) (Conn, error)
 }

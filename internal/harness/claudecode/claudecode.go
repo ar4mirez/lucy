@@ -130,6 +130,10 @@ func (Adapter) Env() []string {
 	return []string{"DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"}
 }
 
+// Protected implements harness.Adapter: the harness loads the run directory's .claude settings,
+// hooks, skills and agents, so a Pilot writing there could allow itself what lucy refuses.
+func (Adapter) Protected() []string { return []string{".claude"} }
+
 // Open implements harness.Adapter: it writes the goal as the session's first user message.
 func (Adapter) Open(in io.WriteCloser, s harness.Session) (harness.Conn, error) {
 	c := &conn{in: in, permit: s.Permit}

@@ -118,7 +118,11 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 	args := slices.Clip(p.Command[1:])
 	session := harness.Session{Goal: l.Goal}
 	if p.Permitter != nil {
-		session.Permit = permitFor(dir, l, p.Permitter, log)
+		var protected []string
+		if p.Harness != nil {
+			protected = p.Harness.Protected()
+		}
+		session.Permit = permitFor(dir, protected, l, p.Permitter, log)
 	}
 	if p.Harness != nil {
 		env = append(env, p.Harness.Env()...)
@@ -431,9 +435,10 @@ func (pe *processExecution) Stop() {
 }
 
 // permitFor returns the session's Permit: the path the tool names, or dir itself when it names
-// none, must resolve inside dir, the run's directory, and the policy engine must clear the tool
-// under the run's lease with that path. Anything that goes wrong refuses the tool.
-func permitFor(dir string, l Lease, pm Permitter, log *slog.Logger) harness.Permit {
+// none, must resolve inside dir, the run's directory, a write must not reach a protected element
+// inside it, and the policy engine must clear the tool under the run's lease with that path.
+// Anything that goes wrong refuses the tool.
+func permitFor(dir string, protected []string, l Lease, pm Permitter, log *slog.Logger) harness.Permit {
 	return func(tool string, access harness.Access, path string) (bool, string) {
 		if path == "" {
 			path = dir
@@ -441,6 +446,9 @@ func permitFor(dir string, l Lease, pm Permitter, log *slog.Logger) harness.Perm
 		path, ok := insideDir(dir, path)
 		if !ok {
 			return false, "the path is outside the run's directory"
+		}
+		if access == harness.Write && holdsAny(strings.TrimPrefix(path, dir), protected) {
+			return false, "the path is the harness's own configuration"
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
 		defer cancel()
@@ -454,6 +462,18 @@ func permitFor(dir string, l Lease, pm Permitter, log *slog.Logger) harness.Perm
 		}
 		return true, ""
 	}
+}
+
+// holdsAny reports whether an element of path equals one of names, ignoring case.
+func holdsAny(path string, names []string) bool {
+	for _, e := range strings.Split(path, string(filepath.Separator)) {
+		for _, n := range names {
+			if strings.EqualFold(e, n) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // insideDir resolves path, relative to dir when it is not absolute, through any symlinks in its
