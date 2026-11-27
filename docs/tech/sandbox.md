@@ -77,10 +77,16 @@ first provider, is `internal/sandbox/berth` ([D3a](../decisions/D3a-berth-sandbo
   container (`runner.Broker.OrgActivity`; a session on this machine does not count), and the
   latest moment one of its runs did something or ended is that long ago. The stop is the
   daemon's ordinary guarded `down`, so a session that started since the check holds it for the
-  owner, and the container is held while it stops. A stopped container, a busy one, and one of
-  an org lucy has never run work in (its container may hold work lucy does not know of) are left
-  alone, with nothing recorded. `StopIdleOrgs` checks only the orgs it is given, those whose
-  Sandbox binding lucy holds, never another.
+  owner, and the container is held while it stops. Only a container lucy started is stopped: the
+  latest operation lucy ran on it (on `sandbox/<org>`) must be a cleared `up` whose
+  `sandbox.acted` has no error, and the idle time counts from the later of that `up` and the
+  org's last work. When lucy's latest operation is a `down`, a `restart` or a failure, or there
+  is none, a running container was started by someone else and may hold work lucy does not know
+  of: it is left alone and reported as `not_started_by_lucy`. A stopped container and a busy one
+  are left alone too, and nothing is recorded for any of these. Seeing a restart of a container
+  lucy started, made outside lucy, needs berth to report when the container started (a berth
+  follow-up). `StopIdleOrgs` checks only the orgs it is given, those whose Sandbox binding lucy
+  holds, never another.
 
 ## Not built yet
 

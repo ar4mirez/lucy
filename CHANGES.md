@@ -39,5 +39,7 @@ Changes since the last release. When a version is cut, its section moves to
 - Idle org containers are stopped: an org's container that is running with no run queued or live
   in it, and no work for 30 minutes, is stopped by the daemon's ordinary guarded `down`, so a
   session that starts in the meantime holds the stop for the owner. Only orgs lucy holds a Sandbox
-  binding for are checked, and one lucy has never run work in is left alone. The daemon does not
-  run it yet.
+  binding for are checked, and only a container lucy started itself (its latest operation by lucy
+  is an `up` that succeeded) is stopped; one someone else started is left alone. Noticing a
+  restart made outside lucy needs berth to report the container's start time (a berth
+  follow-up). The daemon does not run it yet.

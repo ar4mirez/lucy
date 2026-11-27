@@ -17,6 +17,14 @@ import (
 
 const after = 30 * time.Minute
 
+// up starts org's container through lucy's guarded up, as lucy does before placing work in it.
+func (f *fixture) up(org string) {
+	f.t.Helper()
+	if r := f.request(org, sandbox.OpUp); !r.Acted {
+		f.t.Fatalf("up %s: %+v", org, r)
+	}
+}
+
 // ended runs one run of org to its end in a container and returns when it ended (about now).
 func (f *fixture) ended(org, flight string) {
 	f.t.Helper()
@@ -37,11 +45,12 @@ func (f *fixture) stopIdle(org string, now time.Time) sandbox.IdleResult {
 
 func TestAnIdleContainerIsStopped(t *testing.T) {
 	f := open(t)
+	f.up("acme")
 	f.ended("acme", "f1")
-	if r := f.stopIdle("acme", time.Now().Add(after/3)); r.Idle || r.Stop != nil || !r.Running || r.Last.IsZero() {
+	if r := f.stopIdle("acme", time.Now().Add(after/3)); r.Idle || r.Stop != nil || !r.Running || r.Last.IsZero() || r.NotStartedByLucy {
 		t.Fatalf("before the idle time: %+v", r)
 	}
-	if f.changes() != 0 {
+	if f.changes() != 1 {
 		t.Fatal("a container with recent work was stopped")
 	}
 	r := f.stopIdle("acme", time.Now().Add(after+time.Minute))
@@ -49,7 +58,7 @@ func TestAnIdleContainerIsStopped(t *testing.T) {
 		t.Fatalf("after the idle time: %+v", r)
 	}
 	ch := f.berth.Changes()
-	if len(ch) != 1 || ch[0].Path != "/v1/orgs/acme/down" || f.berth.Running("acme") {
+	if len(ch) != 2 || ch[1].Path != "/v1/orgs/acme/down" || f.berth.Running("acme") {
 		t.Fatalf("berth changes %+v, running %v", ch, f.berth.Running("acme"))
 	}
 	ds := f.decisions()
@@ -61,33 +70,83 @@ func TestAnIdleContainerIsStopped(t *testing.T) {
 	if r := f.stopIdle("acme", time.Now().Add(2*after)); r.Running || r.Idle {
 		t.Fatalf("a stopped container: %+v", r)
 	}
-	if len(f.berth.Changes()) != 1 || len(f.decisions()) != n {
+	if len(f.berth.Changes()) != 2 || len(f.decisions()) != n {
 		t.Error("a stopped container was asked about again")
 	}
+}
+
+// A container lucy started and never ran work in is stopped once the idle time has passed since
+// it was started.
+func TestAContainerLucyStartedWithNoWorkIsStopped(t *testing.T) {
+	f := open(t)
+	f.up("acme")
+	if r := f.stopIdle("acme", time.Now().Add(after/3)); r.Idle || r.NotStartedByLucy || f.changes() != 1 {
+		t.Fatalf("before the idle time: %+v, changes %d", r, f.changes())
+	}
+	r := f.stopIdle("acme", time.Now().Add(after+time.Minute))
+	if !r.Idle || !r.Last.IsZero() || r.Stop == nil || !r.Stop.Acted || f.berth.Running("acme") {
+		t.Fatalf("after the idle time: %+v", r)
+	}
+}
+
+// A running container lucy did not start may hold work lucy does not know of: it is left alone,
+// with nothing recorded, however long ago lucy's own work in the org ended.
+func TestContainersLucyDidNotStartAreKept(t *testing.T) {
+	later := time.Now().Add(2 * after)
+	keep := func(t *testing.T, f *fixture) {
+		t.Helper()
+		changes, decisions := f.changes(), len(f.decisions())
+		r := f.stopIdle("acme", later)
+		if !r.Running || !r.NotStartedByLucy || r.Idle || r.Stop != nil {
+			t.Fatalf("%+v", r)
+		}
+		if f.changes() != changes || len(f.decisions()) != decisions || !f.berth.Running("acme") {
+			t.Fatal("a container lucy did not start was stopped or asked about")
+		}
+	}
+	t.Run("lucy never started it", func(t *testing.T) {
+		f := open(t)
+		f.ended("acme", "f1")
+		keep(t, f)
+	})
+	t.Run("started outside lucy after lucy's idle stop", func(t *testing.T) {
+		f := open(t)
+		f.up("acme")
+		f.ended("acme", "f1")
+		if r := f.stopIdle("acme", time.Now().Add(after+time.Minute)); r.Stop == nil || !r.Stop.Acted {
+			t.Fatalf("idle stop: %+v", r)
+		}
+		f.berth.SetRunning("acme", true)
+		keep(t, f)
+	})
+	t.Run("lucy's latest operation was a restart", func(t *testing.T) {
+		f := open(t)
+		f.up("acme")
+		if r := f.request("acme", sandbox.OpRestart); !r.Acted {
+			t.Fatalf("restart: %+v", r)
+		}
+		keep(t, f)
+	})
 }
 
 func TestBusyContainersAreKept(t *testing.T) {
 	later := time.Now().Add(2 * after)
 	t.Run("a run is queued", func(t *testing.T) {
 		f := open(t)
+		f.up("acme")
 		f.ended("acme", "f1")
 		if err := f.b.Submit(context.Background(), runner.Task{Run: "f2#1", Org: "acme", Project: "web", Flight: "f2", Generation: 1, Goal: "g"}); err != nil {
 			t.Fatal(err)
 		}
-		if r := f.stopIdle("acme", later); !r.Busy || r.Idle || f.changes() != 0 {
+		if r := f.stopIdle("acme", later); !r.Busy || r.Idle || f.changes() != 1 {
 			t.Fatalf("%+v, changes %d", r, f.changes())
 		}
 	})
 	t.Run("a session is live in the container", func(t *testing.T) {
 		f := open(t)
+		f.up("acme")
 		f.live("acme", "f1", runner.PlacementContainer)
-		if r := f.stopIdle("acme", later); !r.Busy || r.Idle || f.changes() != 0 {
-			t.Fatalf("%+v, changes %d", r, f.changes())
-		}
-	})
-	t.Run("lucy never ran work in the org", func(t *testing.T) {
-		f := open(t)
-		if r := f.stopIdle("acme", later); r.Idle || !r.Last.IsZero() || f.changes() != 0 || len(f.decisions()) != 0 {
+		if r := f.stopIdle("acme", later); !r.Busy || r.Idle || f.changes() != 1 {
 			t.Fatalf("%+v, changes %d", r, f.changes())
 		}
 	})
@@ -96,6 +155,7 @@ func TestBusyContainersAreKept(t *testing.T) {
 // A session on this machine does not use the org's container, so it does not keep it running.
 func TestHostSessionsDoNotKeepAContainer(t *testing.T) {
 	f := open(t)
+	f.up("acme")
 	f.live("acme", "host", runner.PlacementHost)
 	r := f.stopIdle("acme", time.Now().Add(after+time.Minute))
 	if r.Busy || !r.Idle || r.Stop == nil || !r.Stop.Acted {
@@ -106,28 +166,32 @@ func TestHostSessionsDoNotKeepAContainer(t *testing.T) {
 // activity is an Activity that reports what a check saw before a session started.
 type activity struct{ last time.Time }
 
-func (a activity) OrgActivity(context.Context, string) (bool, time.Time, error) { return false, a.last, nil }
+func (a activity) OrgActivity(context.Context, string) (bool, time.Time, error) {
+	return false, a.last, nil
+}
 
 // A session that starts between the idle check and the stop is not stopped: the guard sees it and
 // holds the stop for the owner, as for any other down.
 func TestASessionStartedSinceTheCheckHoldsTheStop(t *testing.T) {
 	f := open(t)
+	f.up("acme")
 	f.live("acme", "f1", runner.PlacementContainer)
-	r, err := f.sb.StopIdle(context.Background(), "acme", activity{last: time.Now().Add(-2 * after)}, time.Now(), after)
+	r, err := f.sb.StopIdle(context.Background(), "acme", activity{last: time.Now()}, time.Now().Add(2*after), after)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !r.Idle || r.Stop == nil || r.Stop.Acted || r.Stop.Outcome != policy.Holding || !r.Stop.NeedsOwner {
 		t.Fatalf("%+v", r)
 	}
-	if f.changes() != 0 || !f.berth.Running("acme") {
+	if f.changes() != 1 || !f.berth.Running("acme") {
 		t.Fatal("a live session's container was stopped as idle")
 	}
 }
 
 func TestStopIdleOrgsTouchesOnlyTheOrgsGiven(t *testing.T) {
 	f := open(t)
-	f.berth.SetRunning("beta", true)
+	f.up("acme")
+	f.up("beta")
 	f.ended("acme", "f1")
 	f.ended("beta", "b1")
 	res, err := f.sb.StopIdleOrgs(context.Background(), []string{"gamma", "acme"}, f.b, time.Now().Add(2*after), after)
