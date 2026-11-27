@@ -1,0 +1,41 @@
+name: scorecard
+
+# OpenSSF Scorecard over lucy's repository and workflows (docs/runbooks/security-scans.md), weekly
+# and on every push to main. Results go to code scanning (the Security tab) only: publish_results
+# is off, so the job needs no OIDC token and no stored secret.
+on:
+  schedule:
+    - cron: "41 6 * * 1"
+  push:
+    branches: [main]
+
+# Read-only by default. Only the analysis job below gets a write scope.
+permissions:
+  contents: read
+
+jobs:
+  analysis:
+    name: scorecard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read          # read workflow runs for the CI and SAST checks
+      security-events: write # upload the SARIF results to code scanning; nothing else is written
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Scorecard
+        uses: ossf/scorecard-action@23f22cd43608bae7a1f1fa2603d7314dee9538a5 # v2.6.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: false
+
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        with:
+          sarif_file: results.sarif

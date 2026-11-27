@@ -67,30 +67,33 @@ type Requirement struct {
 }
 
 // Load reads every Markdown file under root, skipping tooling directories.
+// Reads go through an os.Root, so a symlink cannot lead a read outside root.
 func Load(root string) ([]*Doc, error) {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close() //nolint:errcheck // read-only
+	tree := r.FS()
 	var docs []*Doc
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(tree, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
-			if p != root && slices.Contains(skipDirs, d.Name()) {
-				return filepath.SkipDir
+			if p != "." && slices.Contains(skipDirs, d.Name()) {
+				return fs.SkipDir
 			}
 			return nil
 		}
 		if !strings.HasSuffix(d.Name(), ".md") {
 			return nil
 		}
-		rel, err := filepath.Rel(root, p)
+		b, err := fs.ReadFile(tree, p)
 		if err != nil {
 			return err
 		}
-		b, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		docs = append(docs, &Doc{Path: filepath.ToSlash(rel), Raw: string(b)})
+		docs = append(docs, &Doc{Path: p, Raw: string(b)})
 		return nil
 	})
 	sort.Slice(docs, func(i, j int) bool { return docs[i].Path < docs[j].Path })
@@ -261,7 +264,7 @@ func Check(root string) []error {
 	errs = append(errs, checkChanges(docs)...)
 
 	want := RenderIndex(reqs)
-	if got, err := os.ReadFile(filepath.Join(root, IndexPath)); err != nil {
+	if got, err := os.ReadFile(filepath.Join(root, IndexPath)); err != nil { // #nosec G304 -- the repository root under test plus a constant path
 		fail(IndexPath, "missing: run `mise run docs-index`")
 	} else if string(got) != want {
 		fail(IndexPath, "stale: run `mise run docs-index` and commit the result")

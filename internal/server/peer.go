@@ -75,7 +75,7 @@ func (l *PeerListener) Accept() (net.Conn, error) {
 			err = errors.New("server: peer runs as another user")
 		}
 		if err != nil {
-			c.Close() //nolint:errcheck // refusing; nothing to report to the peer
+			_ = c.Close() // refusing; nothing to report to the peer
 			<-l.slots
 			l.refused.Add(1)
 			if l.OnRefuse != nil {

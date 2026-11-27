@@ -33,3 +33,11 @@ run = "go test ./internal/api -run TestOpenRPCDocument -update"
 [tasks.build]
 description = "Build ./bin/lucy with a version stamp"
 run = "go build -ldflags \"-X main.version=${LUCY_VERSION:-dev}\" -o bin/lucy ./cmd/lucy"
+
+[tasks.security]
+description = "lucy's own security scans for this OS, as CI's security workflow runs them"
+run = [
+  "go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...",
+  "go run github.com/securego/gosec/v2/cmd/gosec@v2.30.0 -quiet ./...",
+  "go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --no-banner --exit-code 1 .",
+]

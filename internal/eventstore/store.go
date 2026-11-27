@@ -153,15 +153,15 @@ func Open(ctx context.Context, path string, opts Options) (*Store, error) {
 	}
 	s.writer.SetMaxOpenConns(1)
 	if err := s.initWriter(ctx); err != nil {
-		s.writer.Close() //nolint:errcheck // the init error is what matters
+		_ = s.writer.Close() // the init error is what matters
 		return nil, err
 	}
 	if s.reader, err = sql.Open("sqlite", dsn(abs, true)); err != nil {
-		s.writer.Close() //nolint:errcheck // the open error is what matters
+		_ = s.writer.Close() // the open error is what matters
 		return nil, err
 	}
 	if err := s.syncProjections(ctx); err != nil {
-		s.Close() //nolint:errcheck // the sync error is what matters
+		_ = s.Close() // the sync error is what matters
 		return nil, err
 	}
 	return s, nil
@@ -236,7 +236,7 @@ func preparePath(path string) (string, error) {
 	if err := prepareDir(filepath.Dir(abs)); err != nil {
 		return "", err
 	}
-	f, err := os.OpenFile(abs, os.O_RDWR|os.O_CREATE, 0o600)
+	f, err := os.OpenFile(abs, os.O_RDWR|os.O_CREATE, 0o600) // #nosec G304 -- the database path the owner chose; its dir is checked above, its owner and mode below
 	if err != nil {
 		return "", fmt.Errorf("eventstore: create %s: %w", abs, err)
 	}

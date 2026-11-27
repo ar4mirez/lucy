@@ -134,7 +134,7 @@ run `mise run docs-index` after changing a PRD table. CI fails when this file is
 | ID | Milestone | Requirement |
 |---|---|---|
 | LUCY-SEC-001 | m0 | lucy runs as the user, never root; state files are 0600 and dirs 0700 |
-| LUCY-SEC-002 | m0 | CI runs vulnerability and dependency scanning on lucy's own code and blocks on findings |
+| LUCY-SEC-002 | m0 | CI runs vulnerability, dependency and licence, static-analysis and secret scanning on lucy's own code and fails on findings |
 | LUCY-SEC-003 | m0 | The STRIDE threat model is kept as an ADR and re-checked at every milestone exit |
 | LUCY-SEC-004 | m0 | Vulnerabilities are reported through GitHub private advisories, as SECURITY.md says |
 | LUCY-SEC-005 | m1 | Every delete lucy makes refuses `/`, `$HOME` and anything outside lucy's managed roots |

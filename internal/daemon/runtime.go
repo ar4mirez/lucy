@@ -79,12 +79,12 @@ func prepareRuntimeDir(dir string) error {
 // lock takes an exclusive, non-blocking flock on the runtime dir's lock file, so one daemon owns
 // the socket. The lock is released when the returned file is closed or the process exits.
 func lock(dir string) (*os.File, error) {
-	f, err := os.OpenFile(filepath.Join(dir, lockFile), os.O_RDWR|os.O_CREATE, 0o600)
+	f, err := os.OpenFile(filepath.Join(dir, lockFile), os.O_RDWR|os.O_CREATE, 0o600) // #nosec G304 -- a constant name in the checked 0700 runtime dir
 	if err != nil {
 		return nil, fmt.Errorf("daemon: open lock: %w", err)
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		f.Close() //nolint:errcheck // the lock error is what matters
+		_ = f.Close() // the lock error is what matters
 		if errors.Is(err, syscall.EWOULDBLOCK) {
 			return nil, fmt.Errorf("%w (lock %s is held)", ErrAlreadyRunning, f.Name())
 		}

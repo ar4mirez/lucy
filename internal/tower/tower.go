@@ -535,7 +535,7 @@ func (t *Tower) appendTx(ctx context.Context, tx *eventstore.Tx, f *flight, acto
 	}
 	for i, e := range evs {
 		f.version = e.StreamVersion
-		f.apply(e, payloads[i])
+		f.apply(e, payloads[i]) // #nosec G602 -- Append returns one event per payload
 	}
 	return nil
 }

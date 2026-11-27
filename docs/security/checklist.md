@@ -2,7 +2,7 @@
 id: security-checklist
 title: Security checklist mapped to milestones
 status: active
-version: 8
+version: 9
 owner: ar4mirez
 requirements: [LUCY-EVT-005, LUCY-POL-001, LUCY-POL-004, LUCY-POL-006, LUCY-POL-007, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-008, LUCY-VIEW-006, LUCY-SEC-001, LUCY-SEC-002, LUCY-SEC-003, LUCY-SEC-004, LUCY-SEC-005, LUCY-SEC-006, LUCY-SEC-007, LUCY-SEC-008, LUCY-SEC-009, LUCY-SEC-010, LUCY-SEC-011, LUCY-SEC-012, LUCY-SEC-013]
 ---
@@ -23,7 +23,7 @@ changes as needing a decision, and every "later" becomes a backlog record.
 | 1.2 | OS internals and permissions | Runs as the user; files 0600, dirs 0700; `lucy preflight --check` checks modes | m0 | LUCY-SEC-001 |
 | 1.3 | Processes and privilege boundaries | Control plane, runner and gateway are separate processes with separate credentials | m1 | LUCY-RUN-001, LUCY-CRED-001 |
 | 1.4 | Crypto basics | Hash-chained audit, sigstore signatures, encrypted vault, TLS | m0 | LUCY-SPEC-009, LUCY-REL-002 |
-| 1.5 | Threat modeling and trust boundaries | STRIDE model, re-checked at every milestone exit | m0 | LUCY-SEC-003 |
+| 1.5 | Threat modeling and trust boundaries | STRIDE model as decision [D12](../decisions/D12-threat-model.md), re-checked at every milestone exit | m0 | LUCY-SEC-003 |
 | 1.6 | Secure design | Policy engine, scoped tokens, containers, gateway, delete guards | m0 | LUCY-POL-001 |
 | 1.7 | CIA, STRIDE, kill chain | Kill-chain scenarios in the corpus and chaos suite | m1 | LUCY-SIM-003 |
 | 2.1 | OWASP risks (XSS, SQLi, CSRF, SSRF, IDOR) | CSP and encoding, CSRF tokens, parameterised SQL, SSRF denylist, object-level checks | m1 | LUCY-VIEW-007, LUCY-CRED-004 |
@@ -46,7 +46,7 @@ changes as needing a decision, and every "later" becomes a backlog record.
 | 4.3 | Shared-storage security | Per-org data dirs, encrypted per-org backups, offboard and erase | m2 | LUCY-SEC-011, LUCY-CRED-006 |
 | 4.4 | Container and Kubernetes security | Hardening is berth's; lucy checks image version and the no-secret rule | m1 | LUCY-CRED-005, LUCY-SEC-013 |
 | 4.5 | IaC and policy as code | Spec resources; AutonomyPolicy and QualityGate as validated policy | m0-m1 | LUCY-SPEC-004, LUCY-SPEC-010 |
-| 4.6 | Vulnerability management, patching | Vulnerability and dependency scans in CI; Dependabot; pinned toolchain; release SBOMs | m0 | LUCY-SEC-002, LUCY-REPO-008, LUCY-REL-008 |
+| 4.6 | Vulnerability management, patching | Vulnerability, dependency, licence, SAST and secret scans in CI; Scorecard; Dependabot; pinned toolchain; release SBOMs | m0 | LUCY-SEC-002, LUCY-REPO-008, LUCY-REL-008 |
 | 4.7 | Endpoint hardening | `lucy preflight --check` host baseline | m1 | LUCY-SEC-007 |
 | 4.8 | Secure configuration baselines | `lucy preflight` applies and `--check` checks a baseline profile | m1 | LUCY-OPS-001, LUCY-OPS-002 |
 | 5.1 | Key log sources | Event store, audit chain, gateway egress log, container logs, forge events | m1 | LUCY-CRED-004, LUCY-OPS-004 |
@@ -151,3 +151,28 @@ changes as needing a decision, and every "later" becomes a backlog record.
   transaction; `lucy audit verify` detects a changed, missing or extra event or entry
   (LUCY-SPEC-009). The chain lives in the same database, so it does not resist a full rewrite;
   anchoring its head outside the database comes with signed flight logs (LUCY-VAL-007, m1).
+
+## Applied in m0 slice 9 (lucy's own security baseline)
+
+- **4.6, vulnerability management:** `security.yml` runs on every pull request, every push to
+  `main` and weekly, read-only and without secrets, and each job fails the run on a finding:
+  govulncheck in source mode for Linux and macOS (a reachable vulnerability in a module or the
+  standard library), dependency review on pull requests (a vulnerable new or changed module or
+  action at any severity, or a licence outside a permissive allowlist), and gitleaks over the new
+  commits, with redacted output. Scanners are pinned and installed through the Go checksum
+  database; Dependabot already covers Go modules and the actions' SHAs (LUCY-SEC-002,
+  [security scans](../runbooks/security-scans.md)).
+- **5.7, security testing in CI, for lucy's own code:** gosec runs every rule at every severity.
+  Of its first 23 findings, 12 were fixed in the code and 11 are reviewed `#nosec` annotations,
+  one rule and a reason each, listed in the [SAST baseline](reviews/sast-baseline.md);
+  `internal/seccheck` fails when the code and the baseline disagree, and when the workflow gains
+  an exclusion flag. Project SAST and dependency gates for the work lucy runs stay m1
+  (LUCY-SEC-008).
+- **1.5, threat modelling:** the STRIDE model is decision [D12](../decisions/D12-threat-model.md),
+  with an eighth trust boundary for lucy's own build and release pipeline and an m0 check of every
+  row m0 lands (LUCY-SEC-003).
+- **Supply chain posture:** OpenSSF Scorecard runs weekly and on `main`, uploading to code scanning
+  only; its job holds the only write scope outside the release job (`security-events`), which
+  `internal/workflowcheck` enforces.
+- **Still a repository setting:** a red check stops a merge only once branch protection requires it
+  ([repository settings](../runbooks/repository-settings.md)); turning that on is the owner's call.

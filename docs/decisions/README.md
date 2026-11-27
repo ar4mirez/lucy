@@ -2,7 +2,7 @@
 id: decisions
 title: Decisions
 status: active
-version: 4
+version: 5
 owner: ar4mirez
 requirements: []
 ---
@@ -28,6 +28,7 @@ new ADR whose front matter says `supersedes`.
 | [D9](D9-doc-structure.md) | Repository doc structure and doc rules | accepted |
 | [D10](D10-api-json-rpc.md) | The one API is restricted JSON-RPC 2.0 with a generated OpenRPC schema | accepted |
 | [D11](D11-spec-loading.md) | How lucy loads spec resources and chains its audit log | accepted |
+| [D12](D12-threat-model.md) | lucy's STRIDE threat model, re-checked at every milestone exit | accepted |
 | [R1](R1-adversarial-review.md) | Adversarial architecture review, adopted in full | accepted |
 
 ## Format
@@ -36,4 +37,5 @@ Front matter: `id`, `title`, `status` (`accepted`, `superseded` or `draft`), `ve
 `requirements` (the IDs this decision drives), `decided` (date), and `supersedes` or
 `superseded_by` when they apply. Body: **Context**, **Decision**, **Consequences**, and
 **Revisions** when the decision changed. D1 to D9 and R1 were made by the owner on 2026-11-26; D10 was
-delegated to m0 slice 4 and D11 to m0 slice 6, each under stated rules its Context records.
+delegated to m0 slice 4, D11 to m0 slice 6 and D12 to m0 slice 9, each under stated rules its
+Context records.

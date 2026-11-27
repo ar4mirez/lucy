@@ -16,11 +16,16 @@ const workflowsDir = "../../.github/workflows"
 
 var pinnedUses = regexp.MustCompile(`^[\w.-]+/[\w.-]+(/[\w./-]+)?@[0-9a-f]{40}$`)
 
-// writeAllowed is the only job that may hold write scopes, and the scopes it may hold.
-var writeAllowed = struct {
-	workflow, job string
-	scopes        map[string]bool
-}{"release.yml", "release", map[string]bool{"contents": true, "id-token": true, "attestations": true}}
+// writeAllowed lists the only jobs that may hold write scopes, keyed by workflow and job, with the
+// scopes each may hold: the release job publishes, signs and attests; the Scorecard job uploads
+// its results to code scanning.
+var writeAllowed = map[[2]string]map[string]bool{
+	{"release.yml", "release"}:    {"contents": true, "id-token": true, "attestations": true},
+	{"scorecard.yml", "analysis"}: {"security-events": true},
+}
+
+// writeAllowedText describes writeAllowed for error messages.
+const writeAllowedText = "release.yml's release job (contents, id-token, attestations) and scorecard.yml's analysis job (security-events)"
 
 type workflow struct {
 	On          yaml.Node      `yaml:"on"`
@@ -110,9 +115,8 @@ func check(name string, src []byte) []string {
 			if level != "write" {
 				continue
 			}
-			if name != writeAllowed.workflow || id != writeAllowed.job || !writeAllowed.scopes[scope] {
-				add("job %s: %s: write is only allowed on %s's %s job (contents, id-token, attestations)",
-					id, scope, writeAllowed.workflow, writeAllowed.job)
+			if !writeAllowed[[2]string{name, id}][scope] {
+				add("job %s: %s: write is only allowed on %s", id, scope, writeAllowedText)
 			}
 		}
 	}
@@ -229,6 +233,23 @@ jobs:
 			file: "release.yml",
 			src:  "on: {push: {tags: [\"v*\"]}}\npermissions: {contents: read}\njobs:\n  build:\n    permissions: {id-token: write}\n",
 			want: "job build: id-token: write is only allowed",
+		},
+		{
+			name: "security-events write on the scorecard job passes",
+			file: "scorecard.yml",
+			src:  "on: {push: {branches: [main]}}\npermissions: {contents: read}\njobs:\n  analysis:\n    permissions: {contents: read, security-events: write}\n",
+		},
+		{
+			name: "security-events write on another job fails",
+			file: "security.yml",
+			src:  "on: pull_request\npermissions: {contents: read}\njobs:\n  analysis:\n    permissions: {security-events: write}\n",
+			want: "job analysis: security-events: write is only allowed",
+		},
+		{
+			name: "contents write on the scorecard job fails",
+			file: "scorecard.yml",
+			src:  "on: {push: {branches: [main]}}\npermissions: {contents: read}\njobs:\n  analysis:\n    permissions: {contents: write}\n",
+			want: "job analysis: contents: write is only allowed",
 		},
 		{
 			name: "write-all fails",

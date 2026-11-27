@@ -14,6 +14,20 @@ Changes since the last release. When a version is cut, its section moves to
 
 ## Unreleased
 
+- lucy's own security scans in CI, on every pull request, every push to `main` and weekly, each
+  failing the run on a finding: govulncheck for Linux and macOS (a reachable known vulnerability
+  in a dependency or the Go standard library), gosec over every rule with a reviewed baseline of
+  inline suppressions, gitleaks over the new commits, and dependency review on pull requests (a
+  vulnerable new dependency or a licence outside a permissive allowlist). OpenSSF Scorecard
+  reports weekly to code scanning. `mise run security` runs the scanners locally at the versions
+  CI pins.
+- gosec's first findings were fixed or reviewed: unchecked close and rollback errors on error
+  paths are discarded explicitly, and the doc checker reads files through a root-scoped handle.
+  The policy rule set is version 4 (comment-only change; no rule changed).
+- The STRIDE threat model is now decision D12, with an eighth trust boundary for lucy's own build
+  and release pipeline and a check of every row m0 lands. The policy engine's technical notes moved
+  to `docs/tech/policy.md`.
+
 - A conformance corpus: every safety rule an agent supervisor must keep, and every class of past
   incident, is a scenario that runs against lucy on the simulation harness. Corpus v1 has 88
   scenarios in 17 rule classes (merge authority, checks, approvals, attribution, bounded retries,
