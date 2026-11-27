@@ -32,7 +32,7 @@ Changes since the last release. When a version is cut, its section moves to
   pre-allowed, and hooks, skills and slash commands are off. A repository's committed `.claude`
   settings, hooks or MCP config can no longer widen what a Pilot may do, and every tool prompt
   still reaches lucy. A contract test runs a session in a fixture repository whose settings
-  pre-allow Bash and add a hook, and checks that neither takes effect.
+  pre-allow Bash, add a hook and enable its `.mcp.json` server, and checks that none takes effect.
 - The Pilot's file-tool guard allows `$`-prefixed route files such as `app/routes/$postId.tsx`:
   only `${`, `$(` and a path element starting with an environment-style name (`$HOME`, `$TMPDIR-1`,
   `$HOME.bak`) count as a variable reference.

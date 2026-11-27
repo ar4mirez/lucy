@@ -37,6 +37,10 @@ type Header struct {
 	// .claude/settings.json loads when --setting-sources is absent or names "project"; a tool its
 	// permissions.allow lists runs without the transcript's permission prompt; and its hooks run,
 	// each writing "project hook ran" to standard error, unless --settings sets disableAllHooks.
+	// When the loaded project settings set enableAllProjectMcpServers, every server in the
+	// project's .mcp.json is made available, each writing "project MCP server loaded: <name>" to
+	// standard error, unless the harness is started with --strict-mcp-config and an --mcp-config
+	// whose mcpServers is empty.
 	Project string `json:"project,omitempty"`
 }
 
@@ -44,6 +48,7 @@ type Header struct {
 type projectRules struct {
 	preallowed map[string]bool
 	hooks      bool
+	mcpServers []string
 }
 
 func rules(h Header, args []string) projectRules {
@@ -51,13 +56,15 @@ func rules(h Header, args []string) projectRules {
 	if h.Project == "" {
 		return r
 	}
-	sources, sourcesSet, settings := "", false, ""
+	sources, sourcesSet, settings, mcpConfig := "", false, "", ""
 	for i := 0; i+1 < len(args); i++ {
 		switch args[i] {
 		case "--setting-sources":
 			sources, sourcesSet = args[i+1], true
 		case "--settings":
 			settings = args[i+1]
+		case "--mcp-config":
+			mcpConfig = args[i+1]
 		}
 	}
 	if sourcesSet && !slices.Contains(strings.Split(sources, ","), "project") {
@@ -71,7 +78,8 @@ func rules(h Header, args []string) projectRules {
 		Permissions struct {
 			Allow []string `json:"allow"`
 		} `json:"permissions"`
-		Hooks map[string]any `json:"hooks"`
+		Hooks                      map[string]any `json:"hooks"`
+		EnableAllProjectMcpServers bool           `json:"enableAllProjectMcpServers"`
 	}
 	if json.Unmarshal(b, &project) != nil {
 		return r
@@ -84,6 +92,27 @@ func rules(h Header, args []string) projectRules {
 	}
 	_ = json.Unmarshal([]byte(settings), &cli)
 	r.hooks = len(project.Hooks) > 0 && !cli.DisableAllHooks
+	var strict struct {
+		MCPServers map[string]any `json:"mcpServers"`
+	}
+	if !project.EnableAllProjectMcpServers ||
+		slices.Contains(args, "--strict-mcp-config") && json.Unmarshal([]byte(mcpConfig), &strict) == nil && len(strict.MCPServers) == 0 {
+		return r
+	}
+	b, err = os.ReadFile(filepath.Join(h.Project, ".mcp.json")) // #nosec G304 -- a test transcript's own fixture project
+	if err != nil {
+		return r
+	}
+	var servers struct {
+		MCPServers map[string]any `json:"mcpServers"`
+	}
+	if json.Unmarshal(b, &servers) != nil {
+		return r
+	}
+	for name := range servers.MCPServers {
+		r.mcpServers = append(r.mcpServers, name)
+	}
+	slices.Sort(r.mcpServers)
 	return r
 }
 
@@ -204,6 +233,9 @@ func Replay(t Transcript, args []string, stdin io.Reader, stdout, stderr io.Writ
 	project := rules(t.Header, args)
 	if project.hooks {
 		fmt.Fprintln(stderr, "project hook ran")
+	}
+	for _, name := range project.mcpServers {
+		fmt.Fprintln(stderr, "project MCP server loaded: "+name)
 	}
 	skipIn := false
 	for i, l := range t.Lines {

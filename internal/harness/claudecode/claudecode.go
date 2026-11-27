@@ -81,10 +81,11 @@ type Flag struct {
 
 // SessionSettings are the only settings a session loads: --setting-sources is empty, so no user,
 // project or local settings file is read, and a repository's committed .claude settings can never
-// pre-allow a tool, add a hook or enable an MCP server. Nothing is pre-allowed, so every prompted
+// pre-allow a tool or add a hook. --strict-mcp-config with an empty --mcp-config is what keeps a
+// repository's .mcp.json servers out. Nothing is pre-allowed, so every prompted
 // tool still comes to the adapter; all hooks are off. Slash commands and skills are disabled too,
 // since a skill's allowed tools would skip the prompt.
-const SessionSettings = `{"permissions":{"allow":[]},"disableAllHooks":true,"enableAllProjectMcpServers":false}`
+const SessionSettings = `{"permissions":{"allow":[]},"disableAllHooks":true}`
 
 // Adapter is the Claude Code adapter. Its zero value is ready to use.
 type Adapter struct{}

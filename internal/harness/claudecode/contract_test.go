@@ -196,12 +196,11 @@ func TestArgs(t *testing.T) {
 		Permissions struct {
 			Allow []string `json:"allow"`
 		} `json:"permissions"`
-		DisableAllHooks            bool `json:"disableAllHooks"`
-		EnableAllProjectMcpServers bool `json:"enableAllProjectMcpServers"`
+		DisableAllHooks bool `json:"disableAllHooks"`
 	}
 	if v, _ := value("--settings"); json.Unmarshal([]byte(v), &settings) != nil || len(settings.Permissions.Allow) != 0 ||
-		!settings.DisableAllHooks || settings.EnableAllProjectMcpServers {
-		t.Errorf("--settings %q must pre-allow nothing, disable every hook and enable no project MCP server", v)
+		!settings.DisableAllHooks {
+		t.Errorf("--settings %q must pre-allow nothing and disable every hook", v)
 	}
 	if !slices.Contains(argv, "--disable-slash-commands") {
 		t.Error("skills and slash commands are enabled; a skill's allowed tools would skip the prompt")

@@ -468,8 +468,8 @@ func TestHarnessExecutorTagsEveryRepeat(t *testing.T) {
 	}
 }
 
-// projectSettings is the Claude Code adapter with the setting flags lucy used before: project
-// settings loaded, no lucy-owned settings. It is the control that shows the test below can see a
+// projectSettings is the Claude Code adapter with project settings loaded, no lucy-owned settings
+// and no strict MCP config. It is the control that shows the test below can see a
 // project's settings take effect.
 type projectSettings struct{ claudecode.Adapter }
 
@@ -481,8 +481,9 @@ func (a projectSettings) Args(s harness.Session) []string {
 		case "--setting-sources":
 			out = append(out, args[i], "project")
 			i++
-		case "--settings":
+		case "--settings", "--mcp-config":
 			i++
+		case "--strict-mcp-config":
 		default:
 			out = append(out, args[i])
 		}
@@ -491,9 +492,10 @@ func (a projectSettings) Args(s harness.Session) []string {
 }
 
 // TestHarnessIgnoresProjectSettings runs a session in a fixture repository whose committed
-// .claude/settings.json pre-allows Bash and adds a hook. Under the adapter's arguments neither takes
-// effect: Bash is still prompted, so lucy refuses it, and the hook never runs. The control, with
-// project settings loaded, shows both taking effect.
+// .claude/settings.json pre-allows Bash, adds a hook and enables its .mcp.json servers. Under the
+// adapter's arguments none takes effect: Bash is still prompted, so lucy refuses it, the hook never
+// runs and no MCP server loads. The control, with project settings loaded and no strict MCP config,
+// shows all three taking effect.
 func TestHarnessIgnoresProjectSettings(t *testing.T) {
 	run := func(a harness.Adapter) []string {
 		pf := newProc(t)
@@ -509,11 +511,13 @@ func TestHarnessIgnoresProjectSettings(t *testing.T) {
 		return lines
 	}
 	got := strings.Join(run(claudecode.Adapter{}), "|")
-	if !strings.Contains(got, "refused tool: Bash") || strings.Contains(got, "project hook ran") {
+	if !strings.Contains(got, "refused tool: Bash") || strings.Contains(got, "project hook ran") ||
+		strings.Contains(got, "project MCP server loaded") {
 		t.Errorf("the repository's settings took effect: %s", got)
 	}
 	control := strings.Join(run(projectSettings{}), "|")
-	if strings.Contains(control, "refused tool: Bash") || !strings.Contains(control, "project hook ran") {
+	if strings.Contains(control, "refused tool: Bash") || !strings.Contains(control, "project hook ran") ||
+		!strings.Contains(control, "project MCP server loaded: chat") {
 		t.Errorf("the control did not load the repository's settings, so the test proves nothing: %s", control)
 	}
 }
