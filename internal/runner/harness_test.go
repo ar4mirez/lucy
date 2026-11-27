@@ -59,7 +59,7 @@ func TestPilotReachesTheOwnerOnlyThroughTheTower(t *testing.T) {
 	const answer = "use the staging account"
 	ctx := context.Background()
 	if err := w.tower.Dispatch(ctx, tower.Spec{ID: "f1", Org: "acme", Project: "web", Goal: "harness - " + path,
-		Posture: policy.PostureOwner}); err != nil {
+		Posture: policy.PostureOwner, Delivery: tower.DeliveryPullRequest, Acceptance: "the checks pass"}); err != nil {
 		t.Fatal(err)
 	}
 	answered := false

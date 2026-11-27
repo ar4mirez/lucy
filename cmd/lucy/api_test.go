@@ -150,7 +150,7 @@ func TestDaemonAndClients(t *testing.T) {
 	}
 	code, out, _ = lucy("config", "status", "--socket", sock)
 	if code != 0 || strings.Contains(out, "loaded none") ||
-		!strings.HasPrefix(out, "resources[0]{namespace,kind,name,source,type,status,reason,since}:\nrefused[1]{source,type,status,reason,message,since}:\n  runway.yaml#1,Valid,False,MissingNamespace,") ||
+		!strings.HasPrefix(out, "resources[0]{namespace,kind,name,source,type,status,reason,message,since}:\nrefused[1]{source,type,status,reason,message,since}:\n  runway.yaml#1,Valid,False,MissingNamespace,") ||
 		!strings.Contains(out, "\nhelp: these name no resource") {
 		t.Errorf("config status: code %d stdout %q", code, out)
 	}
@@ -194,6 +194,46 @@ func TestDaemonAndClients(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("lucy daemon did not stop")
+	}
+}
+
+func TestConfigStatusSaysWhatAFlightLacks(t *testing.T) {
+	dir := shortTempDir(t)
+	sock := filepath.Join(dir, "run", "lucy.sock")
+	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	resources := filepath.Join(dir, "config", "lucy", "resources")
+	if err := os.MkdirAll(resources, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(resources, "flight.yaml"), []byte("apiVersion: lucy/v1alpha1\nkind: Flight\nmetadata: { name: bare, namespace: acme }\nspec: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	signalContext = func() (context.Context, context.CancelFunc) { return ctx, cancel }
+	done := make(chan int, 1)
+	go func() {
+		done <- run([]string{"daemon", "--socket", sock, "--db", filepath.Join(dir, "data", "lucy.db")}, &bytes.Buffer{}, &bytes.Buffer{})
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+		signalContext = defaultSignalContext
+	})
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if code, _, _ := lucy("status", "--socket", sock); code == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("daemon not up")
+		}
+	}
+	code, out, errOut := lucy("config", "status", "--socket", sock)
+	if code != 0 || !strings.HasPrefix(out, "resources[1]{namespace,kind,name,source,type,status,reason,message,since}:\n") ||
+		!strings.Contains(out, "\n  acme,Flight,bare,flight.yaml#1,Valid,True,Admitted,") ||
+		!strings.Contains(out, "\n  acme,Flight,bare,flight.yaml#1,Ready,False,NotReady,\"not dispatched until it has a goal, ") ||
+		!strings.Contains(out, "an acceptance test\",") {
+		t.Errorf("config status: code %d stdout %q stderr %q", code, out, errOut)
 	}
 }
 

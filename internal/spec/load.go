@@ -150,6 +150,7 @@ func LoadDir(dir string) (Set, error) {
 		return set, err
 	}
 	markDuplicates(set.Results)
+	markReadiness(set.Results)
 	sortResults(set.Results)
 	return set, nil
 }

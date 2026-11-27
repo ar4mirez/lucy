@@ -2,22 +2,74 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ar4mirez/lucy/blob/main/internal/spec/schemas/lucy/v1alpha1/flight.schema.json",
   "title": "lucy Flight",
-  "description": "A task: a goal, a delivery path, an autonomy level and an acceptance test. Stub: later slices add fields.",
+  "description": "A task: a goal, a delivery path (its runway and how its result is delivered), an autonomy posture and an acceptance test. A Flight that lacks any of them is admitted but not ready, and is never dispatched (LUCY-SPEC-012).",
   "type": "object",
-  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
   "properties": {
-    "apiVersion": { "$ref": "common.schema.json#/$defs/apiVersion" },
-    "kind": { "type": "string", "const": "Flight" },
-    "metadata": { "$ref": "common.schema.json#/$defs/metadata" },
+    "apiVersion": {
+      "$ref": "common.schema.json#/$defs/apiVersion"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Flight"
+    },
+    "metadata": {
+      "$ref": "common.schema.json#/$defs/metadata"
+    },
     "spec": {
       "type": "object",
       "properties": {
-        "shape": { "type": "string", "enum": ["ship", "research"], "description": "ship lands a change; research returns knowledge and ships nothing." },
-        "goal": { "type": "string", "maxLength": 4096, "description": "What the flight is for." }
+        "shape": {
+          "type": "string",
+          "enum": [
+            "ship",
+            "research"
+          ],
+          "description": "ship lands a change; research returns knowledge and ships nothing."
+        },
+        "goal": {
+          "type": "string",
+          "maxLength": 4096,
+          "description": "What the flight is for."
+        },
+        "runway": {
+          "type": "string",
+          "maxLength": 63,
+          "description": "The Runway (project) in the Flight's namespace that the result is delivered to."
+        },
+        "delivery": {
+          "type": "string",
+          "enum": [
+            "pull-request",
+            "report"
+          ],
+          "description": "How the result is delivered: pull-request (a ship Flight's change, against the runway's default branch) or report (a research Flight's findings)."
+        },
+        "autonomy": {
+          "type": "string",
+          "enum": [
+            "owner",
+            "green",
+            "client"
+          ],
+          "description": "How much the Flight may do on its own: owner (merges only on the owner's word), green (green pull requests merge, except the fixed list) or client (after the client confirms and the owner relays it). Never assumed."
+        },
+        "acceptance": {
+          "type": "string",
+          "maxLength": 4096,
+          "description": "The acceptance test: what must hold for the Flight to be done."
+        }
       },
       "additionalProperties": false
     },
-    "status": { "$ref": "common.schema.json#/$defs/status" }
+    "status": {
+      "$ref": "common.schema.json#/$defs/status"
+    }
   },
   "additionalProperties": false
 }

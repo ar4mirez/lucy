@@ -36,7 +36,7 @@ func TestQuestionsThroughTheTower(t *testing.T) {
 	}
 	t.Cleanup(func() { w.Close() })
 	w.Forge.AddRepo("acme/web", "ci")
-	if err := w.Dispatch(ctx, tower.Spec{ID: "f1", Org: "acme", Project: "web", Goal: "migrate", Posture: policy.PostureGreen},
+	if err := w.Dispatch(ctx, tower.Spec{ID: "f1", Org: "acme", Project: "web", Goal: "migrate", Posture: policy.PostureGreen, Delivery: tower.DeliveryPullRequest, Acceptance: "the checks pass"},
 		sim.Ask("which account?"), sim.OpenPR(sim.Passing("ci", time.Minute))); err != nil {
 		t.Fatal(err)
 	}

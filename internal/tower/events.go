@@ -16,6 +16,8 @@ type Dispatched struct {
 	Base       string             `json:"base"`
 	Posture    policy.Posture     `json:"posture"`
 	Exceptions []policy.Exception `json:"exceptions,omitempty"`
+	Delivery   string             `json:"delivery,omitempty"`   // empty for a flight dispatched before readiness was checked
+	Acceptance string             `json:"acceptance,omitempty"` // the acceptance test, capped
 }
 
 // PilotStarted records a Pilot session started for the flight.

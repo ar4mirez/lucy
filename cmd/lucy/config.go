@@ -145,11 +145,11 @@ func runConfigStatus(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, "resources[0]: the daemon has loaded none\nhelp: add resources to the config directory and restart the daemon\n")
 		return 0
 	}
-	fmt.Fprintf(stdout, "resources[%d]{namespace,kind,name,source,type,status,reason,since}:\n", len(all))
+	fmt.Fprintf(stdout, "resources[%d]{namespace,kind,name,source,type,status,reason,message,since}:\n", len(all))
 	for _, r := range all {
 		for _, cond := range r.Conditions {
-			fmt.Fprintf(stdout, "  %s,%s,%s,%s,%s,%s,%s,%s\n", csv(r.Namespace), csv(r.Kind), csv(r.Name), csv(r.Source),
-				cond.Type, cond.Status, cond.Reason, cond.LastTransitionTime)
+			fmt.Fprintf(stdout, "  %s,%s,%s,%s,%s,%s,%s,%s,%s\n", csv(r.Namespace), csv(r.Kind), csv(r.Name), csv(r.Source),
+				cond.Type, cond.Status, cond.Reason, csv(cond.Message), cond.LastTransitionTime)
 		}
 	}
 	if len(refused) == 0 {

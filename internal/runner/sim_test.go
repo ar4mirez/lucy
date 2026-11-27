@@ -164,7 +164,7 @@ func (w *world) dispatch(id string, steps ...sim.Step) {
 		w.sim.Runtime.Script(id, steps...)
 	}
 	if err := w.tower.Dispatch(context.Background(), tower.Spec{ID: id, Org: "acme", Project: "web", Goal: "fix it",
-		Posture: policy.PostureGreen}); err != nil {
+		Posture: policy.PostureGreen, Delivery: tower.DeliveryPullRequest, Acceptance: "the checks pass"}); err != nil {
 		w.t.Fatal(err)
 	}
 }
