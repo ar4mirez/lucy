@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,6 +52,35 @@ func helper(goal string) int {
 		fmt.Fprintln(os.Stderr, "a warning")
 		fmt.Println("lucy:pr=12")
 		fmt.Print("no newline")
+		return 0
+	case "gateway":
+		// Reach the org's gateway through the run's socket, trying to name a capability of its own.
+		sock := os.Getenv("LUCY_RUN_GATEWAY")
+		c := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", sock)
+		}}}
+		req, _ := http.NewRequest(http.MethodGet, "http://gateway/github/repos/acme/web", nil)
+		req.Header.Set("X-Lucy-Capability", "lcap_forged")
+		resp, err := c.Do(req)
+		if err != nil {
+			fmt.Println("gateway error", err)
+			return 9
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		fmt.Println("gateway", resp.StatusCode, string(b))
+		for _, kv := range os.Environ() {
+			fmt.Println("env", kv)
+		}
+		wd, _ := os.Getwd()
+		fmt.Println("cwd", wd)
+		for i := 0; i < 1000; i++ { // until the test has looked at the directory
+			if _, err := os.Stat("release"); err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 		return 0
 	case "env":
 		for _, kv := range os.Environ() {

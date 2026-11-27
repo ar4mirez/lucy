@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ar4mirez/lucy/internal/daemon"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/harness"
 	"github.com/ar4mirez/lucy/internal/harness/claudecode"
@@ -21,7 +22,7 @@ import (
 
 const runnerUsage = `Usage:
   lucy runner [--socket <path>] [--id <name>] [--root <dir>] [--placement host|container]
-              [--ttl <seconds>] -- <command> [<args>...]
+              [--ttl <seconds>] [--gateway-dir <dir>] -- <command> [<args>...]
   lucy runner [flags as above] --harness claude-code [-- <harness program> [<args>...]]
 
 Runs a runner in the foreground: it leases runs from the daemon over the runner protocol,
@@ -35,6 +36,12 @@ deleted when the command exits. A lease not renewed within --ttl (60 s by defaul
 the run is lost and the daemon refuses anything sent under its fence afterwards. Ctrl-C,
 SIGTERM or a closed terminal (SIGHUP) stops the runner; it stops its runs and reports them lost.
 A runner started under nohup keeps ignoring SIGHUP and outlives its terminal.
+
+Each leased run carries a capability token for its org's credential gateway. The runner keeps it
+in memory and opens the run its own gateway socket, .lucy-gateway.sock in the run's directory and
+named in LUCY_RUN_GATEWAY, which forwards to the org's gateway socket in --gateway-dir (gateway/
+in lucy's runtime directory by default, where lucy gateway listens) with the token added and any
+the run sent dropped. The token itself is never in the run's environment or files.
 
 With --harness claude-code the runner drives Claude Code (` + "`claude`" + ` unless a program follows
 --) over its stream-json protocol instead of streaming lines: the harness must report version
@@ -73,6 +80,7 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 	placement := fs.String("placement", string(runner.PlacementHost), "")
 	ttl := fs.Int("ttl", int(runner.DefaultTTL/time.Second), "")
 	harnessName := fs.String("harness", "", "")
+	gatewayDir := fs.String("gateway-dir", "", "")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprint(stdout, runnerUsage)
@@ -120,6 +128,19 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
+	gwDir := *gatewayDir
+	if gwDir == "" {
+		rt, err := daemon.RuntimeDir()
+		if err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 1
+		}
+		gwDir = filepath.Join(rt, "gateway")
+	}
+	if gwDir, err = filepath.Abs(gwDir); err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
 	c, code := dial(*sock, stderr)
 	if c == nil {
 		return code
@@ -128,8 +149,9 @@ func runRunner(args []string, stdout, stderr io.Writer) int {
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	r, err := runner.New(runner.Config{
 		ID: *id, Placement: runner.Placement(*placement), Protocol: runner.Remote{Client: c},
-		Executor: &runner.ProcessExecutor{Root: dir, Command: command, Harness: adapter, Permitter: runner.Remote{Client: c}, Log: log},
-		TTL:      time.Duration(*ttl) * time.Second, Log: log,
+		Executor: &runner.ProcessExecutor{Root: dir, Command: command, Harness: adapter, Permitter: runner.Remote{Client: c}, Log: log,
+			GatewayDir: gwDir},
+		TTL: time.Duration(*ttl) * time.Second, Log: log,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)

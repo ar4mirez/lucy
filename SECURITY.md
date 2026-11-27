@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 11
+version: 12
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-SEC-002, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -92,8 +92,9 @@ run, or its lease running out, revokes its tokens. The daemon stores only the to
 compares it in constant time; a token is refused once revoked, past its expiry, for another org or
 route, or once its run's lease has ended or been replaced. The daemon checks it before the gateway
 reads any credential or resolves any upstream, and again when deciding. The gateway never
-forwards it. Until the owner
-decides how a Pilot's tools get it, no token is in a Pilot's environment.
+forwards it. A Pilot reaches the gateway through a socket the runner opens in its scratch
+directory, which adds the token on the Pilot's behalf, so no token is ever in a Pilot's process,
+environment or files.
 
 ## Audit and log data
 

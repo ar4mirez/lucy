@@ -173,6 +173,9 @@ func (r *Runner) tend(ctx context.Context, h *held) error {
 		h.lease.Expires, h.beatAt = beat.Expires, now.Add(r.cfg.TTL/3)
 		if beat.Capability != "" {
 			h.lease.Capability = beat.Capability
+			if rn, ok := h.exec.(Renewer); ok {
+				rn.Renew(beat.Capability)
+			}
 		}
 		if len(batch) > 0 && len(h.pending) == before {
 			return fmt.Errorf("the broker recorded none of events %d..%d", batch[0].Seq, batch[len(batch)-1].Seq)

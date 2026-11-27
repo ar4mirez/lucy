@@ -2,7 +2,7 @@
 id: tech-gateway
 title: The credential gateway
 status: active
-version: 4
+version: 5
 owner: ar4mirez
 requirements: [LUCY-CRED-001, LUCY-CRED-004, LUCY-CRED-005, LUCY-SPEC-016]
 ---
@@ -97,8 +97,8 @@ their names or values reaches the Pilot (LUCY-CRED-005).
 
 ## Not built yet
 
-- TODO(LUCY-CRED-003): the worker's tools present the run's capability token
-  ([capabilities](capability.md)); today only a caller holding the runner's token can.
+- TODO(LUCY-CRED-003): the worker's tools pointed at the run's gateway socket, which adds the run's
+  capability token ([capabilities](capability.md)).
 - TODO(LUCY-CRED-001): the gateway's socket reachable from the org's container and nowhere else,
   which needs berth to mount it there (berth#216), and the worker's tools (git, the forge CLI, the
   harness) pointed at it.
