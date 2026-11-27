@@ -60,7 +60,7 @@ func (g git) run(ctx context.Context, dir string, args ...string) (string, error
 
 // isAncestor reports whether commit a is an ancestor of (or is) b.
 func (g git) isAncestor(ctx context.Context, dir, a, b string) (bool, error) {
-	_, err := g.run(ctx, dir, "merge-base", "--is-ancestor", a, b)
+	_, err := g.run(ctx, dir, "merge-base", "--is-ancestor", "--end-of-options", a, b)
 	var ee *exec.ExitError
 	if errors.As(err, &ee) && ee.ExitCode() == 1 {
 		return false, nil

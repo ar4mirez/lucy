@@ -2,10 +2,15 @@ package worktree
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/ar4mirez/lucy/internal/eventstore"
 )
@@ -100,6 +105,12 @@ func (f *fixture) head(dir string) string {
 	return sha
 }
 
+// branch is the branch the pool gives run, whose id sanitizes to name.
+func branch(name, run string) string {
+	sum := sha256.Sum256([]byte(run))
+	return "lucy/" + name + "-" + hex.EncodeToString(sum[:4])
+}
+
 func (f *fixture) slot(n int) SlotInfo {
 	f.t.Helper()
 	slots, err := f.pool.Slots(ctx, "acme", "web")
@@ -121,13 +132,13 @@ func TestAcquireResetsToTheBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if l.Slot != 1 || l.Branch != "lucy/f1-1" || l.BaseSHA != f.head(f.work) {
+	if l.Slot != 1 || l.Branch != branch("f1-1", "f1#1") || l.BaseSHA != f.head(f.work) {
 		t.Fatalf("lease %+v", l)
 	}
 	if b, err := os.ReadFile(filepath.Join(l.Path, "README.md")); err != nil || string(b) != "hello\n" {
 		t.Fatalf("the slot's checkout: %q, %v", b, err)
 	}
-	if br, _ := f.g.run(ctx, l.Path, "branch", "--show-current"); br != "lucy/f1-1" {
+	if br, _ := f.g.run(ctx, l.Path, "branch", "--show-current"); br != l.Branch {
 		t.Fatalf("branch %q", br)
 	}
 	if s := f.slot(1); s.State != StateLeased || s.Run != "f1#1" {
@@ -287,6 +298,8 @@ func TestRefusesUnsafeInput(t *testing.T) {
 		"an org with a slash":    {Repo{Org: "a/b", Name: "web", Remote: f.repo.Remote}, "r#1", "main"},
 		"a repository with dots": {Repo{Org: "acme", Name: "..", Remote: f.repo.Remote}, "r#1", "main"},
 		"a run naming nothing":   {f.repo, "###", "main"},
+		"a run with '..'":        {f.repo, "a..b#1", "main"},
+		"a run ending in .lock":  {f.repo, "a.lock", "main"},
 	} {
 		if _, err := f.pool.Acquire(ctx, c.repo, c.run, c.base); err == nil {
 			t.Errorf("%s: leased", name)
@@ -299,5 +312,161 @@ func TestRefusesUnsafeInput(t *testing.T) {
 	}
 	if _, err := f.pool.Acquire(ctx, other, "r#2", "main"); !errors.Is(err, ErrInvalid) {
 		t.Errorf("another remote for the same repository: %v", err)
+	}
+	for name, proof := range map[string]Proof{
+		"a head like a flag":   {Head: "--output=/tmp/x", Merge: f.head(f.work)},
+		"a short merge commit": {Head: f.head(f.work), Merge: "abc123"},
+		"a ref, not an id":     {Head: f.head(f.work), Merge: "refs/heads/main"},
+	} {
+		if err := f.pool.Release(ctx, f.repo, 1, "r#1", proof); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// Runs whose ids differ only where a branch name cannot keep them apart still get distinct
+// branches, and so can be leased at once.
+func TestDistinctRunsGetDistinctBranches(t *testing.T) {
+	f := open(t)
+	a, err := f.pool.Acquire(ctx, f.repo, "a.b#1", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := f.pool.Acquire(ctx, f.repo, "a-b#1", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Branch != branch("a.b-1", "a.b#1") || b.Branch != branch("a-b-1", "a-b#1") || a.Branch == b.Branch {
+		t.Fatalf("branches %q and %q", a.Branch, b.Branch)
+	}
+}
+
+// A run that asks again for a slot it holds gets the same lease: its work is left alone, and a
+// worktree that went missing is made again.
+func TestAcquireAgainReturnsTheHeldSlot(t *testing.T) {
+	f := open(t)
+	l, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main")
+	if err != nil || again != l {
+		t.Fatalf("a second acquire: %+v, %v; first %+v", again, err, l)
+	}
+	if _, err := f.pool.Acquire(ctx, f.repo, "f1#1", "release"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("the held slot for another base: %v", err)
+	}
+
+	work := f.commit(l.Path, "draft.txt", "kept")
+	if err := os.WriteFile(filepath.Join(l.Path, "notes.txt"), []byte("unsaved"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main"); err != nil || again != l {
+		t.Fatalf("with work in it: %+v, %v", again, err)
+	}
+	if f.head(l.Path) != work {
+		t.Fatalf("the run's commit was reset away: head %s", f.head(l.Path))
+	}
+	if b, err := os.ReadFile(filepath.Join(l.Path, "notes.txt")); err != nil || string(b) != "unsaved" {
+		t.Fatalf("the run's uncommitted work: %q, %v", b, err)
+	}
+
+	// As if the daemon stopped after the lease was recorded and before its worktree was made.
+	if err := os.RemoveAll(l.Path); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main"); err != nil || again != l {
+		t.Fatalf("with the worktree missing: %+v, %v", again, err)
+	}
+	if f.head(l.Path) != l.BaseSHA {
+		t.Fatalf("the remade worktree's head %s", f.head(l.Path))
+	}
+	if br, _ := f.g.run(ctx, l.Path, "branch", "--show-current"); br != l.Branch {
+		t.Fatalf("the remade worktree's branch %q", br)
+	}
+	if slots, err := f.pool.Slots(ctx, "acme", "web"); err != nil || len(slots) != 1 || slots[0].State != StateLeased {
+		t.Fatalf("slots %+v, %v", slots, err)
+	}
+}
+
+// A lease cancelled while its worktree is being made still records the slot as broken, so it is
+// not left leased with no worktree.
+func TestCancelledAcquireStillRecordsBroken(t *testing.T) {
+	f := open(t)
+	marker := filepath.Join(f.dir, "adding")
+	script := filepath.Join(f.dir, "git-slow-add")
+	body := "#!/bin/sh\ncase \"$*\" in *\"worktree add\"*) : > " + strconv.Quote(marker) + "; exec sleep 30;; esac\nexec git \"$@\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f.pool.Git = script
+	cctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		for cctx.Err() == nil {
+			if _, err := os.Lstat(marker); err == nil {
+				cancel()
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	if _, err := f.pool.Acquire(cctx, f.repo, "f1#1", "main"); err == nil {
+		t.Fatal("a cancelled acquire succeeded")
+	}
+	if s := f.slot(1); s.State != StateBroken {
+		t.Fatalf("slot %+v", s)
+	}
+}
+
+// A base clone left with no origin, as when making it stopped after git init, is repaired.
+func TestBaseCloneWithoutOriginIsRepaired(t *testing.T) {
+	f := open(t)
+	dir := filepath.Join(f.pool.Root, "acme", "web", "base.git")
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f.must(f.g.run(ctx, f.dir, "init", "--quiet", "--bare", "--", dir))
+	l, err := f.pool.Acquire(ctx, f.repo, "f1#1", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.BaseSHA != f.head(f.work) {
+		t.Fatalf("lease %+v", l)
+	}
+
+	other := Repo{Org: "acme", Name: "api", Remote: f.repo.Remote}
+	odir := filepath.Join(f.pool.Root, "acme", "api", "base.git")
+	if err := os.MkdirAll(filepath.Dir(odir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f.must(f.g.run(ctx, f.dir, "clone", "--quiet", "--bare", "--", f.repo.Remote, odir))
+	f.must(f.g.run(ctx, odir, "remote", "remove", "origin"))
+	if _, err := f.pool.Acquire(ctx, other, "f2#1", "main"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a clone with refs and no origin: %v", err)
+	}
+}
+
+// Leases of a repository made at once, on its first use, all succeed with distinct slots.
+func TestConcurrentAcquires(t *testing.T) {
+	f := open(t)
+	f.pool.Max = 4
+	var wg sync.WaitGroup
+	leases := make([]Lease, 4)
+	errs := make([]error, 4)
+	for i := range leases {
+		wg.Go(func() {
+			leases[i], errs[i] = f.pool.Acquire(ctx, f.repo, "f"+strconv.Itoa(i)+"#1", "main")
+		})
+	}
+	wg.Wait()
+	seen := map[int]bool{}
+	for i, l := range leases {
+		if errs[i] != nil {
+			t.Fatalf("acquire %d: %v", i, errs[i])
+		}
+		if seen[l.Slot] {
+			t.Fatalf("slot %d leased twice: %+v", l.Slot, leases)
+		}
+		seen[l.Slot] = true
 	}
 }

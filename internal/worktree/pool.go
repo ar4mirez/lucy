@@ -14,13 +14,17 @@ package worktree
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/ar4mirez/lucy/internal/eventstore"
 )
@@ -57,13 +61,25 @@ type Proof struct {
 }
 
 // Pool is the worktree pool. Its state is the worktree_slots projection, and every change is one
-// store transaction, so it is safe for concurrent use; git runs outside the transaction, after a
-// slot is recorded as leased, so no two runs ever share a slot.
+// store transaction; git runs outside the transaction, after a slot is recorded as leased, so no
+// two runs ever share a slot. A Pool is safe for concurrent use: it runs one lease or release of a
+// repository at a time, so the git steps on its base.git never race. One Pool per store is the
+// unit of concurrency: two Pools over the same store and root do not serialize with each other.
 type Pool struct {
 	Store *eventstore.Store // registers Payloads() and the Projector
 	Root  string            // absolute; created 0700
 	Max   int               // slots per repository; DefaultMax when zero
 	Git   string            // the git program; "git" on PATH when empty
+
+	locks sync.Map // org/repo -> *sync.Mutex
+}
+
+// lock holds repo's lock until the returned func is called.
+func (p *Pool) lock(repo Repo) func() {
+	m, _ := p.locks.LoadOrStore(repo.Org+"/"+repo.Name, new(sync.Mutex))
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 func (p *Pool) git() git { return git{path: p.Git, home: p.Root} }
@@ -84,8 +100,10 @@ type Lease struct {
 }
 
 // Acquire leases run a slot of repo, reset to base as fetched from the remote: a free slot when
-// there is one, else a new one while the pool is under its size (ErrBusy beyond). A slot that
-// cannot be reset or made is recorded as broken and the error returned.
+// there is one, else a new one while the pool is under its size (ErrBusy beyond). A run that holds
+// a slot of repo already (a retry, or a restart after the lease was recorded) gets that lease
+// back, its worktree made again or reset only when that loses nothing. A slot that cannot be reset
+// or made is recorded as broken and the error returned.
 func (p *Pool) Acquire(ctx context.Context, repo Repo, run, base string) (Lease, error) {
 	if err := p.check(repo); err != nil {
 		return Lease{}, err
@@ -94,12 +112,32 @@ func (p *Pool) Acquire(ctx context.Context, repo Repo, run, base string) (Lease,
 	if err != nil {
 		return Lease{}, err
 	}
+	defer p.lock(repo)()
 	g := p.git()
 	baseDir, err := p.baseClone(ctx, repo)
 	if err != nil {
 		return Lease{}, err
 	}
 	if err := checkBase(ctx, g, baseDir, base); err != nil {
+		return Lease{}, err
+	}
+	held, err := scanSlot(p.Store.QueryRowContext(ctx, `SELECT `+slotColumns+` FROM worktree_slots WHERE org = ? AND repo = ? AND state = ? AND run = ?
+		ORDER BY slot LIMIT 1`, repo.Org, repo.Name, StateLeased, run))
+	switch {
+	case err == nil:
+		if held.Base != base {
+			return Lease{}, fmt.Errorf("%w: run %q holds slot %d of %s/%s on base %q, not %q", ErrInvalid, run, held.Slot, repo.Org, repo.Name, held.Base, base)
+		}
+		l := Lease{Slot: held.Slot, Path: held.Path, Branch: held.Branch, BaseSHA: held.BaseSHA}
+		how, err := p.heldPrep(ctx, baseDir, l)
+		if err != nil {
+			return Lease{}, err
+		}
+		if how == keepSlot {
+			return l, nil
+		}
+		return p.prepare(ctx, repo, baseDir, l, how)
+	case !errors.Is(err, ErrNotHeld):
 		return Lease{}, err
 	}
 	if _, err := g.run(ctx, baseDir, "fetch", "--prune", "--quiet", "origin"); err != nil {
@@ -110,7 +148,7 @@ func (p *Pool) Acquire(ctx context.Context, repo Repo, run, base string) (Lease,
 		return Lease{}, fmt.Errorf("%w: base %q is not a branch of the remote", ErrInvalid, base)
 	}
 	var l Lease
-	var fresh bool
+	how := resetSlot
 	err = p.Store.Update(ctx, func(tx *eventstore.Tx) error {
 		s, err := scanSlot(tx.QueryRowContext(ctx, `SELECT `+slotColumns+` FROM worktree_slots WHERE org = ? AND repo = ? AND state = ?
 			ORDER BY slot LIMIT 1`, repo.Org, repo.Name, StateFree))
@@ -123,7 +161,7 @@ func (p *Pool) Acquire(ctx context.Context, repo Repo, run, base string) (Lease,
 				return ErrBusy
 			}
 			s = SlotInfo{Slot: n + 1, Path: filepath.Join(p.Root, repo.Org, repo.Name, "slot-"+strconv.Itoa(n+1))}
-			fresh = true
+			how = newSlot
 			if _, err := tx.Append(ctx, Stream(repo.Org, repo.Name), eventstore.AnyVersion, "daemon",
 				Added{Org: repo.Org, Repo: repo.Name, Slot: s.Slot, Path: s.Path}); err != nil {
 				return err
@@ -139,8 +177,22 @@ func (p *Pool) Acquire(ctx context.Context, repo Repo, run, base string) (Lease,
 	if err != nil {
 		return Lease{}, err
 	}
-	if err := p.reset(ctx, baseDir, l, fresh); err != nil {
-		if _, berr := p.Store.Append(ctx, Stream(repo.Org, repo.Name), eventstore.AnyVersion, "daemon",
+	return p.prepare(ctx, repo, baseDir, l, how)
+}
+
+// How a leased slot's worktree is prepared.
+const (
+	resetSlot  = iota // put an existing worktree back at the base
+	newSlot           // make the worktree, in a directory that must not exist yet
+	remakeSlot        // make a held slot's worktree again: it is missing, or not one of base.git
+	keepSlot          // leave a held slot as it is: it may hold the run's work
+)
+
+// prepare readies l's worktree as how says and returns l, or records the slot as broken when that
+// fails. The record outlives ctx: a lease cancelled halfway still leaves its slot accounted for.
+func (p *Pool) prepare(ctx context.Context, repo Repo, baseDir string, l Lease, how int) (Lease, error) {
+	if err := p.reset(ctx, baseDir, l, how); err != nil {
+		if _, berr := p.Store.Append(context.WithoutCancel(ctx), Stream(repo.Org, repo.Name), eventstore.AnyVersion, "daemon",
 			Broken{Slot: l.Slot, Reason: capReason(err.Error())}); berr != nil {
 			return Lease{}, errors.Join(err, berr)
 		}
@@ -149,19 +201,66 @@ func (p *Pool) Acquire(ctx context.Context, repo Repo, run, base string) (Lease,
 	return l, nil
 }
 
+// heldPrep says how a slot the run holds already is prepared: made again when its worktree is
+// missing or not a worktree of base.git, reset when it is clean at the lease's base commit (nothing
+// in it is lost), and otherwise kept as it is.
+func (p *Pool) heldPrep(ctx context.Context, baseDir string, l Lease) (int, error) {
+	g := p.git()
+	if _, err := os.Lstat(l.Path); errors.Is(err, fs.ErrNotExist) {
+		return remakeSlot, nil
+	} else if err != nil {
+		return 0, err
+	}
+	common, err := g.run(ctx, l.Path, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		if ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
+		return remakeSlot, nil
+	}
+	if !samePath(common, baseDir) {
+		return remakeSlot, nil
+	}
+	dirty, err := g.run(ctx, l.Path, "status", "--porcelain", "--untracked-files=all", "--ignored=no")
+	if err != nil {
+		return 0, err
+	}
+	head, err := g.run(ctx, l.Path, "rev-parse", "--verify", "HEAD^{commit}")
+	if err != nil {
+		return 0, err
+	}
+	if dirty == "" && head == l.BaseSHA {
+		return resetSlot, nil
+	}
+	return keepSlot, nil
+}
+
+// samePath reports whether a and b name the same directory, symbolic links resolved.
+func samePath(a, b string) bool {
+	ra, err := filepath.EvalSymlinks(a)
+	if err != nil {
+		return false
+	}
+	rb, err := filepath.EvalSymlinks(b)
+	return err == nil && ra == rb
+}
+
 // reset makes the slot's worktree, or puts an existing one back, at the lease's base commit with
 // nothing else in it, on a fresh branch for the run. An existing slot was given back with its
-// work landed (Release), so nothing in it is lost.
-func (p *Pool) reset(ctx context.Context, baseDir string, l Lease, fresh bool) error {
+// work landed (Release), or is held by the run and clean at its base, so nothing in it is lost.
+func (p *Pool) reset(ctx context.Context, baseDir string, l Lease, how int) error {
 	g := p.git()
-	if fresh {
-		if _, err := os.Lstat(l.Path); !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("worktree: slot %d's directory %s exists already, and the pool did not make it", l.Slot, l.Path)
+	switch how {
+	case newSlot, remakeSlot:
+		if how == newSlot {
+			if _, err := os.Lstat(l.Path); !errors.Is(err, fs.ErrNotExist) {
+				return fmt.Errorf("worktree: slot %d's directory %s exists already, and the pool did not make it", l.Slot, l.Path)
+			}
 		}
-		if _, err := g.run(ctx, baseDir, "worktree", "add", "--quiet", "--detach", "--", l.Path, l.BaseSHA); err != nil {
+		if _, err := g.run(ctx, baseDir, "worktree", "add", "--quiet", "--force", "--detach", "--", l.Path, l.BaseSHA); err != nil {
 			return err
 		}
-	} else {
+	default:
 		for _, args := range [][]string{
 			{"checkout", "--quiet", "--force", "--detach", l.BaseSHA},
 			{"reset", "--quiet", "--hard", l.BaseSHA},
@@ -184,6 +283,10 @@ func (p *Pool) Release(ctx context.Context, repo Repo, slot int, run string, pro
 	if err := p.check(repo); err != nil {
 		return err
 	}
+	if proof != (Proof{}) && (!objectID(proof.Head) || !objectID(proof.Merge)) {
+		return fmt.Errorf("%w: proof %+v names no commits", ErrInvalid, proof)
+	}
+	defer p.lock(repo)()
 	s, err := scanSlot(p.Store.QueryRowContext(ctx, `SELECT `+slotColumns+` FROM worktree_slots WHERE org = ? AND repo = ? AND slot = ?`,
 		repo.Org, repo.Name, slot))
 	if err != nil {
@@ -217,7 +320,7 @@ func (p *Pool) Release(ctx context.Context, repo Repo, slot int, run string, pro
 		how = ProofEmpty
 	case onBase:
 		how = ProofAncestor
-	case proof.Head != "" && proof.Merge != "" && proof.Head == head:
+	case proof.Head == head:
 		merged, err := g.isAncestor(ctx, s.Path, proof.Merge, baseRef)
 		if err != nil {
 			return fmt.Errorf("%w: the merge commit %s: %w", ErrUnlanded, proof.Merge, err)
@@ -267,34 +370,47 @@ func (p *Pool) basePath(repo Repo) string {
 }
 
 // baseClone returns the repository's bare clone, making it on first use: a bare repository whose
-// origin is the remote, fetched into refs/remotes/origin. An existing clone of another remote is
-// refused.
+// origin is the remote, fetched into refs/remotes/origin. A clone left with no origin (making it
+// stopped before the remote was added) is given its origin while it holds no refs; an existing
+// clone of another remote, or one with refs and no origin, is refused.
 func (p *Pool) baseClone(ctx context.Context, repo Repo) (string, error) {
 	dir := p.basePath(repo)
 	g := p.git()
+	steps := [][]string{
+		{"-C", dir, "remote", "add", "origin", "--", repo.Remote},
+		{"-C", dir, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"},
+	}
 	if fi, err := os.Lstat(dir); err == nil {
 		if !fi.IsDir() {
 			return "", fmt.Errorf("%w: %s is not a directory", ErrInvalid, dir)
 		}
 		url, err := g.run(ctx, dir, "config", "--get", "remote.origin.url")
-		if err != nil {
+		var ee *exec.ExitError
+		switch {
+		case errors.As(err, &ee) && ee.ExitCode() == 1:
+			refs, err := g.run(ctx, dir, "for-each-ref", "--count=1")
+			if err != nil {
+				return "", err
+			}
+			if refs != "" {
+				return "", fmt.Errorf("%w: %s/%s's clone has refs and no origin", ErrInvalid, repo.Org, repo.Name)
+			}
+		case err != nil:
 			return "", err
-		}
-		if url != repo.Remote {
+		case url != repo.Remote:
 			return "", fmt.Errorf("%w: %s/%s is a clone of %q, not %q", ErrInvalid, repo.Org, repo.Name, url, repo.Remote)
+		default:
+			return dir, nil
 		}
-		return dir, nil
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return "", err
+	} else {
+		if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+			return "", err
+		}
+		steps = append([][]string{{"init", "--quiet", "--bare", "--", dir}}, steps...)
 	}
-	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
-		return "", err
-	}
-	for _, args := range [][]string{
-		{"init", "--quiet", "--bare", "--", dir},
-		{"-C", dir, "remote", "add", "origin", "--", repo.Remote},
-		{"-C", dir, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"},
-	} {
+	for _, args := range steps {
 		if _, err := g.run(ctx, p.Root, args...); err != nil {
 			return "", err
 		}
@@ -353,24 +469,39 @@ func label(s string, dots bool) bool {
 	return !strings.Contains(s, "..")
 }
 
-// branchFor is the branch a run works on: lucy/ and the run id, with anything but a-z, 0-9, '.',
-// '_' and '-' made '-'.
+// branchFor is the branch a run works on: lucy/, the run id with anything but a-z, A-Z, 0-9, '.',
+// '_' and '-' made '-', then '-' and the first 8 hex digits of the SHA-256 of the run id, so two
+// runs never share a branch. A run id that would make no branch name is refused.
 func branchFor(run string) (string, error) {
 	if run == "" || len(run) > 200 {
 		return "", fmt.Errorf("%w: run %q", ErrInvalid, run)
 	}
 	b := strings.Map(func(r rune) rune {
 		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
 			return r
 		}
 		return '-'
 	}, run)
 	b = strings.Trim(b, "-")
-	if b == "" {
+	if b == "" || strings.HasPrefix(b, ".") || strings.HasSuffix(b, ".") || strings.HasSuffix(b, ".lock") || strings.Contains(b, "..") {
 		return "", fmt.Errorf("%w: run %q names no branch", ErrInvalid, run)
 	}
-	return "lucy/" + b, nil
+	sum := sha256.Sum256([]byte(run))
+	return "lucy/" + b + "-" + hex.EncodeToString(sum[:4]), nil
+}
+
+// objectID reports whether s is a full git object id: 40 or 64 lowercase hex digits.
+func objectID(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func capReason(s string) string {
