@@ -297,7 +297,7 @@ type HeartbeatParams struct {
 	Fence      int64      `json:"fence" lucy:"min=1" doc:"The lease's fencing token."`
 	TTLSeconds int        `json:"ttl_seconds,omitempty" lucy:"min=0,max=300" doc:"The renewed life; 0 means 60, and values below 5 mean 5."`
 	Events     []RunEvent `json:"events,omitempty" lucy:"maxitems=32" doc:"The run's new events, numbered from 1 without gaps; a resent event is skipped."`
-	Acked      string     `json:"acked,omitempty" lucy:"maxlen=200" doc:"The id of the question whose answer, from an earlier heartbeat's result, the runner gave its work. Until it is acknowledged the answer comes again in every result."`
+	Acked      string     `json:"acked,omitempty" lucy:"maxlen=200" doc:"The id of the question whose answer, from an earlier heartbeat's result, the runner gave its work. Until it is acknowledged the answer comes again in every result. An id the owner did not answer under this lease is ignored."`
 }
 
 // RunEvent is one event a runner streams.

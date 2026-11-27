@@ -179,6 +179,7 @@ const repeatedQuestion = "the Pilot repeated a question the owner answered"
 // and are skipped; the rest must continue the numbering without a gap. Every asking event names
 // its question's id. acked, when set, is the id of the question whose answer the runner gave its
 // work: only then is the question answered for good, and until then each reply carries the answer.
+// An acked id the owner did not answer under fence is ignored.
 func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event, acked string) (Beat, error) {
 	if len(events) > MaxBatch {
 		return Beat{}, fmt.Errorf("%w: at most %d events per heartbeat", ErrInvalid, MaxBatch)
@@ -198,6 +199,9 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 		// The answer is read inside the transaction, which no Answer can interleave with, so the
 		// runner sees it together with the asking state it belongs to.
 		given = b.peekAnswer(run, fence)
+		if acked != ri.Given {
+			acked = "" // only an answer the owner gave can be acknowledged
+		}
 		if acked != "" && given.question == acked {
 			given = answer{}
 		}
@@ -231,7 +235,7 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 	if err != nil {
 		return Beat{}, err // a refused heartbeat leaves the holder's answer waiting
 	}
-	if acked != "" {
+	if acked != "" { // set to "" in the transaction when the owner never answered it
 		b.acknowledged(run, fence, acked)
 	}
 	return beat, nil

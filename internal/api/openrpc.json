@@ -1136,7 +1136,7 @@
         },
         {
           "name": "acked",
-          "description": "The id of the question whose answer, from an earlier heartbeat's result, the runner gave its work. Until it is acknowledged the answer comes again in every result.",
+          "description": "The id of the question whose answer, from an earlier heartbeat's result, the runner gave its work. Until it is acknowledged the answer comes again in every result. An id the owner did not answer under this lease is ignored.",
           "required": false,
           "schema": {
             "maxLength": 200,

@@ -114,6 +114,31 @@ func TestQuestionIDRequired(t *testing.T) {
 	}
 }
 
+// TestAckWithoutAnswer: a runner acknowledging a question the owner never answered does not close
+// it: nothing is recorded as answered, a repeat of the question still asks, and the owner can still
+// answer it.
+func TestAckWithoutAnswer(t *testing.T) {
+	f := open(t)
+	ctx := context.Background()
+	f.submit("f1#1")
+	l := f.lease("r1", 0)
+	ask := Event{Seq: 1, Kind: KindAsking, Text: "which account?", Question: "q1"}
+	if _, err := f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, []Event{ask}, ""); err != nil {
+		t.Fatal(err)
+	}
+	ask.Seq = 2
+	beat, err := f.b.Heartbeat(ctx, "r1", "f1#1", l.Fence, 0, []Event{ask}, "q1")
+	if err != nil || !beat.Asking {
+		t.Fatalf("beat %+v, %v", beat, err)
+	}
+	if ri := f.run("f1#1"); !ri.Asking || ri.QuestionID != "q1" || ri.Answered != "" {
+		t.Fatalf("an unanswered acknowledgement closed the question: %+v", ri)
+	}
+	if err := f.b.Answer(ctx, "f1#1", "staging"); err != nil {
+		t.Fatalf("the owner cannot answer: %v", err)
+	}
+}
+
 // TestRepeatedQuestionWhileAnswerWaits: a heartbeat that streams the question again, by its id,
 // while the owner's answer to it waits gets the answer, and the run stays not asking; once the
 // runner acknowledges the answer, the question's id stays answered, across a daemon restart too,

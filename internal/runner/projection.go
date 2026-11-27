@@ -24,9 +24,11 @@ type RunInfo struct {
 	Activity  time.Time // when the run last did something: leased, streamed, or queued
 	Asking    bool      // the last streamed event was a question
 	Question  string    // when asking
-	// QuestionID is the asked question's id, when asking; Answered is the id of the last
-	// question whose answer the runner under Fence acknowledged.
+	// QuestionID is the asked question's id, when asking; Given is the id of the last question
+	// the owner answered under Fence; Answered is the id of the last question whose answer the
+	// runner under Fence acknowledged.
 	QuestionID string
+	Given      string
 	Answered   string
 	Stop       bool   // a stop was requested
 	PR         int    // when done
@@ -43,7 +45,7 @@ type Projector struct{}
 func (Projector) Name() string { return "runner_runs" }
 
 // Version implements eventstore.Projector.
-func (Projector) Version() int { return 2 }
+func (Projector) Version() int { return 3 }
 
 // Reset implements eventstore.Projector.
 func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
@@ -69,6 +71,7 @@ func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
 			asking      INTEGER NOT NULL DEFAULT 0,
 			question    TEXT NOT NULL DEFAULT '',
 			question_id TEXT NOT NULL DEFAULT '',
+			given       TEXT NOT NULL DEFAULT '',
 			answered    TEXT NOT NULL DEFAULT '',
 			stop        INTEGER NOT NULL DEFAULT 0,
 			pr          INTEGER NOT NULL DEFAULT 0,
@@ -121,7 +124,7 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 			return err
 		}
 		q = `UPDATE runner_runs SET version = ?, state = ?, runner = ?, placement = ?, fence = ?, expires_ns = ?,
-			accepted = 0, activity_ns = ?, asking = 0, question = '', question_id = '', answered = '' WHERE run = ?`
+			accepted = 0, activity_ns = ?, asking = 0, question = '', question_id = '', given = '', answered = '' WHERE run = ?`
 		args = []any{e.StreamVersion, string(StateLeased), p.Runner, string(p.Placement), e.Seq, p.ExpiresAt.UnixNano(), at, run}
 	case Renewed{}.EventType():
 		var p Renewed
@@ -142,8 +145,12 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 		q = `UPDATE runner_runs SET version = ?, accepted = ?, activity_ns = ?, asking = ?, question = ?, question_id = ? WHERE run = ?`
 		args = []any{e.StreamVersion, p.Seq, at, asking, question, id, run}
 	case Answered{}.EventType():
-		q = `UPDATE runner_runs SET version = ?, activity_ns = ?, asking = 0, question = '', question_id = '' WHERE run = ?`
-		args = []any{e.StreamVersion, at, run}
+		var p Answered
+		if err := decode(&p); err != nil {
+			return err
+		}
+		q = `UPDATE runner_runs SET version = ?, activity_ns = ?, asking = 0, question = '', question_id = '', given = ? WHERE run = ?`
+		args = []any{e.StreamVersion, at, p.Question, run}
 	case StopRequested{}.EventType():
 		q = `UPDATE runner_runs SET version = ?, stop = 1 WHERE run = ?`
 		args = []any{e.StreamVersion, run}
@@ -178,7 +185,7 @@ func finalState(o Outcome) State {
 }
 
 const runColumns = `run, version, queued_seq, org, project, flight, generation, goal, base, state, runner, placement,
-	fence, expires_ns, accepted, activity_ns, asking, question, question_id, answered, stop, pr, reason`
+	fence, expires_ns, accepted, activity_ns, asking, question, question_id, given, answered, stop, pr, reason`
 
 type rowScanner interface{ Scan(dest ...any) error }
 
@@ -189,7 +196,7 @@ func scanRun(r rowScanner) (RunInfo, error) {
 	var asking, stop int
 	err := r.Scan(&ri.Run, &ri.Version, &ri.QueuedSeq, &ri.Org, &ri.Project, &ri.Flight, &ri.Generation, &ri.Goal,
 		&ri.Base, &state, &ri.Runner, &placement, &ri.Fence, &expires, &ri.Accepted, &activity, &asking,
-		&ri.Question, &ri.QuestionID, &ri.Answered, &stop, &ri.PR, &ri.Reason)
+		&ri.Question, &ri.QuestionID, &ri.Given, &ri.Answered, &stop, &ri.PR, &ri.Reason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RunInfo{}, ErrNoRun
 	}
