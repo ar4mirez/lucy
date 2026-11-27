@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 24
+version: 25
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -13,6 +13,17 @@ Changes since the last release. When a version is cut, its section moves to
 `docs/changes/<version>.md` and a fresh `## Unreleased` starts here ([rotation](docs/changes/README.md)).
 
 ## Unreleased
+
+### Added
+
+- The worktree pool's core (`internal/worktree`): per org and repository, `git worktree` slots of a
+  bare clone of the remote, each leased by one run, recorded in the event store before git touches
+  it (`worktree.added`, `worktree.leased`, `worktree.released`, `worktree.broken`), reset to the
+  freshly fetched base branch on acquire, and given back only when the work in it has landed: no
+  commit beyond its base, a head on the base branch, or the forge's merge of exactly its head. A
+  slot holding uncommitted changes or unmerged commits stays leased. git runs with no user or
+  system configuration and only the https, ssh and file transports. Runs are not placed in their
+  slot yet.
 
 ### Changed
 

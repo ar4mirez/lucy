@@ -30,6 +30,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/server"
 	"github.com/ar4mirez/lucy/internal/spec"
 	"github.com/ar4mirez/lucy/internal/vault"
+	"github.com/ar4mirez/lucy/internal/worktree"
 )
 
 // DaemonStream is the event stream daemon lifecycle events are appended to.
@@ -64,15 +65,16 @@ func (Stopped) EventVersion() int { return 1 }
 func Registry() (*eventstore.Registry, error) {
 	payloads := append(spec.Payloads(), Started{}, Stopped{}, server.CommandEvent{}, policy.DecisionRecord{})
 	payloads = append(append(append(payloads, runner.Payloads()...), sandbox.Payloads()...), gateway.Payloads()...)
-	payloads = append(append(payloads, capability.Payloads()...), vault.Payloads()...)
+	payloads = append(append(append(payloads, capability.Payloads()...), vault.Payloads()...), worktree.Payloads()...)
 	return eventstore.NewRegistry(payloads...)
 }
 
 // Projectors returns the projections the daemon's store maintains: resource status, the runner
-// protocol's runs and leases, the container operations that wait on the owner, and the audit hash
-// chain, which every event extends in its own append transaction.
+// protocol's runs and leases, the container operations that wait on the owner, capability tokens,
+// the worktree pool's slots, and the audit hash chain, which every event extends in its own append
+// transaction.
 func Projectors() []eventstore.Projector {
-	return []eventstore.Projector{spec.StatusProjector{}, runner.Projector{}, sandbox.Projector{}, capability.Projector{}, audit.Projector{}}
+	return []eventstore.Projector{spec.StatusProjector{}, runner.Projector{}, sandbox.Projector{}, capability.Projector{}, worktree.Projector{}, audit.Projector{}}
 }
 
 // ExpiryInterval is how often the daemon expires runner leases that were not renewed in time.

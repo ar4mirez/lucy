@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 8
+version: 9
 owner: ar4mirez
 requirements: []
 ---
@@ -145,7 +145,11 @@ slice table, requirement status and exit tests stay in the plan.
   `lucy runner` before it dials and by the executor before it makes a HOME or a run directory, so
   the HOME is per org by construction; the scratch delete removes only a direct `run-*`
   child of the root, never the home. A harness's model login has to be set up in the org home
-  (D3c). Left: the worktree pool (LUCY-RUN-007) and the delete guard on every delete (LUCY-SEC-005).
+  (D3c). The worktree pool ([worktree](../tech/worktree.md), `internal/worktree`) has its core:
+  slots of a bare clone per org and repository, leased in the store, reset on acquire and freed
+  only once the work landed, including a squash merge the forge reports. Left: runs placed in their
+  slot and the Tower releasing it at takeoff, `lucy worktree ls`, and the delete guard on every
+  delete (LUCY-SEC-005).
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real
