@@ -40,17 +40,22 @@ func helper(goal string) int {
 	case "hang":
 		time.Sleep(time.Minute)
 		return 0
-	case "spawn":
+	case "spawn", "detach":
 		exe, err := os.Executable()
 		if err != nil {
 			return 8
 		}
 		gc := exec.Command(exe)
 		gc.Env = append(os.Environ(), "LUCY_RUN_GOAL=hang")
+		gc.Stdout = os.Stdout
 		if err := gc.Start(); err != nil {
 			return 8
 		}
 		fmt.Println("grandchild", gc.Process.Pid)
+		if goal == "detach" {
+			fmt.Println("lucy:pr=5")
+			return 0
+		}
 		time.Sleep(time.Minute)
 		return 0
 	}

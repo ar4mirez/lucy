@@ -166,6 +166,12 @@ func (pe *processExecution) line(s string) {
 
 func (pe *processExecution) wait() {
 	err := pe.cmd.Wait()
+	if kerr := killProcessGroup(pe.cmd); kerr != nil {
+		pe.log.Warn("runner could not kill a run's leftover processes", "dir", pe.dir, "err", kerr)
+	}
+	if errors.Is(err, exec.ErrWaitDelay) && pe.cmd.ProcessState.Success() {
+		err = nil
+	}
 	pe.mu.Lock()
 	if len(pe.partial) > 0 {
 		pe.line(string(pe.partial))

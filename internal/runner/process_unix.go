@@ -3,6 +3,7 @@
 package runner
 
 import (
+	"errors"
 	"os/exec"
 	"syscall"
 )
@@ -14,6 +15,10 @@ func ownProcessGroup(cmd *exec.Cmd) {
 }
 
 // killProcessGroup kills cmd's whole process group: the program and every descendant still in it.
+// A group with nothing left in it is fine.
 func killProcessGroup(cmd *exec.Cmd) error {
-	return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	return nil
 }
