@@ -55,6 +55,10 @@ Where a run's checkout of its repository comes from (TECH.md section 6). The cod
   - `merged`: the forge reported merging a pull request whose head is exactly the slot's head, and
     the merge commit (or squashed commit) it named is on the base branch. This is how a squash
     merge, which leaves the slot's own commits off the base, is proven.
+
+  A refusal is recorded only when git has said the work has not landed (or the proof's merge
+  commit is unknown to it); a release whose context ends, or whose git fails otherwise, returns
+  that error, records nothing and leaves the slot leased.
 - **git.** The pool runs git with an environment of its own: no system or user configuration
   (`GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_GLOBAL=/dev/null`), the pool's root as HOME, no credential
   prompt, a C locale, and only the `https`, `ssh` and `file` transports (`GIT_ALLOW_PROTOCOL`), so
