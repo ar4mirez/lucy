@@ -92,13 +92,18 @@ func TestPermitForStaysInsideTheRun(t *testing.T) {
 			t.Errorf("%s: %v %q", p, ok, why)
 		}
 	}
-	for _, p := range []string{"$HOME/x", "${HOME}/x", "$(pwd)/x", "src/$X"} {
+	for _, p := range []string{"$HOME/x", "${HOME}/x", "$(pwd)/x", "src/$X", "$HOME.bak/../.ssh/x", "$TMPDIR-1/x"} {
 		if ok, why := permit("Write", harness.Write, p); ok || !strings.Contains(why, "variable reference") {
 			t.Errorf("%s: %v %q", p, ok, why)
 		}
 	}
 	if len(pm.asked) != 0 {
 		t.Fatalf("the engine was asked about outside paths: %+v", pm.asked)
+	}
+	for _, p := range []string{"app/routes/$postId.tsx", "app/routes/$slug", "routes/$_index.tsx"} {
+		if ok, why := permit("Edit", harness.Write, p); !ok {
+			t.Errorf("%s refused: %q", p, why)
+		}
 	}
 	if ok, why := permit("Edit", harness.Write, "app/routes/posts.$slug.tsx"); !ok {
 		t.Fatalf("a $ inside a name refused: %q", why)
