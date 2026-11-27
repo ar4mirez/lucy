@@ -89,7 +89,9 @@ func readPassphraseFile(file, vaultDir string) ([]byte, error) {
 			return nil, fmt.Errorf("the vault passphrase file %s is inside %s; keep it outside the vault and lucy's data directory", abs, d)
 		}
 	}
-	f, err := os.Open(abs) // #nosec G304 G703 -- the passphrase file the owner named, checked above
+	f, err := os.Open( // #nosec G703 -- the passphrase file the owner named, checked above
+		abs, // #nosec G304 -- the passphrase file the owner named, checked above
+	)
 	if err != nil {
 		return nil, err
 	}

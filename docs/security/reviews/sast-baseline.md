@@ -42,5 +42,7 @@ harness version check (G204) and the fake harness's fixture settings and MCP rea
 | `internal/policy/rules.go` | G101 | A map of stale-approval reasons keyed by action kind; it holds no credential |
 | `internal/sim/world.go` | G404 | The simulation is deterministic from a test seed by design; this generator never makes secrets or tokens |
 | `internal/tower/tower.go` | G602 | `Tx.Append` returns exactly one event per payload, so `payloads[i]` is in range |
-| `cmd/lucy/passphrase.go` | G304, G703 | Stats, then opens the vault passphrase file the owner named, after checking it is a plain file, not a symlink, only its owner (this user or root) can read, outside the vault and lucy's data directory |
+| `cmd/lucy/passphrase.go` | G703 | Lstats the vault passphrase file the owner named; this call is the check that it is a plain file, not a symlink, and only its owner (this user or root) can read it |
+| `cmd/lucy/passphrase.go` | G703 | Opens that passphrase file after those checks and after checking it is outside the vault and lucy's data directory |
+| `cmd/lucy/passphrase.go` | G304 | The same open: the path is the passphrase file the owner named with `--passphrase-file`, checked as above |
 | `internal/vault/vault.go` | G115 | Writes the PBKDF2 iteration count, a small positive constant (600,000; lowered only in tests), as a uint32 in the vault's key-encryption parameters |
