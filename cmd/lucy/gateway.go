@@ -8,7 +8,10 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/api/client"
@@ -77,7 +80,7 @@ func runGateway(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	defer c.Close()
-	ctx, cancel := runnerSignalContext()
+	ctx, cancel := gatewaySignalContext()
 	defer cancel()
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ln, err := gateway.ListenUnix(path)
@@ -126,4 +129,14 @@ func serveGateway(ctx context.Context, c *client.Client, org string, ln net.List
 	}
 	log.Info("lucy gateway stopped", "org", org)
 	return nil
+}
+
+// gatewaySignalContext ends on SIGINT, SIGTERM or, unless the gateway was started under nohup,
+// SIGHUP.
+func gatewaySignalContext() (context.Context, context.CancelFunc) {
+	sigs := []os.Signal{os.Interrupt, syscall.SIGTERM}
+	if !signal.Ignored(syscall.SIGHUP) {
+		sigs = append(sigs, syscall.SIGHUP)
+	}
+	return signal.NotifyContext(context.Background(), sigs...)
 }

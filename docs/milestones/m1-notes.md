@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 2
+version: 3
 owner: ar4mirez
 requirements: []
 ---
@@ -126,8 +126,12 @@ slice table, requirement status and exit tests stay in the plan.
   faults for a daemon outage (`Down`) and a runner cut off (`Cut`); the corpus uses it for
   sessions-03 and sessions-04. A runner cut off from the daemon keeps its Pilot running until it
   reconnects and is fenced; the Pilot's capability token dies with the lease, so it cannot act
-  through the gateway meanwhile. Left: a runner restart that keeps its work alive and reattaches
-  (`Runner.Shutdown` still finishes held runs as lost); a daemon upgrade in place with live runs.
+  through the gateway meanwhile. A runner drains on SIGTERM or `lucy runner drain` (`Runner.Drain`):
+  it leases nothing more and exits once its runs end, so a planned restart or upgrade loses no
+  work; runners register in `runners/` in lucy's runtime directory, a locked file each, so the
+  drain signals only live ones. An unplanned crash still loses the runner's runs, each replaced
+  once; a per-run keeper process is a later option, to weigh with #36's per-run OS boundary, as
+  both change how a run's process is owned. Left: a daemon upgrade in place with live runs.
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real

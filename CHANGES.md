@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 17
+version: 18
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,14 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Added
+
+- A runner drains on SIGTERM: it leases nothing more, lets each run it holds carry on to its end,
+  then exits 0, so a planned restart or upgrade of a runner loses no work. `lucy runner drain`
+  sends that to every live runner on this machine (`--org` or `--id` to pick, `--no-wait` to
+  return at once) and waits until each has exited. Runners register while they run in `runners/`
+  in lucy's runtime directory, one locked file each, so only a live runner is ever signalled, and
+  a second runner with the same `--id` is refused. Ctrl-C, a second SIGTERM or SIGHUP still stops
+  a runner at once, reporting its runs lost for the Tower to replace once.
 
 - A daemon restart no longer loses runs whose runners kept working while it was down. Before it
   expires anything, a restarted daemon moves every lease still live when it stopped (the time of

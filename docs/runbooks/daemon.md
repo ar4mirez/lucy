@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 16
+version: 17
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-RUN-005, LUCY-OPS-005, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -92,6 +92,7 @@ flies flights.
 
 ```sh
 lucy runner --org acme -- ./do-the-work.sh   # acme's runner, its id unique to the process; Ctrl-C stops it and its runs
+lucy runner drain --org acme                 # each acme runner finishes its runs, leases nothing more and exits
 lucy runner --org acme --id spare --ttl 30 --root /path/to/scratch -- ./do-the-work.sh
 lucy runner --org acme --harness claude-code # drive Claude Code (`claude` on PATH) over its stream-json protocol
 lucy runner host-org beta                    # the owner: the host serves beta from now on (refused while a host run is live)
@@ -114,8 +115,11 @@ the pid, so two runners never share an id. Each run gets a fresh directory under
 too long for a run's gateway socket and names the longest it takes),
 deleted through the path guard when the command exits; the command sees only PATH, HOME, TMPDIR
 and the `LUCY_RUN_*` variables. The command runs in its own process group, killed when the run ends
-or stops, so nothing it started outlives the run. Closing the runner's terminal (SIGHUP) stops it
-like Ctrl-C; start it under `nohup` to keep it running past the terminal. A runner that goes silent for longer than its lease (`--ttl`,
+or stops, so nothing it started outlives the run. To restart or upgrade a runner without losing
+work, drain it: SIGTERM, or `lucy runner drain` (which waits until it has exited), makes it lease
+nothing more and exit once its runs end; then start the new one. Ctrl-C, a second SIGTERM or
+closing its terminal (SIGHUP) stops it at once, and its runs are reported lost for the Tower to
+replace once; start it under `nohup` to keep it running past the terminal. A runner that goes silent for longer than its lease (`--ttl`,
 60 s by default) loses the run: the daemon records `run.expired` within 5 s and refuses anything
 the runner sends under that fence afterwards (`fenced`). A runner that gets `fenced` drops the run
 and stops its work; that is expected after a long pause, not an error to retry.

@@ -364,6 +364,49 @@ func TestALongDaemonOutageKeepsTheRun(t *testing.T) {
 	}
 }
 
+// A planned runner restart loses no work: the draining runner finishes the run it holds and
+// leases nothing more, the flight dispatched meanwhile waits for the restarted runner, and both
+// land with one Pilot generation each (LUCY-RUN-005).
+func TestAPlannedRunnerRestartLosesNoWork(t *testing.T) {
+	w := newWorld(t, 1)
+	w.dispatch("f1", sim.Work(30*time.Minute), sim.OpenPR(sim.Passing("ci", time.Minute)))
+	restarted := false
+	w.fly(func(minute int) {
+		old := w.runners[0]
+		switch {
+		case minute == 5:
+			old.Drain()
+		case minute == 6:
+			w.dispatch("f2", sim.Work(20*time.Minute), sim.OpenPR(sim.Passing("ci", time.Minute)))
+		case !restarted && old.Drained():
+			r, err := runner.New(runner.Config{ID: "bravo", Org: "acme", Protocol: socket{w}, Executor: simExecutor{rt: w.sim.Runtime},
+				Now: w.sim.Clock.Now, TTL: 3 * time.Minute, Log: slog.New(slog.DiscardHandler)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.runners[0], restarted = r, true
+		}
+	})
+	if !restarted {
+		t.Fatal("the runner never drained")
+	}
+	for _, id := range []string{"f1", "f2"} {
+		if s := w.flight(id); s.State != tower.StateTakeoff || s.Generation != 1 {
+			t.Fatalf("flight %+v", s)
+		}
+	}
+	rs := w.runs()
+	if len(rs) != 2 {
+		t.Fatalf("runs %+v", rs)
+	}
+	for _, r := range rs {
+		want := map[string]string{"f1#1": "alpha", "f2#1": "bravo"}[r.Run]
+		if r.State != runner.StateDone || r.Runner != want {
+			t.Fatalf("run %+v; want done by %s", r, want)
+		}
+	}
+}
+
 // No runner: the run stays queued, the Pilot timeout stops it and the flight is grounded, and the
 // stopped run is never leased.
 func TestNoRunnerTimesOut(t *testing.T) {

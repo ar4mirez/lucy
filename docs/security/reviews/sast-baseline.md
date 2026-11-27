@@ -2,7 +2,7 @@
 id: sast-baseline
 title: "SAST baseline: reviewed gosec suppressions"
 status: active
-version: 4
+version: 5
 owner: ar4mirez
 requirements: [LUCY-SEC-002]
 ---
@@ -30,6 +30,8 @@ harness version check (G204) and the fake harness's fixture settings and MCP rea
 | `internal/doccheck/doccheck.go` | G304 | A test helper reading a constant path under the repository root it is given |
 | `internal/eventstore/migrate.go` | G304 | Syncs lucy's own pre-migration snapshot and its state dir, both paths lucy built |
 | `internal/eventstore/store.go` | G304 | Opens the database path the owner chose; its directory is checked first and the file's owner and mode right after |
+| `internal/runner/registry.go` | G304 | A runner creates its own entry, `<runner id>.pid`, 0600 in the runner registry, a 0700 directory checked not to be a symlink; the id is a checked runner id, so the name cannot leave the directory |
+| `internal/runner/registry.go` | G304 | Reads an entry listed in that registry, named by a checked runner id, only to see whether a live runner holds its lock and to read its pid and org |
 | `internal/spec/load.go` | G304 | Reading the owner's config tree is the loader's job; the walk refuses symlinks and caps file and tree sizes |
 | `internal/runner/process.go` | G204 | Runs the program the runner's operator configured (`lucy runner -- <command>`), never text from a task; no shell, and an environment of only PATH, HOME, TMPDIR and `LUCY_RUN_*` |
 | `internal/runner/process.go` | G204 | The harness version check runs the same configured program with the adapter's fixed version arguments, the run's environment and a 10 s timeout; no shell |
