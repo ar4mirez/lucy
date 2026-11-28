@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 24
+version: 25
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-RUN-005, LUCY-OPS-005, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -174,6 +174,7 @@ dispatched. `lucy config status` shows each Ready Flight's `Dispatched` conditio
 | False / `TakeoverGate` | its Runway names a repository whose remote, symlinks resolved, is not a `file://` URL or absolute path under lucy's data directory or the system temp directory; real repositories are refused until runs have an OS boundary of their own (#36) and the owner's go/no-go |
 | False / `NameInUse` | a flight of another org or runway holds its name; rename the Flight |
 | False / `Finished` | the flight with its name is finished (grounded, takeoff or merged outside); a new Flight needs a new name |
+| False / `PipelineInvalid` | the org's Pipeline for the Flight's shape (`ship` or `research` in its namespace) is invalid: the spec loader rejected it, or it has a field lucy refuses; the message names it and why. lucy never falls back to its built-in Pipeline; fix the org's Pipeline and restart |
 | False / `DispatchFailed` | the Tower refused it; the message says why |
 
 The Tower's forge is a stub that reads no pull request and merges nothing until the validation

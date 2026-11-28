@@ -73,6 +73,7 @@ const (
 	ReasonNameInUse        = "NameInUse"
 	ReasonFinished         = "Finished"
 	ReasonDispatchFailed   = "DispatchFailed"
+	ReasonPipelineInvalid  = "PipelineInvalid" // the org's Pipeline of the Flight's shape is invalid; the built-in one never stands in
 )
 
 // takeoverGate refuses remote unless it is a file:// URL or an absolute path that, with symlinks
@@ -181,9 +182,14 @@ func (h *hostedTower) dispatch(ctx context.Context, set *spec.Set, enabled bool,
 		if shape == "" {
 			shape = pipeline.Ship
 		}
-		p, ok := h.pipelines.For(org, shape)
-		if !ok {
+		p, err := h.pipelines.For(org, shape)
+		if errors.Is(err, pipeline.ErrNoPipeline) {
 			mark(spec.False, ReasonDispatchFailed, fmt.Sprintf("no %s Pipeline", shape))
+			continue
+		}
+		if err != nil {
+			h.log.Warn("flight not dispatched: its Pipeline is invalid", "flight", r.ID(), "err", err)
+			mark(spec.False, ReasonPipelineInvalid, err.Error())
 			continue
 		}
 		s.Pipeline = towerPipeline(p)

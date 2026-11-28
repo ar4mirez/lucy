@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 18
+version: 19
 owner: ar4mirez
 requirements: []
 ---
@@ -167,7 +167,7 @@ slice table, requirement status and exit tests stay in the plan.
   owner posture. The daemon hosts the Tower: it steps its flights on its poll interval and serves its
   Pilots' questions through `lucy questions` and `lucy answer`; only started with `--dispatch` does
   it dispatch the Ready Flights it loads (by name, once), each recorded with a `Dispatched`
-  condition (InFlight for one it flies from its log; DispatchDisabled, TakeoverGate, NameInUse, Finished, DispatchFailed when not). A Runway
+  condition (InFlight for one it flies from its log; DispatchDisabled, TakeoverGate, NameInUse, Finished, PipelineInvalid, DispatchFailed when not). A Runway
   whose remote is not a local fixture is refused, at dispatch and at every lease, until #36 and the owner's go/no-go, and the gateway
   refuses every git push; its forge is a stub that merges nothing until the validation slice. Decisions (LUCY-SPEC-013):
   `internal/decision` projects every decision waiting on the owner from the log (the
@@ -181,7 +181,9 @@ slice table, requirement status and exit tests stay in the plan.
   with what the Tower takes from its shape's Pipeline (`tower.Pipeline` in `task.dispatched`).
   Parse is an allowlist: `triggers` and `providers` (required by the format, not acted on yet),
   and the stage fields lucy flies; every other field, and an escalating approval timeout, is
-  refused with `pipeline.ErrUnsupported` naming its path. Left in 7a: wiring those (LUCY-SPEC-014), the
+  refused with `pipeline.ErrUnsupported` naming its path. An org Pipeline lucy cannot fly (loader
+  or Parse refusal) is held in the catalog as its error: the daemon starts and holds that org's
+  Flights of its shape as `PipelineInvalid`, never on the built-in one. Left in 7a: wiring those (LUCY-SPEC-014), the
   roles' other constraints and tools and their session instructions (LUCY-SPEC-015), and Core conformance (LUCY-SPEC-017).
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.

@@ -309,42 +309,86 @@ func Duration(s string) (time.Duration, error) {
 	return total, nil
 }
 
-// Catalog holds each org's Pipelines: the built-in ones, or the org's own of the same name.
+// ErrNoPipeline is For's answer for a name lucy flies no Pipeline of.
+var ErrNoPipeline = errors.New("pipeline: no such Pipeline")
+
+// Catalog holds each org's Pipelines: the built-in ones, or the org's own of the same name. An org
+// Pipeline lucy cannot fly is held as its error: it never falls back to the built-in one.
 type Catalog struct {
 	builtin map[string]Policy
 	orgs    map[string]map[string]Policy // org -> name -> the org's Pipeline
+	invalid map[string]map[string]error  // org -> name -> why the org's Pipeline is not flown
 }
 
-// NewCatalog returns a catalog of the built-in Pipelines and the Pipelines in rs named ship or
-// research, by namespace (the org); one in the namespace lucy is ignored. An org Pipeline lucy
-// cannot fly is an error naming it, as other admission failures are.
-func NewCatalog(rs []spec.Resource) (*Catalog, error) {
+// NewCatalog returns a catalog of the built-in Pipelines and the Pipelines in results named ship
+// or research, by namespace (the org); one in the namespace lucy is ignored. An org Pipeline the
+// spec loader refused, or Parse refuses, is recorded as invalid for that org and name, not
+// returned as an error: only a broken built-in Pipeline is.
+func NewCatalog(results []spec.Result) (*Catalog, error) {
 	b, err := Builtin()
 	if err != nil {
 		return nil, err
 	}
-	c := &Catalog{builtin: b, orgs: map[string]map[string]Policy{}}
-	for _, r := range rs {
-		if r.APIVersion != spec.CoreAPIVersion || r.Kind != "Pipeline" || r.Metadata.Namespace == Namespace || !slices.Contains(Names, r.Metadata.Name) {
+	c := &Catalog{builtin: b, orgs: map[string]map[string]Policy{}, invalid: map[string]map[string]error{}}
+	for _, res := range results {
+		if res.APIVersion != spec.CoreAPIVersion || res.Kind != "Pipeline" || res.Namespace == Namespace || !slices.Contains(Names, res.Name) {
 			continue
 		}
-		p, err := Parse(r)
+		org, name := res.Namespace, res.Name
+		if res.Resource == nil {
+			reason, msg := "", ""
+			if v, ok := res.Condition(spec.ConditionValid); ok {
+				reason, msg = v.Reason, v.Message
+			}
+			c.markInvalid(org, name, fmt.Errorf("%w: Pipeline %s/%s: the spec loader refused it (%s): %s", ErrInvalid, org, name, reason, msg))
+			continue
+		}
+		p, err := Parse(*res.Resource)
 		if err != nil {
-			return nil, err
+			c.markInvalid(org, name, err)
+			continue
 		}
-		if c.orgs[r.Metadata.Namespace] == nil {
-			c.orgs[r.Metadata.Namespace] = map[string]Policy{}
+		if c.orgs[org] == nil {
+			c.orgs[org] = map[string]Policy{}
 		}
-		c.orgs[r.Metadata.Namespace][r.Metadata.Name] = p
+		c.orgs[org][name] = p
 	}
 	return c, nil
 }
 
-// For returns org's Pipeline named name: its own, else the built-in one.
-func (c *Catalog) For(org, name string) (Policy, bool) {
-	if p, ok := c.orgs[org][name]; ok {
-		return p, true
+// markInvalid records why org's Pipeline name is not flown; the first refusal wins.
+func (c *Catalog) markInvalid(org, name string, err error) {
+	if c.invalid[org] == nil {
+		c.invalid[org] = map[string]error{}
 	}
-	p, ok := c.builtin[name]
-	return p, ok
+	if _, ok := c.invalid[org][name]; !ok {
+		c.invalid[org][name] = err
+	}
+}
+
+// Invalid returns why each org Pipeline lucy cannot fly is refused, sorted by org then name.
+func (c *Catalog) Invalid() []error {
+	var out []error
+	for _, org := range slices.Sorted(maps.Keys(c.invalid)) {
+		for _, name := range slices.Sorted(maps.Keys(c.invalid[org])) {
+			out = append(out, c.invalid[org][name])
+		}
+	}
+	return out
+}
+
+// For returns org's Pipeline named name: its own, else the built-in one. If org defines one lucy
+// cannot fly, For returns why (ErrInvalid, ErrUnsupported or ErrAutoApprove), never the built-in
+// one; a name lucy flies no Pipeline of is ErrNoPipeline.
+func (c *Catalog) For(org, name string) (Policy, error) {
+	if err, ok := c.invalid[org][name]; ok {
+		return Policy{}, err
+	}
+	if p, ok := c.orgs[org][name]; ok {
+		return p, nil
+	}
+	if p, ok := c.builtin[name]; ok {
+		return p, nil
+	}
+	return Policy{}, fmt.Errorf("%w: %s", ErrNoPipeline, name)
 }

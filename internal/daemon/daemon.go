@@ -209,9 +209,14 @@ func Run(ctx context.Context, opts Options) error {
 	worktrees := &worktree.Source{Pool: &worktree.Pool{Store: store, Root: wtRoot, Git: opts.WorktreeGit}, Remote: opts.WorktreeRemote,
 		Gate: takeoverGate, Context: ctx, Timeout: opts.WorktreePrepareTimeout, Log: log}
 	worktrees.SetRunways(set.Admitted())
-	pipelines, err := pipeline.NewCatalog(set.Admitted())
+	pipelines, err := pipeline.NewCatalog(set.Results)
 	if err != nil {
 		return fmt.Errorf("daemon: load the pipelines: %w", err)
+	}
+	// An org Pipeline lucy cannot fly holds that org's Flights of its shape; it never stops the
+	// daemon, and the built-in Pipeline never stands in for it (LUCY-SPEC-014).
+	for _, err := range pipelines.Invalid() {
+		log.Warn("pipeline not flown: its org's Flights of its shape are held", "err", err)
 	}
 	roles, err := role.NewCatalog(set.Admitted())
 	if err != nil {

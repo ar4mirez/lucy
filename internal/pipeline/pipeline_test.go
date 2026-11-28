@@ -150,25 +150,43 @@ func TestDuration(t *testing.T) {
 }
 
 // An org's Pipeline of a lucy name replaces the built-in one for that org only; one in the
-// reserved namespace changes nothing; one lucy cannot fly is an error naming it.
+// reserved namespace changes nothing; one lucy cannot fly, whether the spec loader or Parse refuses
+// it, holds that org and name with its error and never falls back to the built-in one.
 func TestCatalog(t *testing.T) {
 	strict := pipelineDoc("acme", Ship, pilotStage+"    - { name: merge, approval: { required: true } }\n", "")
 	override := pipelineDoc(Namespace, Ship, "    - { name: pilot, onFailure: { strategy: abort } }\n", "")
-	c, err := NewCatalog([]spec.Resource{load(t, strict), load(t, override)})
+	unflyable := pipelineDoc("beta", Ship, "    - { name: pilot, onFailure: { strategy: continue } }\n", "")
+	schemaTypo := pipelineDoc("gamma", Ship, "    - { name: pilot }\n    - { name: merge, approval: { required: true, tierOverride: bogus } }\n", "")
+	var results []spec.Result
+	for _, doc := range []string{strict, override, unflyable, schemaTypo} {
+		results = append(results, spec.LoadFile("p.yaml", []byte(doc))...)
+	}
+	if results[3].Valid() {
+		t.Fatal("the schema typo was admitted; the test needs a Pipeline the spec loader refuses")
+	}
+	c, err := NewCatalog(results)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p, _ := c.For("acme", Ship); !p.Merge.Required || p.Pilot.MaxRetries != 2 {
-		t.Errorf("acme's ship %+v", p)
+	if p, err := c.For("acme", Ship); err != nil || !p.Merge.Required || p.Pilot.MaxRetries != 2 {
+		t.Errorf("acme's ship %+v, %v", p, err)
 	}
-	if p, _ := c.For("beta", Ship); p.Merge.Required || p.Pilot.MaxRetries != 1 {
-		t.Errorf("beta's ship %+v; another org's Pipeline or the reserved namespace leaked", p)
+	if p, err := c.For("delta", Ship); err != nil || p.Merge.Required || p.Pilot.MaxRetries != 1 || p.Namespace != Namespace {
+		t.Errorf("delta's ship %+v, %v; another org's Pipeline or the reserved namespace leaked", p, err)
 	}
-	if _, ok := c.For("acme", "deploy"); ok {
-		t.Error("a Pipeline lucy does not fly was found")
+	if _, err := c.For("acme", "deploy"); !errors.Is(err, ErrNoPipeline) {
+		t.Errorf("a Pipeline lucy does not fly: %v", err)
 	}
-	_, err = NewCatalog([]spec.Resource{load(t, pipelineDoc("acme", Ship, "    - { name: pilot, onFailure: { strategy: continue } }\n", ""))})
-	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "acme/ship") {
-		t.Errorf("an invalid org Pipeline: %v", err)
+	if p, err := c.For("beta", Ship); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "beta/ship") || p.Name != "" {
+		t.Errorf("beta's unflyable ship: %+v, %v; want it held as invalid, not the built-in", p, err)
+	}
+	if p, err := c.For("gamma", Ship); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "gamma/ship") || !strings.Contains(err.Error(), "SchemaViolation") || p.Name != "" {
+		t.Errorf("gamma's schema-invalid ship: %+v, %v; want it held as invalid, not the built-in", p, err)
+	}
+	if _, err := c.For("gamma", Research); err != nil {
+		t.Errorf("gamma's research Pipeline is held too: %v", err)
+	}
+	if got := c.Invalid(); len(got) != 2 {
+		t.Errorf("Invalid() = %v, want beta/ship and gamma/ship", got)
 	}
 }
