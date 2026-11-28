@@ -464,3 +464,68 @@ func TestContainerFactsDigest(t *testing.T) {
 		t.Errorf("FactsDigest = %s, want %s", got, want)
 	}
 }
+
+// The actor role's AgentRole blockedPaths deny a write or a delete of a matching path, relative to
+// the checkout, whatever rule would otherwise allow it; reads and paths that match nothing are
+// unaffected (LUCY-SPEC-015).
+func TestBlockedPaths(t *testing.T) {
+	root := "/work/acme/web/slot-1"
+	f := Facts{BlockedPaths: []string{".github/workflows/**", "**/secrets/**", "*.pem"}, WorkRoot: root}
+	for _, c := range []struct {
+		name    string
+		kind    Kind
+		path    string
+		outcome Outcome
+		rule    string
+	}{
+		{"a workflow", KindWrite, root + "/.github/workflows/ci.yml", Denied, "role.blocked-paths"},
+		{"a nested secret", KindWrite, root + "/app/config/secrets/key.txt", Denied, "role.blocked-paths"},
+		{"a top-level pem", KindWrite, root + "/server.pem", Denied, "role.blocked-paths"},
+		{"a pem deeper down", KindWrite, root + "/certs/server.pem", Cleared, "write.worker-only"},
+		{"an ordinary file", KindWrite, root + "/main.go", Cleared, "write.worker-only"},
+		{"a read of a blocked path", KindRead, root + "/.github/workflows/ci.yml", Cleared, "read.in-org"},
+		{"a blocked path outside the checkout", KindWrite, "/elsewhere/app/secrets/x", Denied, "role.blocked-paths"},
+	} {
+		d := Evaluate(request(worker, c.kind, "web", c.path), f)
+		if d.Outcome != c.outcome || d.Rule != c.rule {
+			t.Errorf("%s: %s by %s (%s), want %s by %s", c.name, d.Outcome, d.Rule, d.Reason, c.outcome, c.rule)
+		}
+	}
+	// A delete inside a scratch root that the path guard would allow is still denied when blocked.
+	scratch := t.TempDir()
+	df := Facts{BlockedPaths: []string{"**/secrets/**"}, Home: "/home/nobody", Roots: []pathguard.Root{{Kind: pathguard.Scratch, Path: scratch}},
+		ResolvedPath: scratch + "/secrets/key", WorkRoot: scratch}
+	if d := Evaluate(request(worker, KindDelete, "web", scratch+"/secrets/key"), df); d.Outcome != Denied || d.Rule != "role.blocked-paths" {
+		t.Errorf("a blocked delete: %s by %s (%s)", d.Outcome, d.Rule, d.Reason)
+	}
+	df.BlockedPaths = nil
+	if d := Evaluate(request(worker, KindDelete, "web", scratch+"/secrets/key"), df); d.Outcome != Cleared {
+		t.Errorf("the same delete, nothing blocked: %s by %s (%s)", d.Outcome, d.Rule, d.Reason)
+	}
+	for _, bad := range []Facts{{BlockedPaths: []string{""}}, {BlockedPaths: []string{"a//b"}}, {BlockedPaths: []string{"[x"}}, {WorkRoot: "relative"}} {
+		if d := Evaluate(request(worker, KindWrite, "web", root+"/x"), bad); d.Outcome != Denied || d.Rule != "facts.valid" {
+			t.Errorf("facts %+v: %s by %s", bad, d.Outcome, d.Rule)
+		}
+	}
+}
+
+func TestMatchGlob(t *testing.T) {
+	for _, c := range []struct {
+		g, p string
+		want bool
+	}{
+		{"**", "a/b/c", true},
+		{"**/x", "x", true},
+		{"**/x", "a/b/x", true},
+		{"a/**", "a", true},
+		{"a/**/z", "a/z", true},
+		{"a/**/z", "a/b/c/z", true},
+		{"a/*/z", "a/b/c/z", false},
+		{"*.go", "dir/main.go", false},
+		{".env*", ".env.local", true},
+	} {
+		if got := matchGlob(c.g, c.p); got != c.want {
+			t.Errorf("matchGlob(%q, %q) = %v, want %v", c.g, c.p, got, c.want)
+		}
+	}
+}

@@ -1,0 +1,12 @@
+apiVersion: ai-sdlc.io/v1alpha1
+kind: AgentRole
+metadata:
+  name: worker
+  namespace: lucy
+spec:
+  role: "Pilot: ship worker"
+  goal: "Change one project in an isolated worktree and land the change as a pull request"
+  tools: [read, write, exec, fetch]
+  constraints:
+    requireTests: true
+    requireHumanApproval: [merge]

@@ -266,3 +266,17 @@ func (s *Source) spawn(what, run string, f func(ctx context.Context) error) {
 		}
 	})
 }
+
+// Checkout returns the worktree of the slot run holds of its project's repository, and whether it
+// holds one.
+func (s *Source) Checkout(ctx context.Context, org, project, run string) (string, bool) {
+	repo, _, ok, err := s.repo(org, project)
+	if !ok || err != nil {
+		return "", false
+	}
+	slot, err := s.Pool.Held(ctx, repo, run)
+	if err != nil {
+		return "", false
+	}
+	return slot.Path, true
+}

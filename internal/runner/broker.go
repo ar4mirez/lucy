@@ -33,6 +33,8 @@ type Broker struct {
 	store    *eventstore.Store
 	now      func() time.Time
 	verifier PlacementVerifier // nil: every container lease is refused
+	// permitFacts gives the facts a Pilot's prompted tool is decided on; none when nil.
+	permitFacts func(ctx context.Context, ri RunInfo) policy.Facts
 
 	mu      sync.Mutex
 	answers map[string]answer // by run
@@ -51,6 +53,13 @@ func NewBroker(store *eventstore.Store, now func() time.Time) *Broker {
 		now = time.Now
 	}
 	return &Broker{store: store, now: now, answers: map[string]answer{}}
+}
+
+// PermitFactsWith makes f the source of the facts Permit decides a Pilot's prompted tool on: what
+// the daemon knows about the run, such as its role's blocked paths and its checkout
+// (LUCY-SPEC-015). Without one, Permit decides on no facts.
+func (b *Broker) PermitFactsWith(f func(ctx context.Context, ri RunInfo) policy.Facts) {
+	b.permitFacts = f
 }
 
 // VerifyPlacementWith makes v the check on container leases' placement proofs. Without one, every
@@ -721,8 +730,12 @@ func (b *Broker) Permit(ctx context.Context, runner, run string, fence int64, p 
 			Target: policy.Target{Org: ri.Org, Project: ri.Project, Resource: p.Resource},
 			Inputs: []policy.Input{{Source: policy.SourceTask, Ref: "run/" + ri.Run}, {Source: policy.SourceAgent, Ref: "tool/" + p.Tool}},
 		}
-		d := policy.Evaluate(req, policy.Facts{})
-		if _, err := tx.Append(ctx, policy.Stream, eventstore.AnyVersion, runnerActor(runner), policy.NewRecord(req, policy.Facts{}, d)); err != nil {
+		var facts policy.Facts
+		if b.permitFacts != nil {
+			facts = b.permitFacts(ctx, ri)
+		}
+		d := policy.Evaluate(req, facts)
+		if _, err := tx.Append(ctx, policy.Stream, eventstore.AnyVersion, runnerActor(runner), policy.NewRecord(req, facts, d)); err != nil {
 			return err // unrecorded, so it allows nothing
 		}
 		perm = Permission{Outcome: d.Outcome, Rule: d.Rule, Reason: d.Reason}

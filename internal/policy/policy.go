@@ -181,6 +181,8 @@ type Facts struct {
 	ResolvedPath       string           `json:"resolved_path,omitempty"`       // the delete target after symlink resolution
 	SessionsKnown      bool             `json:"sessions_known,omitempty"`      // the daemon listed the org container's live sessions
 	LiveSessions       []string         `json:"live_sessions,omitempty"`       // the runs live in the org's container, sorted
+	BlockedPaths       []string         `json:"blocked_paths,omitempty"`       // the actor role's AgentRole blockedPaths globs (LUCY-SPEC-015)
+	WorkRoot           string           `json:"work_root,omitempty"`           // the checkout blocked paths are relative to
 	Approvals          []Approval       `json:"approvals,omitempty"`
 }
 

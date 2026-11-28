@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 30
+version: 31
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,12 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Added
+
+- Roles are ai-sdlc AgentRole resources: lucy bundles one for each of its roles (supervisor,
+  worker, researcher, reviewer), and an org adds to one with an `AgentRole` of that name in its
+  namespace. A role's `constraints.blockedPaths` globs are enforced: the policy engine (rule set
+  version 7, rule `role.blocked-paths`) denies a Pilot's write or delete of a blocked path,
+  relative to its checkout, whatever else would allow it.
 
 - Decisions waiting on you are a catalog: a Pilot's question, a merge holding for your approval and
   a container operation holding for your confirmation are each projected from the event log into

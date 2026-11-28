@@ -6,6 +6,7 @@ package policy
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -153,6 +154,18 @@ var rules = []Rule{
 			}
 		}
 		return deny("every input behind this privileged request comes from an untrusted source")
+	}},
+	{"role.blocked-paths", "A write or delete of a path the actor role's AgentRole blocks (constraints.blockedPaths, globs relative to the checkout) is denied, whatever else allows it.", func(c *evalCtx) (verdict, bool) {
+		if !c.kindIs(KindWrite, KindDelete) || len(c.facts.BlockedPaths) == 0 {
+			return pass()
+		}
+		rel := relativePath(c.facts.WorkRoot, c.req.Target.Resource)
+		for _, g := range c.facts.BlockedPaths {
+			if matchGlob(g, rel) {
+				return deny(fmt.Sprintf("the path matches %q, which the %s role's AgentRole blocks", g, c.req.Actor.Role))
+			}
+		}
+		return pass()
 	}},
 	{"read.in-org", "Reading inside the actor's own org is allowed.", func(c *evalCtx) (verdict, bool) {
 		if c.kindIs(KindRead) {
@@ -395,6 +408,17 @@ func validFacts(f Facts) string {
 		len(f.LiveSessions) > MaxFactItems {
 		return fmt.Sprintf("more than %d exceptions, roots, approvals or live sessions", MaxFactItems)
 	}
+	if len(f.BlockedPaths) > MaxFactItems {
+		return fmt.Sprintf("more than %d blocked paths", MaxFactItems)
+	}
+	for _, g := range f.BlockedPaths {
+		if g == "" || len(g) > MaxResourceBytes || !validGlob(g) {
+			return fmt.Sprintf("blocked path %q is not a glob of at most %d bytes", g, MaxResourceBytes)
+		}
+	}
+	if f.WorkRoot != "" && (!filepath.IsAbs(f.WorkRoot) || len(f.WorkRoot) > MaxResourceBytes) {
+		return "the work root is not an absolute path"
+	}
 	if !f.SessionsKnown && len(f.LiveSessions) > 0 {
 		return "live sessions listed but not known"
 	}
@@ -501,4 +525,59 @@ func sessions(n int) string {
 		return "1 session"
 	}
 	return fmt.Sprintf("%d sessions", n)
+}
+
+// relativePath is the path a blocked-path glob is matched against: resource relative to root when
+// it is inside root, else resource without its leading slash, so a glob that starts with ** still
+// matches anywhere.
+func relativePath(root, resource string) string {
+	if root != "" {
+		if rel, err := filepath.Rel(root, resource); err == nil && rel != ".." && !strings.HasPrefix(rel, "../") {
+			return filepath.ToSlash(rel)
+		}
+	}
+	return strings.TrimPrefix(filepath.ToSlash(resource), "/")
+}
+
+// matchGlob reports whether the slash-separated path p matches glob g: "**" matches any number
+// of whole segments, none included, and every other segment matches one segment as path.Match does.
+func matchGlob(g, p string) bool {
+	return matchSegments(strings.Split(strings.Trim(g, "/"), "/"), strings.Split(p, "/"))
+}
+
+func matchSegments(gs, ps []string) bool {
+	for len(gs) > 0 {
+		if gs[0] == "**" {
+			for i := 0; i <= len(ps); i++ {
+				if matchSegments(gs[1:], ps[i:]) {
+					return true
+				}
+			}
+			return false
+		}
+		if len(ps) == 0 {
+			return false
+		}
+		if ok, err := path.Match(gs[0], ps[0]); err != nil || !ok {
+			return false
+		}
+		gs, ps = gs[1:], ps[1:]
+	}
+	return len(ps) == 0
+}
+
+// validGlob reports whether every segment of g is "**" or a pattern path.Match reads.
+func validGlob(g string) bool {
+	for _, seg := range strings.Split(strings.Trim(g, "/"), "/") {
+		if seg == "" {
+			return false
+		}
+		if seg == "**" {
+			continue
+		}
+		if _, err := path.Match(seg, ""); err != nil {
+			return false
+		}
+	}
+	return true
 }
