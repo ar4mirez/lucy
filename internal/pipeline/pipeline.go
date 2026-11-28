@@ -11,11 +11,11 @@
 //
 // The members the spec loader fills with their schema default (spec.artifactSchemaVersion,
 // defaultModel and defaultHarness; a stage's schedule and databaseAccess) are accepted only at that
-// default, the same as leaving them out. Every other field, anywhere in the spec, is refused with ErrUnsupported naming its path, so a
-// Pipeline never carries a setting lucy does not act on. An approval timeout that escalates (or
-// names no onTimeout) is refused the same way: the Tower acts only on abort. Above all, a timeout
-// never approves a merge: an ApprovalPolicy whose onTimeout is auto-approve is refused with
-// ErrAutoApprove, on any stage.
+// default, the same as leaving them out. Every other field, anywhere in the spec, is refused with
+// ErrUnsupported naming its path, so a Pipeline never carries a setting lucy does not act on. An
+// approval timeout that escalates (or names no onTimeout) is refused the same way: the Tower acts
+// only on abort. Above all, a timeout never approves a merge: an ApprovalPolicy whose onTimeout is
+// auto-approve is refused with ErrAutoApprove, on any stage.
 //
 // lucy flies two stages: pilot (the Pilot's session) and, for ship, merge (the Tower's merge).
 // The spec marks spec.stages deprecated in favour of a Workflow document; lucy reads its policies

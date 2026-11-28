@@ -24,11 +24,11 @@ Changes since the last release. When a version is cut, its section moves to
   the flight). A timeout never approves a merge: a Pipeline with `onTimeout: auto-approve` is
   refused. An org Pipeline lucy cannot fly (one the spec loader rejects, or one with a refused
   field) never falls back to the built-in one: the daemon starts, logs a warning, and holds that
-  org's Flights of that shape with reason `PipelineInvalid`, naming the Pipeline and why. Only these fields are accepted: `triggers` and
-  `providers` (required by the format, not acted on yet), and per stage `name`, `agent`,
-  `onFailure` (`strategy`, `maxRetries`) and `approval` (`required`, `blocking`, `timeout`,
-  `onTimeout`). Every other field, and an escalating timeout, is refused as not supported yet,
-  naming its path, rather than ignored.
+  org's Flights of that shape with reason `PipelineInvalid`, naming the Pipeline and why. Only
+  these fields are accepted: `triggers` and `providers` (required by the format, not acted on
+  yet), and per stage `name`, `agent`, `onFailure` (`strategy`, `maxRetries`) and `approval`
+  (`required`, `blocking`, `timeout`, `onTimeout`). Every other field, and an escalating timeout,
+  is refused as not supported yet, naming its path, rather than ignored.
 
 - Roles are ai-sdlc AgentRole resources: lucy bundles one for each of its roles (supervisor,
   worker, researcher, reviewer), and an org adds to one with an `AgentRole` of that name in its
