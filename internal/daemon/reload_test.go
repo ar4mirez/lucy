@@ -81,6 +81,13 @@ func TestReloadTightensWithoutARestart(t *testing.T) {
 			if !c.applied && (len(r.Refused) != 1 || !strings.Contains(r.Refused[0], "runway.yaml")) {
 				t.Fatalf("the refused resources %v", r.Refused)
 			}
+			res, err := cl.Resources(context.Background(), api.ResourcesParams{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := map[bool]string{true: "", false: "refused"}[c.applied]; res.LastReload.Outcome != want || (!c.applied && res.LastReload.Refused != 1) {
+				t.Fatalf("resources.list's last reload %+v, want outcome %q", res.LastReload, want)
+			}
 			if got := tightenings(t, cl); strings.Join(got, ",") != strings.Join(c.want, ",") {
 				t.Fatalf("tightenings %v, want %v", got, c.want)
 			}
@@ -88,5 +95,82 @@ func TestReloadTightensWithoutARestart(t *testing.T) {
 				t.Fatalf("flights.list's autonomy %q after the tightening, want owner", got)
 			}
 		})
+	}
+}
+
+// A reload that cannot read the config directory, here because it was renamed, fails and changes
+// nothing: no flight is tightened, the flight keeps its posture, no resource is recorded removed;
+// config.reload says why, the failure is recorded, and resources.list carries it (LUCY-POL-005).
+func TestReloadOfAMissingDirectoryKeepsTheConfigWhole(t *testing.T) {
+	dir := shortTempDir(t)
+	o := opts(dir)
+	o.TowerPollInterval = 20 * time.Millisecond
+	o.Dispatch = true
+	writeFlights(t, o, "spec: { autonomyPolicy: standard, autonomyLevel: 1 }")
+	if err := os.WriteFile(filepath.Join(o.ResourcesDir, "policy.yaml"), []byte(standardPolicy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cl := startClient(t, o)
+	if d := dispatched(t, cl, "acme", "fix-login"); d.Reason != ReasonDispatched {
+		t.Fatalf("the Dispatched condition %+v", d)
+	}
+	before := listedAutonomy(t, cl)
+	if err := os.Rename(o.ResourcesDir, o.ResourcesDir+".moved"); err != nil {
+		t.Fatal(err)
+	}
+	var r api.ReloadResult
+	if err := cl.Call(context.Background(), api.MethodReload, api.NoParams{}, &r); err != nil {
+		t.Fatal(err)
+	}
+	if r.Applied || r.Failed == "" || r.Tightened != 0 {
+		t.Fatalf("reload %+v, want failed with nothing applied or tightened", r)
+	}
+	if got := tightenings(t, cl); len(got) != 0 {
+		t.Fatalf("tightenings %v, want none", got)
+	}
+	if got := listedAutonomy(t, cl); got != before {
+		t.Fatalf("flights.list's autonomy %q after the failed reload, want %q", got, before)
+	}
+	page, err := cl.Events(context.Background(), api.EventsParams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var failed int
+	for _, e := range page.Events {
+		switch e.Type {
+		case "resource.removed":
+			t.Fatalf("a failed reload recorded a resource removed: %s", e.Payload)
+		case "daemon.config_reload_failed":
+			var p ConfigReloadFailed
+			if err := json.Unmarshal(e.Payload, &p); err != nil {
+				t.Fatal(err)
+			}
+			if p.Dir != o.ResourcesDir || p.Reason != r.Failed {
+				t.Fatalf("daemon.config_reload_failed %+v, want dir %s and reason %q", p, o.ResourcesDir, r.Failed)
+			}
+			failed++
+		}
+	}
+	if failed != 1 {
+		t.Fatalf("%d daemon.config_reload_failed events, want 1", failed)
+	}
+	res, err := cl.Resources(context.Background(), api.ResourcesParams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.LastReload.Outcome != "failed" || res.LastReload.Reason != r.Failed || res.LastReload.At == "" {
+		t.Fatalf("resources.list's last reload %+v, want the failure", res.LastReload)
+	}
+	if len(res.Resources) == 0 {
+		t.Fatal("resources.list lists no resource after the failed reload")
+	}
+	if err := os.Rename(o.ResourcesDir+".moved", o.ResourcesDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := cl.Call(context.Background(), api.MethodReload, api.NoParams{}, &r); err != nil || !r.Applied {
+		t.Fatalf("reload after restoring the directory %+v, %v", r, err)
+	}
+	if res, err = cl.Resources(context.Background(), api.ResourcesParams{}); err != nil || res.LastReload.Outcome != "" {
+		t.Fatalf("resources.list's last reload %+v after an applied reload, %v", res.LastReload, err)
 	}
 }

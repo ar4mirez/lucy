@@ -32,7 +32,10 @@ one it runs on: Ready Flights are dispatched (when it dispatches) and flights in
 stricter posture their config now asks for; a promotion applies only to later dispatches. A
 config with refused resources is not applied: the daemon keeps its last good config, but still
 tightens, and moves to owner every flight in flight whose Runway or AutonomyPolicy became
-invalid or vanished. Exits 0 when applied, 1 when refused (it lists why).
+invalid or vanished. A config directory that cannot be read, or no longer exists, fails the
+reload: the daemon keeps its last good config whole and changes no flight. Exits 0 when applied,
+1 when refused (it lists why) or failed (it says why); config status shows the last reload that
+was not applied.
 `
 
 func runConfig(args []string, stdout, stderr io.Writer) int {
@@ -138,19 +141,28 @@ func runConfigStatus(args []string, stdout, stderr io.Writer) int {
 	var all []api.ResourceInfo
 	var refused []api.RefusedInfo
 	var truncated int
+	var last api.ReloadOutcome
 	for offset := 0; ; {
 		page, err := c.Resources(ctx, api.ResourcesParams{Offset: offset, Limit: 500})
 		if err != nil {
 			return callFailed(err, c, stderr)
 		}
 		if offset == 0 {
-			refused, truncated = page.Refused, page.RefusedTruncated
+			refused, truncated, last = page.Refused, page.RefusedTruncated, page.LastReload
 		}
 		all = append(all, page.Resources...)
 		if !page.More {
 			break
 		}
 		offset = page.Next
+	}
+	switch last.Outcome {
+	case "failed":
+		fmt.Fprintf(stdout, "last_reload: failed at %s; the daemon keeps its last good config whole\nreason: %s\nhelp: restore the config directory, then run `lucy config reload`\n",
+			untrusted(last.At), untrusted(last.Reason))
+	case "refused":
+		fmt.Fprintf(stdout, "last_reload: refused at %s (%d resources); the daemon keeps its last good config, but for the tightening\nhelp: fix them (`lucy config validate`), then run `lucy config reload`\n",
+			untrusted(last.At), last.Refused)
 	}
 	if len(all) == 0 && len(refused) == 0 {
 		fmt.Fprint(stdout, "resources[0]: the daemon has loaded none\nhelp: add resources to the config directory and restart the daemon\n")
@@ -200,6 +212,10 @@ func runConfigReload(args []string, stdout, stderr io.Writer) int {
 	if r.Applied {
 		fmt.Fprintf(stdout, "reload: applied\ntightened: %d\n", r.Tightened)
 		return 0
+	}
+	if r.Failed != "" {
+		fmt.Fprintf(stdout, "reload: failed; the daemon keeps its last good config whole\nreason: %s\nhelp: restore the config directory, then run `lucy config reload` again\n", untrusted(r.Failed))
+		return 1
 	}
 	fmt.Fprintf(stdout, "reload: refused; the daemon keeps its last good config\ntightened: %d\nrefused[%d]:\n", r.Tightened, len(r.Refused))
 	for _, why := range r.Refused {

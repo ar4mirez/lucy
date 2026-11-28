@@ -21,7 +21,10 @@ Changes since the last release. When a version is cut, its section moves to
   statuses are recorded, its new Ready Flights dispatched (with `--dispatch`), its flights in flight
   tightened. A config with refused resources is not applied, and the command lists why, but its
   strictening still applies: a flight whose Runway or AutonomyPolicy became invalid or vanished
-  moves to owner. A loosening never applies to a flight in flight. The roles' blocked paths and the
+  moves to owner. A config directory that cannot be read, or no longer exists, fails the reload:
+  the last good config stays whole, no flight is tightened, `daemon.config_reload_failed` records
+  why, and `lucy config status` shows the last reload that failed or was refused. A loosening never
+  applies to a flight in flight. The roles' blocked paths and the
   gateway's routes still take a restart.
 
 - Demoting a Runway's autonomy level now tightens its flights already in flight, on `lucy config

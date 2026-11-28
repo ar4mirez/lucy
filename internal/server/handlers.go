@@ -251,6 +251,9 @@ func (s *Server) resources(ctx context.Context, p *api.ResourcesParams) (api.Res
 			page.Refused = append(page.Refused, info)
 		}
 		page.RefusedTruncated = truncated
+		if s.opts.LastReload != nil {
+			page.LastReload = s.opts.LastReload()
+		}
 	}
 	if p.Offset >= len(all) {
 		return page, nil

@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ar4mirez/lucy/internal/api"
 	"log/slog"
 	"net/url"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ar4mirez/lucy/internal/api"
 	"github.com/ar4mirez/lucy/internal/autonomy"
 	"github.com/ar4mirez/lucy/internal/converge"
 	"github.com/ar4mirez/lucy/internal/eventstore"
@@ -61,7 +61,9 @@ type hostedTower struct {
 
 	// set is the config the daemon runs on: the last load with no refused resource (or the
 	// start's), guarded by mu. Reloads replace it (reload, under reloadMu).
-	set      *spec.Set
+	set *spec.Set
+	// last is the last reload's outcome when it was not applied, guarded by mu.
+	last     api.ReloadOutcome
 	reloadMu sync.Mutex
 }
 
@@ -444,14 +446,15 @@ func (h *hostedTower) tighten(ctx context.Context, set *spec.Set) int {
 // tightened. A load with refused resources changes nothing but the strictening rules: flights in
 // flight still move to their Runways' stricter postures, and to owner where a Runway or its
 // AutonomyPolicy became invalid or vanished; the last good config stays for everything else. A
-// loosening is never applied to a flight in flight.
+// loosening is never applied to a flight in flight. A directory that cannot be read, or no longer
+// exists, fails the reload: the last good config stays whole.
 func (h *hostedTower) reload(ctx context.Context, store *eventstore.Store, dir string, enabled bool, gate func(org, project string) error,
 	refresh func(set spec.Set) error) (api.ReloadResult, error) {
 	h.reloadMu.Lock()
 	defer h.reloadMu.Unlock()
-	next, err := loadResources(dir)
+	next, dir, err := readResources(dir)
 	if err != nil {
-		return api.ReloadResult{}, err // nothing is known about the new config: keep the last good one whole
+		return h.reloadFailed(ctx, store, dir, err)
 	}
 	if next.Invalid() > 0 {
 		out := api.ReloadResult{Tightened: h.tighten(ctx, &next)}
@@ -461,6 +464,7 @@ func (h *hostedTower) reload(ctx context.Context, store *eventstore.Store, dir s
 				out.Refused = append(out.Refused, fmt.Sprintf("%s: %s: %s", r.Source, c.Reason, c.Message))
 			}
 		}
+		h.setLastReload(api.ReloadOutcome{Outcome: "refused", Refused: len(out.Refused), At: reloadTime()})
 		h.log.Warn("config reload refused: the last good config stays, but for the strictening rules",
 			"refused", len(out.Refused), "tightened", out.Tightened)
 		return out, nil
@@ -472,9 +476,45 @@ func (h *hostedTower) reload(ctx context.Context, store *eventstore.Store, dir s
 	out := api.ReloadResult{Applied: true, Tightened: h.tighten(ctx, &next)}
 	h.mu.Lock()
 	h.set = &next
+	h.last = api.ReloadOutcome{}
 	h.mu.Unlock()
 	if err := recordResources(ctx, store, next, h.log); err != nil {
 		return out, err
 	}
 	return out, nil
 }
+
+// maxReloadReason caps the reason a failed reload records.
+const maxReloadReason = 512
+
+// reloadFailed records a reload that could not read the config directory, missing or not: nothing
+// is known about the new config, so the last good one stays whole, with no flight tightened and no
+// resource recorded as removed.
+func (h *hostedTower) reloadFailed(ctx context.Context, store *eventstore.Store, dir string, cause error) (api.ReloadResult, error) {
+	reason := cause.Error()
+	if len(reason) > maxReloadReason {
+		reason = strings.ToValidUTF8(reason[:maxReloadReason], "")
+	}
+	h.setLastReload(api.ReloadOutcome{Outcome: "failed", Reason: reason, At: reloadTime()})
+	h.log.Warn("config reload failed: the last good config stays whole", "dir", dir, "err", cause)
+	if _, err := store.Append(ctx, DaemonStream, eventstore.AnyVersion, "daemon", ConfigReloadFailed{Dir: dir, Reason: reason}); err != nil {
+		return api.ReloadResult{}, fmt.Errorf("daemon: record the failed reload: %w", err)
+	}
+	return api.ReloadResult{Failed: reason}, nil
+}
+
+func (h *hostedTower) setLastReload(o api.ReloadOutcome) {
+	h.mu.Lock()
+	h.last = o
+	h.mu.Unlock()
+}
+
+// lastReloadOutcome is the last reload's outcome when it was not applied; zero when it was, or
+// when the daemon has not reloaded.
+func (h *hostedTower) lastReloadOutcome() api.ReloadOutcome {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.last
+}
+
+func reloadTime() string { return time.Now().UTC().Format(time.RFC3339) }

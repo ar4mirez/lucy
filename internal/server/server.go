@@ -90,6 +90,9 @@ type Options struct {
 	// Reload loads the config directory again, which config.reload serves. Nil means this daemon
 	// reloads nothing: the method answers unavailable.
 	Reload func(ctx context.Context) (api.ReloadResult, error)
+	// LastReload is the last config reload's outcome when it was not applied, which resources.list
+	// carries. Nil, or a zero outcome, means none.
+	LastReload func() api.ReloadOutcome
 	// Containers is the guarded view of the org containers, which sandbox.held and
 	// sandbox.confirm serve. Nil means this daemon has no Sandbox binding open: nothing is held
 	// and a confirmation is unavailable. TODO(LUCY-SBX-001): set it once the daemon opens the

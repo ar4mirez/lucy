@@ -195,7 +195,11 @@ A Runway's posture change takes effect without a restart: run `lucy config reloa
 daemon SIGHUP) after editing the config, or it applies at the next start. A reload with no
 refused resource replaces the config the daemon runs on and dispatches its new Ready Flights;
 one with refused resources is not applied (it lists why, and the daemon keeps its last good
-config), but its strictening still applies. The Pipelines and worktree pool follow a reload; the
+config), but its strictening still applies. A config directory that cannot be read, or no longer
+exists, fails the reload: the daemon keeps its last good config whole, tightens no flight and
+records no resource removed; it records `daemon.config_reload_failed` with the reason, and
+`lucy config status` shows the last reload that was failed or refused above the resources. Only at
+start does a missing directory mean nothing is configured. The Pipelines and worktree pool follow a reload; the
 roles' blocked paths and the gateway's routes still take a restart. Demoting a Runway (for example
 `autonomyLevel` 1, green, to 0, owner) tightens its flights already in flight, recorded as
 `task.posture_tightened`, so their next merge waits for you; promoting it applies only to Flights
