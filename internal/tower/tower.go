@@ -92,7 +92,14 @@ type Spec struct {
 	Posture    policy.Posture     // the project's merge posture: how much the flight may do on its own
 	Acceptance string             // the acceptance test: what must hold for the flight to be done
 	Exceptions []policy.Exception // fixed-list categories the change touches
+	Pipeline   *Pipeline          // how the flight is flown; nil flies it on the Tower's own defaults
 }
+
+// Timeout actions a Pipeline may name. There is no third: a timeout never approves a merge.
+const (
+	OnTimeoutAbort    = "abort"
+	OnTimeoutEscalate = "escalate"
+)
 
 // DeliveryPullRequest is the delivery path of a ship flight: a pull request against the runway's
 // base branch. It is the only one the Tower flies so far; a research flight's report is later.
@@ -237,7 +244,7 @@ func streamID(stream string) string {
 func (t *Tower) add(id string, d Dispatched) *flight {
 	f := &flight{
 		spec: Spec{ID: id, Org: d.Org, Project: d.Project, Goal: d.Goal, Base: d.Base, Posture: d.Posture,
-			Exceptions: d.Exceptions, Delivery: d.Delivery, Acceptance: d.Acceptance},
+			Exceptions: d.Exceptions, Delivery: d.Delivery, Acceptance: d.Acceptance, Pipeline: d.Pipeline},
 		stream: streamPrefix + d.Org + "/" + id,
 	}
 	t.flights[id] = f
@@ -263,8 +270,20 @@ func (t *Tower) Dispatch(ctx context.Context, s Spec) error {
 	if s.Base == "" {
 		s.Base = "main"
 	}
+	if p := s.Pipeline; p != nil {
+		switch {
+		case p.MaxRestarts < 0:
+			return errors.New("tower: a Pipeline's restarts cannot be negative")
+		case p.ApprovalTimeout < 0:
+			return errors.New("tower: a Pipeline's approval timeout cannot be negative")
+		case p.ApprovalTimeout > 0 && p.OnTimeout != OnTimeoutAbort && p.OnTimeout != OnTimeoutEscalate:
+			return fmt.Errorf("tower: a Pipeline's approval timeout action %q is not abort or escalate; a timeout never approves a merge", p.OnTimeout)
+		case p.ApprovalTimeout == 0 && p.OnTimeout != "":
+			return errors.New("tower: a Pipeline names an approval timeout action without a timeout")
+		}
+	}
 	d := Dispatched{Org: s.Org, Project: s.Project, Goal: s.Goal, Base: s.Base, Posture: s.Posture, Exceptions: s.Exceptions,
-		Delivery: s.Delivery, Acceptance: capText(s.Acceptance)}
+		Delivery: s.Delivery, Acceptance: capText(s.Acceptance), Pipeline: s.Pipeline}
 	evs, err := t.cfg.Store.Append(ctx, streamPrefix+s.Org+"/"+s.ID, eventstore.NoStream, ActorDaemon, d)
 	if err != nil {
 		return err
@@ -385,7 +404,7 @@ func (t *Tower) watchPilot(ctx context.Context, f *flight) error {
 	case PilotFailed:
 		return t.record(ctx, f, ActorDaemon, exited(ExitFailed, 0, rep.Reason), Grounded{Reason: GroundPilotFailed})
 	case PilotLost:
-		if f.lost < t.cfg.MaxRestarts {
+		if f.lost < t.maxRestarts(f) {
 			return t.record(ctx, f, ActorDaemon, exited(ExitLost, 0, ""))
 		}
 		return t.record(ctx, f, ActorDaemon, exited(ExitLost, 0, ""),
@@ -425,6 +444,13 @@ func (t *Tower) watchPR(ctx context.Context, f *flight) error {
 			return t.clearMerge(ctx, f)
 		}
 	}
+	// A merge held past its Pipeline's approval timeout is grounded under abort; under escalate it
+	// keeps waiting on the owner, the one person it escalates to. Neither approves it.
+	if p := f.spec.Pipeline; f.state == StateHolding && p != nil && p.ApprovalTimeout > 0 && p.OnTimeout == OnTimeoutAbort &&
+		t.cfg.Clock.Now().Sub(f.since) >= p.ApprovalTimeout {
+		return t.record(ctx, f, ActorDaemon, Grounded{Reason: GroundApprovalTimeout,
+			Detail: "the merge held for the owner's approval for " + p.ApprovalTimeout.String() + "; a timeout never approves a merge"})
+	}
 	if f.state == StateReview && t.cfg.Clock.Now().Sub(f.observedAt) >= t.cfg.Patience {
 		return t.record(ctx, f, ActorDaemon, Grounded{Reason: GroundStalled,
 			Detail: "the pull request made no progress toward a clearance for " + t.cfg.Patience.String()})
@@ -436,6 +462,15 @@ func (t *Tower) watchPR(ctx context.Context, f *flight) error {
 		return t.merge(ctx, f, f.decision)
 	}
 	return nil
+}
+
+// maxRestarts is how many lost Pilot sessions the Tower replaces for f: its Pipeline's, else the
+// Tower's own.
+func (t *Tower) maxRestarts(f *flight) int {
+	if p := f.spec.Pipeline; p != nil {
+		return p.MaxRestarts
+	}
+	return t.cfg.MaxRestarts
 }
 
 // retryAt is the earliest time an errored merge may be tried again: poll, 2*poll, 4*poll, ...
@@ -464,8 +499,12 @@ func (f *flight) mergeRequest() (policy.Request, policy.Facts) {
 		Target: policy.Target{Org: f.spec.Org, Project: f.spec.Project, Resource: fmt.Sprintf("pr/%d", f.pr)},
 		Inputs: []policy.Input{{Source: policy.SourceTask, Ref: f.stream}},
 	}
+	posture := f.spec.Posture
+	if p := f.spec.Pipeline; p != nil && p.ApprovalRequired && posture == policy.PostureGreen {
+		posture = policy.PostureOwner // the Pipeline holds every merge for the owner; it never waives an approval
+	}
 	facts := policy.Facts{
-		Posture: f.spec.Posture, Checks: f.observed.Checks, RequiredUnreported: f.observed.RequiredUnreported,
+		Posture: posture, Checks: f.observed.Checks, RequiredUnreported: f.observed.RequiredUnreported,
 		Exceptions: f.spec.Exceptions, HeadSHA: f.observed.HeadSHA, BaseRef: f.observed.BaseRef,
 		BaseSHA: f.observed.BaseSHA, Approvals: f.approvals,
 	}

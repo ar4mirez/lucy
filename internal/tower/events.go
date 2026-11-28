@@ -3,6 +3,7 @@ package tower
 import (
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/policy"
+	"time"
 )
 
 // A flight's events, on its stream "task/<org>/<id>". The log holds the neutral id task for a
@@ -18,6 +19,24 @@ type Dispatched struct {
 	Exceptions []policy.Exception `json:"exceptions,omitempty"`
 	Delivery   string             `json:"delivery,omitempty"`   // empty for a flight dispatched before readiness was checked
 	Acceptance string             `json:"acceptance,omitempty"` // the acceptance test, capped
+	// Pipeline is how the flight is flown; nil for a flight dispatched before Pipelines were
+	// read, which the Tower flies on its own defaults.
+	Pipeline *Pipeline `json:"pipeline,omitempty"`
+}
+
+// Pipeline is what the Tower takes from a flight's ai-sdlc Pipeline (LUCY-SPEC-014).
+type Pipeline struct {
+	Name string `json:"name"` // ship or research, and the namespace it came from: lucy/ship or acme/ship
+	// MaxRestarts is how many lost Pilot sessions the Tower replaces before it grounds the flight:
+	// the pilot stage's FailurePolicy, retry's maxRetries, 0 for abort.
+	MaxRestarts int `json:"max_restarts"`
+	// ApprovalRequired holds every merge for the owner, whatever the autonomy posture: the merge
+	// stage's ApprovalPolicy required. It can only add an approval, never waive one.
+	ApprovalRequired bool `json:"approval_required,omitempty"`
+	// ApprovalTimeout bounds how long a merge holds; 0 for no limit. On it, OnTimeout says what
+	// happens: abort grounds the flight, escalate keeps it waiting on the owner. Neither approves.
+	ApprovalTimeout time.Duration `json:"approval_timeout_ns,omitempty"`
+	OnTimeout       string        `json:"on_timeout,omitempty"`
 }
 
 // PilotStarted records a Pilot session started for the flight.
@@ -100,6 +119,9 @@ const (
 	GroundPilotLost   = "pilot_lost"   // the Pilot was lost more often than the Tower restarts it
 	GroundTimeout     = "pilot_timeout"
 	GroundStalled     = "stalled" // the pull request made no progress toward a clearance
+	// GroundApprovalTimeout: a merge held for the owner past its Pipeline's approval timeout, under
+	// onTimeout abort. A timeout never approves a merge.
+	GroundApprovalTimeout = "approval_timeout"
 )
 
 // Who merged a pull request lucy did not merge, as MergedOutside records it.

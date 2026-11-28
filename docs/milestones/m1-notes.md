@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 15
+version: 16
 owner: ar4mirez
 requirements: []
 ---
@@ -176,7 +176,10 @@ slice table, requirement status and exit tests stay in the plan.
   `lucy approve` give a holding merge the owner's word. Roles (LUCY-SPEC-015): `internal/role` bundles one AgentRole per role (builtin/, namespace
   `lucy`); an org's AgentRole of a role's name adds its blockedPaths, and the daemon gives them,
   with the run's checkout, to `runner.permit` as facts for the policy engine's `role.blocked-paths`
-  rule. Left in 7a: pipelines (LUCY-SPEC-014), the roles' other constraints and tools and their
+  rule. Pipelines (LUCY-SPEC-014): `internal/pipeline` bundles the ship and research Pipelines
+  (builtin/, namespace `lucy`), reads an org's replacement, and the daemon dispatches each Flight
+  with what the Tower takes from its shape's Pipeline (`tower.Pipeline` in `task.dispatched`). Left
+  in 7a: the Pipelines' credential and pull request wiring (LUCY-SPEC-014), the roles' other constraints and tools and their
   session instructions (LUCY-SPEC-015), and Core conformance (LUCY-SPEC-017).
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.

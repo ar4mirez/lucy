@@ -2,7 +2,7 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 28
+version: 29
 owner: ar4mirez
 requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-004, LUCY-SPEC-009, LUCY-SIM-001, LUCY-SIM-002, LUCY-RUN-001, LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-013, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007, LUCY-SEC-002]
 ---
@@ -229,6 +229,7 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 | `internal/doccheck/` | Doc-rules checker and test |
 | `internal/eventstore/` | The SQLite event store: event log, projections, consumers, migrations (section 3) |
 | `internal/pathguard/` | The path guard every delete passes (section 5) |
+| `internal/pipeline/` | the ship and research Pipelines as bundled ai-sdlc Pipelines, an org's replacements, read into policy (LUCY-SPEC-014) |
 | `internal/role/` | lucy's roles as bundled ai-sdlc AgentRoles, an org's additions, their blocked paths (LUCY-SPEC-015) |
 | `internal/policy/` | The policy engine: request model, rules, rule-set hash, decision record (section 5) |
 | `internal/runner/` | The runner protocol: broker and its projection, the Tower's Runtime over it, the runner loop, the process executor (section 6) |

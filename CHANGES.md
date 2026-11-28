@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 31
+version: 32
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,15 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Added
+
+- Flights are flown on ai-sdlc Pipeline resources: lucy bundles a `ship` and a `research`
+  Pipeline, and an org replaces one with a `Pipeline` of that name in its namespace. The pilot
+  stage's `onFailure` (`abort`, or `retry` with `maxRetries`) sets how many lost Pilots are
+  replaced; the merge stage's `approval` can require your approval for every merge, whatever the
+  autonomy posture, and bound how long a merge holds (`timeout`, with `onTimeout: abort` to ground
+  the flight or `escalate` to keep waiting on you). A timeout never approves a merge: a Pipeline
+  with `onTimeout: auto-approve` is refused, and the daemon does not start with one. Stage
+  `credentials` and `pullRequest` config are checked on load.
 
 - Roles are ai-sdlc AgentRole resources: lucy bundles one for each of its roles (supervisor,
   worker, researcher, reviewer), and an org adds to one with an `AgentRole` of that name in its
