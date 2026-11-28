@@ -35,9 +35,10 @@ is a local fixture under lucy's data directory or the system temp directory: a r
 is refused at the takeover gate (TakeoverGate) until runs have an OS boundary of their own
 (issue #36) and the owner's go/no-go.
 
---supervise arms the model supervisor for each org whose Airspace opts in with spec.supervisor
-(its gateway route for model calls, a small and a large model, and a daily token budget); off by
-default, and both are needed. It only suggests answers to a Pilot's questions, shown in
+An org whose Airspace opts in with spec.supervisor gets lucy's built-in safety rules and its own
+rules (spec.supervisor.rules) with no flag: they call nothing and spend nothing. --supervise arms
+its models too, when it names them (its gateway route for model calls, a small and a large model,
+and a daily token budget); off by default, and both are needed. It only suggests answers to a Pilot's questions, shown in
 ` + "`lucy questions`" + `; only you answer them. Its model calls go through the org's credential gateway
 ($XDG_RUNTIME_DIR/lucy/gateway/<org>.sock, run with ` + "`lucy gateway`" + `), which holds the key; the
 daemon holds none. A spent daily budget, a refused call or an error leaves the question to you.

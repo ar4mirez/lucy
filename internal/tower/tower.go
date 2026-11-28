@@ -72,7 +72,7 @@ const (
 // the store's registry must hold Payloads() and policy.DecisionRecord.
 type Config struct {
 	// Supervisor proposes answers to Pilot questions (LUCY-RUN-010); nil leaves every question to
-	// the owner, as the rules-only supervision does.
+	// the owner.
 	Supervisor    Supervisor
 	Store         *eventstore.Store
 	Runtime       Runtime

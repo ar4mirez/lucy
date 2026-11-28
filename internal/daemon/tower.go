@@ -118,7 +118,7 @@ func (h *hostedTower) waitSupervisor() {
 }
 
 // supervisorUsage is each opted-in org's supervisor tokens today against its daily budget, and
-// whether the daemon armed it (--supervise).
+// whether its models are asked: the daemon was started with --supervise and the org names them.
 func (h *hostedTower) supervisorUsage(ctx context.Context, store *eventstore.Store, armed bool) ([]api.SupervisorUsage, error) {
 	h.mu.Lock()
 	orgs := make([]supervise.Config, 0, len(h.supervision))
