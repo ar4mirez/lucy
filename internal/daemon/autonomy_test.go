@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/api"
+	"github.com/ar4mirez/lucy/internal/api/client"
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/tower"
 )
@@ -48,6 +49,9 @@ func TestFlightsAreFlownUnderTheirRunwaysPosture(t *testing.T) {
 			}
 			cl := startClient(t, o)
 			d := dispatched(t, cl, "acme", "fix-login")
+			if got := listedAutonomy(t, cl); got != string(c.want) {
+				t.Fatalf("flights.list's autonomy %q, want %q", got, c.want)
+			}
 			if c.want == "" {
 				if d.Reason != ReasonAutonomyInvalid || !strings.Contains(d.Message, "looser") {
 					t.Fatalf("the Dispatched condition %+v, want AutonomyInvalid saying the Flight's is looser", d)
@@ -75,5 +79,65 @@ func TestFlightsAreFlownUnderTheirRunwaysPosture(t *testing.T) {
 			}
 			t.Fatal("no task.dispatched")
 		})
+	}
+}
+
+func listedAutonomy(t *testing.T, c *client.Client) string {
+	t.Helper()
+	for _, f := range flightList(t, c) {
+		if f.Org == "acme" && f.Name == "fix-login" {
+			return f.Autonomy
+		}
+	}
+	t.Fatal("flights.list does not list acme/fix-login")
+	return ""
+}
+
+// flights.list reports the posture a Flight in flight was dispatched under, as its log records it,
+// even after the owner changes its Runway's level by hand.
+func TestFlightsListReportsTheRecordedPosture(t *testing.T) {
+	dir := shortTempDir(t)
+	o := opts(dir)
+	o.TowerPollInterval = 20 * time.Millisecond
+	o.Dispatch = true
+	writeFlights(t, o, "spec: { autonomyPolicy: standard, autonomyLevel: 1 }")
+	for file, doc := range map[string]string{
+		"policy.yaml": standardPolicy,
+		"ready.yaml": "apiVersion: lucy/v1alpha1\nkind: Flight\nmetadata: { name: fix-login, namespace: acme }\n" +
+			"spec: { shape: ship, goal: fix the login page, runway: web, delivery: pull-request, acceptance: the login test passes }\n",
+	} {
+		if err := os.WriteFile(filepath.Join(o.ResourcesDir, file), []byte(doc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := startDaemon(t, o)
+	c := client.New(r.sock, "test", "0")
+	t.Cleanup(func() { c.Close() })
+	if d := dispatched(t, c, "acme", "fix-login"); d.Reason != ReasonDispatched {
+		t.Fatalf("the Dispatched condition %+v", d)
+	}
+	if got := listedAutonomy(t, c); got != string(policy.PostureGreen) {
+		t.Fatalf("flights.list's autonomy %q, want green", got)
+	}
+	if _, err := c.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.wait(t); err != nil {
+		t.Fatal(err)
+	}
+	writeFlights(t, o, "spec: { autonomyPolicy: standard, autonomyLevel: 0 }")
+	if err := os.WriteFile(filepath.Join(o.ResourcesDir, "ready.yaml"), []byte("apiVersion: lucy/v1alpha1\nkind: Flight\nmetadata: { name: fix-login, namespace: acme }\n"+
+		"spec: { shape: ship, goal: fix the login page, runway: web, delivery: pull-request, acceptance: the login test passes }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	o.Dispatch = false
+	r = startDaemon(t, o)
+	c = client.New(r.sock, "test", "0")
+	t.Cleanup(func() { c.Close() })
+	if d := dispatched(t, c, "acme", "fix-login"); d.Reason != ReasonInFlight {
+		t.Fatalf("the Dispatched condition after a restart: %+v", d)
+	}
+	if got := listedAutonomy(t, c); got != string(policy.PostureGreen) {
+		t.Fatalf("flights.list's autonomy after a hand demotion %q, want the recorded green", got)
 	}
 }

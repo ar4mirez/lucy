@@ -50,8 +50,13 @@ func TestTask(t *testing.T) {
 		if c.f.Goal == "" && task["title"] != c.f.Name {
 			t.Errorf("%s: a Flight with no goal is titled %v", c.name, task["title"])
 		}
-		if labels, _ := task["labels"].([]any); !slices.Contains(labels, any("shape:ship")) {
+		labels, _ := task["labels"].([]any)
+		if !slices.Contains(labels, any("shape:ship")) {
 			t.Errorf("%s: labels %v", c.name, labels)
+		}
+		if hasAutonomy := slices.ContainsFunc(labels, func(l any) bool { s, _ := l.(string); return strings.HasPrefix(s, "autonomy:") }); hasAutonomy != (c.f.Autonomy != "") ||
+			(c.f.Autonomy != "" && !slices.Contains(labels, any("autonomy:"+c.f.Autonomy))) {
+			t.Errorf("%s: labels %v for autonomy %q", c.name, labels, c.f.Autonomy)
 		}
 	}
 }

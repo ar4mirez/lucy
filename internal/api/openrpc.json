@@ -1647,7 +1647,7 @@
               "items": {
                 "properties": {
                   "autonomy": {
-                    "description": "The posture it is flown under: owner, green or client. Its Runway's, from the AutonomyPolicy level the Runway names, tightened by its own autonomy; or its own.",
+                    "description": "The posture it is flown under: owner, green or client. For a Flight the Tower flies, the posture its dispatch recorded; otherwise its Runway's, from the AutonomyPolicy level the Runway names, tightened by its own autonomy, or its own. Empty when its posture cannot be set.",
                     "type": "string"
                   },
                   "dispatched": {

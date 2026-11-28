@@ -148,6 +148,7 @@ type Status struct {
 	ID         string
 	Org        string
 	Project    string
+	Posture    policy.Posture // the posture it was dispatched under, as recorded in its task.dispatched
 	State      State
 	Session    string
 	Generation int
@@ -331,7 +332,7 @@ func (t *Tower) Flights() []Status {
 }
 
 func (f *flight) status(b converge.Options) Status {
-	s := Status{ID: f.spec.ID, Org: f.spec.Org, Project: f.spec.Project, State: f.state, Session: f.session, Generation: f.generation, Question: f.question,
+	s := Status{ID: f.spec.ID, Org: f.spec.Org, Project: f.spec.Project, Posture: f.spec.Posture, State: f.state, Session: f.session, Generation: f.generation, Question: f.question,
 		PR: f.pr, Observed: f.observed, Reason: f.reason, Since: f.since, Failures: f.failures, RetryAt: f.stepAt}
 	if f.stepErr != nil {
 		s.StepError = f.stepErr.Error()

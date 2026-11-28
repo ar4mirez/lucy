@@ -325,15 +325,14 @@ func (h *hostedTower) flights(set *spec.Set) []api.FlightInfo {
 		}
 		str := func(k string) string { s, _ := r.Spec[k].(string); return s }
 		f := api.FlightInfo{Org: r.Metadata.Namespace, Name: r.Metadata.Name, Goal: str("goal"), Shape: str("shape"),
-			Runway: str("runway"), Autonomy: str("autonomy"), Ready: cond(res, spec.ConditionReady), Dispatched: cond(res, ConditionDispatched)}
+			Runway: str("runway"), Ready: cond(res, spec.ConditionReady), Dispatched: cond(res, ConditionDispatched)}
 		if f.Shape == "" {
 			f.Shape = pipeline.Ship
 		}
-		if p, err := flightPosture(set, *r); err == nil && p != "" {
-			f.Autonomy = string(p) // the posture it is flown under: its Runway's, or its own
-		}
 		if st, ok := h.tw.Flight(r.Metadata.Name); ok && st.Org == f.Org && st.Project == f.Runway {
-			f.State, f.Reason, f.StepError, f.RetryAt = string(st.State), st.Reason, st.StepError, st.RetryAt.UTC()
+			f.Autonomy, f.State, f.Reason, f.StepError, f.RetryAt = string(st.Posture), string(st.State), st.Reason, st.StepError, st.RetryAt.UTC()
+		} else if p, err := flightPosture(set, *r); err == nil {
+			f.Autonomy = string(p)
 		}
 		out = append(out, f)
 	}
