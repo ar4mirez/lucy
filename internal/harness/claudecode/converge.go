@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 )
@@ -122,8 +123,18 @@ func readJSON(home *os.Root, name string) (map[string]any, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return map[string]any{}, nil
 	}
-	m := map[string]any{}
-	if err := json.Unmarshal(data, &m); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var v any
+	err = dec.Decode(&v)
+	if err == nil && dec.Decode(new(any)) != io.EOF {
+		err = errors.New("trailing data after the object")
+	}
+	m, ok := v.(map[string]any)
+	if err == nil && !ok {
+		err = errors.New("not an object")
+	}
+	if err != nil {
 		return nil, fmt.Errorf("claudecode: converge: %s in the org's home is not a JSON object: %w", name, err)
 	}
 	return m, nil

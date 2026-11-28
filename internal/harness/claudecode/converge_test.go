@@ -128,16 +128,55 @@ func TestConvergeRefusesLinks(t *testing.T) {
 	}
 }
 
-// A state file that is not a JSON object is refused rather than overwritten.
+// A state or settings file that is not a JSON object (not JSON, null, another JSON value, or an
+// object followed by more data) is refused rather than overwritten.
 func TestConvergeRefusesAnUnreadableState(t *testing.T) {
+	for _, name := range []string{".claude.json", ".claude/settings.json"} {
+		for _, content := range []string{"not json", "null", "[]", `"x"`, "1", `{} {}`, `{"a": 1} x`} {
+			t.Run(name+"/"+content, func(t *testing.T) {
+				dir, home := openHome(t)
+				if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := (Adapter{}).Converge(home, "/work/run"); err == nil || !strings.Contains(err.Error(), "not a JSON object") {
+					t.Fatalf("converge on %q: %v, want a refusal", content, err)
+				}
+				if data, _ := os.ReadFile(filepath.Join(dir, name)); string(data) != content {
+					t.Fatalf("it was overwritten: %q", data)
+				}
+			})
+		}
+	}
+}
+
+// Numbers in keys Converge does not own keep their exact spelling when it rewrites a file.
+func TestConvergeKeepsNumbers(t *testing.T) {
 	dir, home := openHome(t)
-	if err := os.WriteFile(filepath.Join(dir, ".claude.json"), []byte("not json"), 0o600); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (Adapter{}).Converge(home, "/work/run"); err == nil {
-		t.Fatal("an unreadable state file was accepted")
+	for _, name := range []string{".claude.json", ".claude/settings.json"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(`{"big": 9007199254740993, "one": 1.0}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if data, _ := os.ReadFile(filepath.Join(dir, ".claude.json")); string(data) != "not json" {
-		t.Fatalf("it was overwritten: %q", data)
+	if changed, err := (Adapter{}).Converge(home, "/work/run"); err != nil || len(changed) == 0 {
+		t.Fatalf("converge: %v, %v", changed, err)
+	}
+	for _, name := range []string{".claude.json", ".claude/settings.json"} {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatal(err)
+		}
+		if string(m["big"]) != "9007199254740993" || string(m["one"]) != "1.0" {
+			t.Errorf("%s after converge: big %s, one %s", name, m["big"], m["one"])
+		}
 	}
 }
