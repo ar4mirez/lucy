@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 17
+version: 18
 owner: ar4mirez
 requirements: []
 ---
@@ -179,8 +179,9 @@ slice table, requirement status and exit tests stay in the plan.
   rule. Pipelines (LUCY-SPEC-014): `internal/pipeline` bundles the ship and research Pipelines
   (builtin/, namespace `lucy`), reads an org's replacement, and the daemon dispatches each Flight
   with what the Tower takes from its shape's Pipeline (`tower.Pipeline` in `task.dispatched`).
-  Stage `credentials`, `spec.pullRequest` and `onFailure.retryDelay` are refused with
-  `pipeline.ErrUnsupported` until they are wired. Left in 7a: wiring those (LUCY-SPEC-014), the
+  Parse is an allowlist: `triggers` and `providers` (required by the format, not acted on yet),
+  and the stage fields lucy flies; every other field, and an escalating approval timeout, is
+  refused with `pipeline.ErrUnsupported` naming its path. Left in 7a: wiring those (LUCY-SPEC-014), the
   roles' other constraints and tools and their session instructions (LUCY-SPEC-015), and Core conformance (LUCY-SPEC-017).
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.

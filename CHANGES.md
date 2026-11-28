@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 33
+version: 34
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -20,11 +20,13 @@ Changes since the last release. When a version is cut, its section moves to
   Pipeline, and an org replaces one with a `Pipeline` of that name in its namespace. The pilot
   stage's `onFailure` (`abort`, or `retry` with `maxRetries`) sets how many lost Pilots are
   replaced; the merge stage's `approval` can require your approval for every merge, whatever the
-  autonomy posture, and bound how long a merge holds (`timeout`, with `onTimeout: abort` to ground
-  the flight or `escalate` to keep waiting on you). A timeout never approves a merge: a Pipeline
-  with `onTimeout: auto-approve` is refused, and the daemon does not start with one. Settings
-  lucy does not act on yet are refused until they are wired, not ignored: a stage's `credentials`,
-  `spec.pullRequest`, and the pilot stage's `onFailure.retryDelay`.
+  autonomy posture, and bound how long a merge holds (`timeout` with `onTimeout: abort` grounds
+  the flight). A timeout never approves a merge: a Pipeline with `onTimeout: auto-approve` is
+  refused, and the daemon does not start with one. Only these fields are accepted: `triggers` and
+  `providers` (required by the format, not acted on yet), and per stage `name`, `agent`,
+  `onFailure` (`strategy`, `maxRetries`) and `approval` (`required`, `blocking`, `timeout`,
+  `onTimeout`). Every other field, and an escalating timeout, is refused as not supported yet,
+  naming its path, rather than ignored.
 
 - Roles are ai-sdlc AgentRole resources: lucy bundles one for each of its roles (supervisor,
   worker, researcher, reviewer), and an org adds to one with an `AgentRole` of that name in its

@@ -33,8 +33,8 @@ type Pipeline struct {
 	// ApprovalRequired holds every merge for the owner, whatever the autonomy posture: the merge
 	// stage's ApprovalPolicy required. It can only add an approval, never waive one.
 	ApprovalRequired bool `json:"approval_required,omitempty"`
-	// ApprovalTimeout bounds how long a merge holds; 0 for no limit. On it, OnTimeout says what
-	// happens: abort grounds the flight, escalate keeps it waiting on the owner. Neither approves.
+	// ApprovalTimeout bounds how long a merge holds for the owner; 0 for no limit. OnTimeout is
+	// abort with a timeout: the flight is grounded. A timeout never approves a merge.
 	ApprovalTimeout time.Duration `json:"approval_timeout_ns,omitempty"`
 	OnTimeout       string        `json:"on_timeout,omitempty"`
 }

@@ -63,7 +63,7 @@ func TestMergeApproval(t *testing.T) {
 	}{
 		{"{ required: true }", Approval{Required: true}},
 		{"{ required: true, timeout: PT2H, onTimeout: abort }", Approval{Required: true, Timeout: 2 * time.Hour, OnTimeout: OnTimeoutAbort}},
-		{"{ required: false, timeout: P1D }", Approval{Timeout: 24 * time.Hour, OnTimeout: OnTimeoutEscalate}},
+		{"{ required: false, blocking: true, timeout: P1D, onTimeout: abort }", Approval{Timeout: 24 * time.Hour, OnTimeout: OnTimeoutAbort}},
 	} {
 		p, err := Parse(load(t, pipelineDoc("acme", Ship, pilotStage+"    - { name: merge, approval: "+c.approval+" }\n", "")))
 		if err != nil || p.Merge != c.want {
@@ -83,6 +83,7 @@ func TestRefused(t *testing.T) {
 		{"a merge in research", Research, pilotStage + "    - { name: merge }\n", "", `"merge"`},
 		{"no pilot stage", Ship, "    - { name: merge }\n", "", "no pilot stage"},
 		{"a non-blocking merge", Ship, pilotStage + "    - { name: merge, approval: { required: true, blocking: false } }\n", "", "always waits"},
+		{"maxRetries with abort", Ship, "    - { name: pilot, onFailure: { strategy: abort, maxRetries: 2 } }\n", "", "replaces no Pilot"},
 		{"onTimeout without a timeout", Ship, pilotStage + "    - { name: merge, approval: { required: true, onTimeout: abort } }\n", "", "without a timeout"},
 		{"an agent on the merge", Ship, pilotStage + "    - { name: merge, agent: worker }\n", "", "no agent does"},
 		{"the wrong pilot agent", Ship, "    - { name: pilot, agent: reviewer }\n", "", "a ship Pilot is a worker"},
@@ -96,20 +97,41 @@ func TestRefused(t *testing.T) {
 	}
 }
 
-// A setting lucy does not act on yet is refused, not silently ignored, naming the Pipeline and the
-// field.
+// A field lucy does not act on yet is refused, not silently ignored, naming the Pipeline and the
+// field's path, wherever it is written.
 func TestUnsupported(t *testing.T) {
-	for _, c := range []struct{ name, pipeline, stages, extra, field string }{
-		{"a retry delay", Ship, "    - { name: pilot, onFailure: { strategy: retry, maxRetries: 2, retryDelay: PT1M } }\n", "", "retryDelay"},
-		{"credentials on the pilot", Ship, "    - { name: pilot, credentials: { scope: [contents:read], ttl: PT10M } }\n", "", "stage pilot credentials"},
-		{"credentials on the merge", Ship, pilotStage + "    - { name: merge, credentials: { scope: [contents:write] } }\n", "", "stage merge credentials"},
+	for _, c := range []struct{ name, pipeline, stages, extra, path string }{
+		{"a stage timeout", Ship, "    - { name: pilot, timeout: PT30M }\n", "", "spec.stages[0].timeout"},
+		{"a retry delay", Ship, "    - { name: pilot, onFailure: { strategy: retry, maxRetries: 2, retryDelay: PT1M } }\n", "", "spec.stages[0].onFailure.retryDelay"},
+		{"a failure notification", Ship, "    - { name: pilot, onFailure: { strategy: abort, notification: owner } }\n", "", "spec.stages[0].onFailure.notification"},
+		{"credentials on the pilot", Ship, "    - { name: pilot, credentials: { scope: [contents:read], ttl: PT10M } }\n", "", "spec.stages[0].credentials"},
+		{"credentials on the merge", Ship, pilotStage + "    - { name: merge, credentials: { scope: [contents:write] } }\n", "", "spec.stages[1].credentials"},
+		{"a tier override", Ship, pilotStage + "    - { name: merge, approval: { required: true, tierOverride: auto } }\n", "", "spec.stages[1].approval.tierOverride"},
+		{"an escalating timeout", Ship, pilotStage + "    - { name: merge, approval: { required: true, timeout: PT1H, onTimeout: escalate } }\n", "", "spec.stages[1].approval.timeout"},
+		{"a timeout without onTimeout", Ship, pilotStage + "    - { name: merge, approval: { required: false, timeout: PT1H } }\n", "", "spec.stages[1].approval.timeout"},
+		{"routing", Ship, pilotStage, "  routing: { complexityThresholds: {} }\n", "spec.routing"},
+		{"a model", Ship, pilotStage, "  defaultModel: opus\n", "spec.defaultModel"},
 		{"a pull request on ship", Ship, pilotStage, "  pullRequest: { closeKeyword: Closes }\n", "spec.pullRequest"},
 		{"a pull request on research", Research, pilotStage, "  pullRequest: { closeKeyword: Fixes }\n", "spec.pullRequest"},
 	} {
-		_, err := Parse(load(t, pipelineDoc("acme", c.pipeline, c.stages, c.extra)))
-		if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "acme/"+c.pipeline) || !strings.Contains(err.Error(), c.field) {
-			t.Errorf("%s: %v, want ErrUnsupported naming acme/%s and %q", c.name, err, c.pipeline, c.field)
+		res := spec.LoadFile("p.yaml", []byte(pipelineDoc("acme", c.pipeline, c.stages, c.extra)))
+		if len(res) != 1 || res[0].Resource == nil {
+			t.Errorf("%s: not admitted by the spec loader: %+v", c.name, res)
+			continue
 		}
+		_, err := Parse(*res[0].Resource)
+		if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "acme/"+c.pipeline) || !strings.Contains(err.Error(), c.path) {
+			t.Errorf("%s: %v, want ErrUnsupported naming acme/%s and %q", c.name, err, c.pipeline, c.path)
+		}
+	}
+}
+
+// A Pipeline of only what the format requires and a pilot stage loads, with the Tower's defaults:
+// abort on a failed Pilot and no merge approval of its own.
+func TestMinimal(t *testing.T) {
+	p, err := Parse(load(t, pipelineDoc("acme", Ship, "    - { name: pilot }\n", "")))
+	if err != nil || p.Pilot != (Failure{Strategy: StrategyAbort}) || p.Merge != (Approval{}) {
+		t.Fatalf("%+v, %v", p, err)
 	}
 }
 

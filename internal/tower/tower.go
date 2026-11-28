@@ -95,11 +95,9 @@ type Spec struct {
 	Pipeline   *Pipeline          // how the flight is flown; nil flies it on the Tower's own defaults
 }
 
-// Timeout actions a Pipeline may name. There is no third: a timeout never approves a merge.
-const (
-	OnTimeoutAbort    = "abort"
-	OnTimeoutEscalate = "escalate"
-)
+// OnTimeoutAbort is the one approval timeout action the Tower flies: it grounds the flight. A
+// timeout never approves a merge.
+const OnTimeoutAbort = "abort"
 
 // DeliveryPullRequest is the delivery path of a ship flight: a pull request against the runway's
 // base branch. It is the only one the Tower flies so far; a research flight's report is later.
@@ -276,8 +274,8 @@ func (t *Tower) Dispatch(ctx context.Context, s Spec) error {
 			return errors.New("tower: a Pipeline's restarts cannot be negative")
 		case p.ApprovalTimeout < 0:
 			return errors.New("tower: a Pipeline's approval timeout cannot be negative")
-		case p.ApprovalTimeout > 0 && p.OnTimeout != OnTimeoutAbort && p.OnTimeout != OnTimeoutEscalate:
-			return fmt.Errorf("tower: a Pipeline's approval timeout action %q is not abort or escalate; a timeout never approves a merge", p.OnTimeout)
+		case p.ApprovalTimeout > 0 && p.OnTimeout != OnTimeoutAbort:
+			return fmt.Errorf("tower: a Pipeline's approval timeout action %q is not abort; a timeout never approves a merge", p.OnTimeout)
 		case p.ApprovalTimeout == 0 && p.OnTimeout != "":
 			return errors.New("tower: a Pipeline names an approval timeout action without a timeout")
 		}
@@ -444,8 +442,8 @@ func (t *Tower) watchPR(ctx context.Context, f *flight) error {
 			return t.clearMerge(ctx, f)
 		}
 	}
-	// A merge held past its Pipeline's approval timeout is grounded under abort; under escalate it
-	// keeps waiting on the owner, the one person it escalates to. Neither approves it.
+	// A merge held for the owner past its Pipeline's approval timeout is grounded; a timeout never
+	// approves it.
 	if p := f.spec.Pipeline; f.state == StateHolding && f.decision.Outcome == policy.Holding && p != nil && p.ApprovalTimeout > 0 && p.OnTimeout == OnTimeoutAbort &&
 		t.cfg.Clock.Now().Sub(f.since) >= p.ApprovalTimeout {
 		return t.record(ctx, f, ActorDaemon, Grounded{Reason: GroundApprovalTimeout,

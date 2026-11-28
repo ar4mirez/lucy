@@ -1,10 +1,21 @@
 // Package pipeline is how lucy flies a Flight, as ai-sdlc Pipeline resources (LUCY-SPEC-014): the
 // ship Pipeline (a pull request) and the research Pipeline (a report). lucy bundles one of each
 // (builtin/, in the reserved namespace lucy); an org replaces one with a Pipeline of the same name
-// in its namespace. Parse reads a Pipeline's FailurePolicy and ApprovalPolicy into a Policy and
-// refuses what lucy does not do, and every setting lucy does not act on yet (a stage's
-// CredentialPolicy, spec.pullRequest, onFailure.retryDelay) with ErrUnsupported. Above all, a timeout never approves a merge: an ApprovalPolicy
-// whose onTimeout is auto-approve is refused, on any stage.
+// in its namespace. Parse reads a Pipeline's FailurePolicy and ApprovalPolicy into a Policy.
+//
+// Parse accepts only these fields of a Pipeline's spec:
+//   - triggers and providers, with any content: required by the format, not acted on yet;
+//   - stages, each with name (pilot, and for ship also merge), agent (pilot only), onFailure
+//     (pilot only: strategy abort or retry, and maxRetries for retry) and approval (merge only:
+//     required, blocking true, and timeout with onTimeout abort).
+//
+// The members the spec loader fills with their schema default (spec.artifactSchemaVersion,
+// defaultModel and defaultHarness; a stage's schedule and databaseAccess) are accepted only at that
+// default, the same as leaving them out. Every other field, anywhere in the spec, is refused with ErrUnsupported naming its path, so a
+// Pipeline never carries a setting lucy does not act on. An approval timeout that escalates (or
+// names no onTimeout) is refused the same way: the Tower acts only on abort. Above all, a timeout
+// never approves a merge: an ApprovalPolicy whose onTimeout is auto-approve is refused with
+// ErrAutoApprove, on any stage.
 //
 // lucy flies two stages: pilot (the Pilot's session) and, for ship, merge (the Tower's merge).
 // The spec marks spec.stages deprecated in favour of a Workflow document; lucy reads its policies
@@ -17,6 +28,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strconv"
@@ -45,10 +57,9 @@ const (
 
 // Failure strategies lucy supports, and the approval timeout actions.
 const (
-	StrategyAbort     = "abort"    // a failed Pilot grounds the flight
-	StrategyRetry     = "retry"    // a lost Pilot is replaced, up to maxRetries times
-	OnTimeoutAbort    = "abort"    // a merge held past its timeout grounds the flight
-	OnTimeoutEscalate = "escalate" // a merge held past its timeout keeps waiting on the owner, the only one it escalates to
+	StrategyAbort  = "abort" // a failed Pilot grounds the flight
+	StrategyRetry  = "retry" // a lost Pilot is replaced, up to maxRetries times
+	OnTimeoutAbort = "abort" // a merge held past its timeout grounds the flight
 )
 
 // ErrAutoApprove refuses an ApprovalPolicy that would approve on a timeout.
@@ -71,7 +82,7 @@ type Failure struct {
 type Approval struct {
 	Required  bool          // the owner approves every merge, whatever the autonomy posture
 	Timeout   time.Duration // how long a held merge waits; 0 for no limit
-	OnTimeout string        // abort or escalate; never an approval
+	OnTimeout string        // abort with a timeout, else empty; never an approval
 }
 
 // Policy is one Pipeline, read.
@@ -105,18 +116,17 @@ func Builtin() (map[string]Policy, error) {
 	return out, nil
 }
 
-// Parse reads a Pipeline named ship or research, as the spec loader admitted it, and refuses what
-// lucy does not fly: a stage other than pilot or merge (merge only for ship), a missing pilot
-// stage, a failure strategy other than abort or retry, an approval anywhere but the merge stage,
-// a merge that does not block on its approval, or an approval timeout that would approve. It
-// refuses with ErrUnsupported a stage's credentials, spec.pullRequest and the pilot stage's
-// onFailure.retryDelay, which lucy does not act on yet.
+// Parse reads a Pipeline named ship or research, as the spec loader admitted it. It refuses with
+// ErrUnsupported every field outside the accepted ones (see the package doc), and with ErrInvalid
+// what lucy does not fly: a stage other than pilot or merge (merge only for ship), a missing pilot
+// stage, a failure strategy other than abort or retry, an approval anywhere but the merge stage, a
+// merge that does not block on its approval, or onTimeout without a timeout.
 func Parse(r spec.Resource) (Policy, error) {
-	bad := func(format string, a ...any) (Policy, error) {
-		return Policy{}, fmt.Errorf("%w: Pipeline %s/%s: %s", ErrInvalid, r.Metadata.Namespace, r.Metadata.Name, fmt.Sprintf(format, a...))
+	refuse := func(kind error, format string, a ...any) error {
+		return fmt.Errorf("%w: Pipeline %s/%s: %s", kind, r.Metadata.Namespace, r.Metadata.Name, fmt.Sprintf(format, a...))
 	}
-	unsupported := func(field, why string) (Policy, error) {
-		return Policy{}, fmt.Errorf("%w: Pipeline %s/%s: %s: %s; TODO(LUCY-SPEC-014) wire it", ErrUnsupported, r.Metadata.Namespace, r.Metadata.Name, field, why)
+	bad := func(format string, a ...any) (Policy, error) {
+		return Policy{}, refuse(ErrInvalid, format, a...)
 	}
 	if r.APIVersion != spec.CoreAPIVersion || r.Kind != "Pipeline" {
 		return bad("not a Pipeline")
@@ -125,15 +135,21 @@ func Parse(r spec.Resource) (Policy, error) {
 	if !slices.Contains(Names, name) {
 		return bad("lucy flies only the Pipelines %v", Names)
 	}
-	if _, ok := r.Spec["pullRequest"]; ok {
-		return unsupported("spec.pullRequest", "the Pilot is not given it yet")
+	if err := only(refuse, r.Spec, "spec", specDefaults, "triggers", "providers", "stages"); err != nil {
+		return Policy{}, err
 	}
 	p := Policy{Name: name, Namespace: r.Metadata.Namespace, Pilot: Failure{Strategy: StrategyAbort}}
 	stages, _ := r.Spec["stages"].([]any)
 	seen := map[string]bool{}
 	for i, s := range stages {
+		path := fmt.Sprintf("spec.stages[%d]", i)
 		st, _ := s.(map[string]any)
 		sname, _ := st["name"].(string)
+		if a, ok := st["approval"].(map[string]any); ok {
+			if t, _ := a["onTimeout"].(string); t == "auto-approve" {
+				return Policy{}, fmt.Errorf("%w (Pipeline %s/%s, stage %s)", ErrAutoApprove, r.Metadata.Namespace, name, sname)
+			}
+		}
 		switch {
 		case sname == StagePilot, sname == StageMerge && name == Ship:
 		default:
@@ -143,13 +159,8 @@ func Parse(r spec.Resource) (Policy, error) {
 			return bad("stage %q appears twice", sname)
 		}
 		seen[sname] = true
-		if _, ok := st["credentials"]; ok {
-			return unsupported("stage "+sname+" credentials", "scope, ttl and revokeOnComplete are not enforced: the gateway does not issue a run's capability with them yet")
-		}
-		if a, ok := st["approval"].(map[string]any); ok {
-			if t, _ := a["onTimeout"].(string); t == "auto-approve" {
-				return Policy{}, fmt.Errorf("%w (Pipeline %s/%s, stage %s)", ErrAutoApprove, r.Metadata.Namespace, name, sname)
-			}
+		if err := only(refuse, st, path, stageDefaults, "name", "agent", "onFailure", "approval"); err != nil {
+			return Policy{}, err
 		}
 		if sname == StageMerge {
 			if _, ok := st["agent"]; ok {
@@ -159,9 +170,9 @@ func Parse(r spec.Resource) (Policy, error) {
 				return bad("the merge stage has an onFailure; a failed merge is retried by the Tower, then held for the owner")
 			}
 			if a, ok := st["approval"].(map[string]any); ok {
-				ap, err := approval(a)
+				ap, err := approval(refuse, a, path+".approval")
 				if err != nil {
-					return bad("the merge stage's approval: %v", err)
+					return Policy{}, err
 				}
 				p.Merge = ap
 			}
@@ -175,12 +186,9 @@ func Parse(r spec.Resource) (Policy, error) {
 			return bad("the pilot stage has an approval; lucy does not hold a Pilot's start for the owner yet")
 		}
 		if f, ok := st["onFailure"].(map[string]any); ok {
-			if _, ok := f["retryDelay"]; ok {
-				return unsupported("stage pilot onFailure.retryDelay", "the Tower restarts a lost Pilot at once")
-			}
-			fp, err := failure(f)
+			fp, err := failure(refuse, f, path+".onFailure")
 			if err != nil {
-				return bad("the pilot stage's onFailure: %v", err)
+				return Policy{}, err
 			}
 			p.Pilot = fp
 		}
@@ -191,6 +199,29 @@ func Parse(r spec.Resource) (Policy, error) {
 	return p, nil
 }
 
+type refuser func(kind error, format string, a ...any) error
+
+// The members the spec loader fills with their schema default when they are omitted. Parse accepts
+// each only at that default, which is the same as leaving it out.
+var (
+	specDefaults  = map[string]any{"artifactSchemaVersion": "v1", "defaultModel": "sonnet", "defaultHarness": "claude-code"}
+	stageDefaults = map[string]any{"schedule": "now", "databaseAccess": "none"}
+)
+
+// only refuses, with ErrUnsupported, the first field of obj (at path) that is neither allowed nor
+// at the default the loader fills in.
+func only(refuse refuser, obj map[string]any, path string, defaults map[string]any, allowed ...string) error {
+	for _, k := range slices.Sorted(maps.Keys(obj)) {
+		if d, ok := defaults[k]; ok && obj[k] == d {
+			continue
+		}
+		if !slices.Contains(allowed, k) {
+			return refuse(ErrUnsupported, "%s.%s: lucy does not act on it yet; TODO(LUCY-SPEC-014) wire it", path, k)
+		}
+	}
+	return nil
+}
+
 func stagesOf(name string) []string {
 	if name == Ship {
 		return []string{StagePilot, StageMerge}
@@ -198,48 +229,56 @@ func stagesOf(name string) []string {
 	return []string{StagePilot}
 }
 
-func failure(f map[string]any) (Failure, error) {
+func failure(refuse refuser, f map[string]any, path string) (Failure, error) {
+	if err := only(refuse, f, path, nil, "strategy", "maxRetries"); err != nil {
+		return Failure{}, err
+	}
 	s, _ := f["strategy"].(string)
 	switch s {
 	case StrategyAbort:
+		if _, ok := f["maxRetries"]; ok {
+			return Failure{}, refuse(ErrInvalid, "%s: maxRetries with strategy abort; abort replaces no Pilot", path)
+		}
 		return Failure{Strategy: s}, nil
 	case StrategyRetry:
 		num, _ := f["maxRetries"].(json.Number)
 		n64, err := num.Int64()
 		n := int(n64)
 		if err != nil || n < 1 || n > 10 {
-			return Failure{}, fmt.Errorf("retry needs maxRetries from 1 to 10")
+			return Failure{}, refuse(ErrInvalid, "%s: retry needs maxRetries from 1 to 10", path)
 		}
 		return Failure{Strategy: s, MaxRetries: n}, nil
 	}
-	return Failure{}, fmt.Errorf("strategy %q is not one lucy flies (abort or retry)", s)
+	return Failure{}, refuse(ErrInvalid, "%s: strategy %q is not one lucy flies (abort or retry)", path, s)
 }
 
-func approval(a map[string]any) (Approval, error) {
+func approval(refuse refuser, a map[string]any, path string) (Approval, error) {
+	if err := only(refuse, a, path, nil, "required", "blocking", "timeout", "onTimeout"); err != nil {
+		return Approval{}, err
+	}
 	var out Approval
 	out.Required, _ = a["required"].(bool)
 	if b, ok := a["blocking"].(bool); ok && !b {
-		return Approval{}, errors.New("blocking is false; a merge always waits for its approval")
+		return Approval{}, refuse(ErrInvalid, "%s: blocking is false; a merge always waits for its approval", path)
 	}
 	if t, ok := a["timeout"].(string); ok {
 		d, err := Duration(t)
 		if err != nil || d <= 0 {
-			return Approval{}, fmt.Errorf("timeout %q is not a positive ISO 8601 duration", t)
+			return Approval{}, refuse(ErrInvalid, "%s: timeout %q is not a positive ISO 8601 duration", path, t)
 		}
 		out.Timeout = d
 	}
-	switch t, _ := a["onTimeout"].(string); t {
-	case "":
-		if out.Timeout > 0 {
-			out.OnTimeout = OnTimeoutEscalate
-		}
-	case OnTimeoutAbort, OnTimeoutEscalate:
-		if out.Timeout == 0 {
-			return Approval{}, fmt.Errorf("onTimeout %q without a timeout", t)
-		}
+	t, _ := a["onTimeout"].(string)
+	switch {
+	case t != "" && out.Timeout == 0:
+		return Approval{}, refuse(ErrInvalid, "%s: onTimeout %q without a timeout", path, t)
+	case out.Timeout == 0:
+	case t == OnTimeoutAbort:
 		out.OnTimeout = t
+	case t == "" || t == "escalate":
+		return Approval{}, refuse(ErrUnsupported, "%s.timeout: the Tower does not act on an escalating timeout, only on onTimeout abort; TODO(LUCY-SPEC-014) wire it", path)
 	default:
-		return Approval{}, fmt.Errorf("onTimeout %q is not abort or escalate", t)
+		return Approval{}, refuse(ErrInvalid, "%s: onTimeout %q is not abort", path, t)
 	}
 	return out, nil
 }

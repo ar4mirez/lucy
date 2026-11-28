@@ -248,8 +248,6 @@ func towerPipeline(p pipeline.Policy) *tower.Pipeline {
 	switch p.Merge.OnTimeout {
 	case pipeline.OnTimeoutAbort:
 		out.OnTimeout = tower.OnTimeoutAbort
-	case pipeline.OnTimeoutEscalate:
-		out.OnTimeout = tower.OnTimeoutEscalate
 	}
 	return out
 }

@@ -60,35 +60,13 @@ func TestApprovalTimeoutAbortGrounds(t *testing.T) {
 	checkInvariants(t, w)
 }
 
-// Under onTimeout escalate a merge keeps waiting on the owner past its timeout, however long, and
-// merges only on the owner's approval.
-func TestApprovalTimeoutEscalateKeepsHolding(t *testing.T) {
-	w := newWorld(t, 43)
-	s := spec("f1", policy.PostureOwner)
-	s.Pipeline = &tower.Pipeline{Name: "acme/ship", MaxRestarts: 1, ApprovalTimeout: time.Hour, OnTimeout: tower.OnTimeoutEscalate}
-	dispatch(t, w, s)
-	run(t, w, RunOptions{})
-	for range 3 {
-		stepAfter(t, w, 10*24*time.Hour)
-		wantState(t, w, "f1", tower.StateHolding, "")
-	}
-	if len(w.Forge.Merges()) != 0 {
-		t.Fatal("merged on a timeout")
-	}
-	if err := w.Tower.Approve(context.Background(), "f1", policy.ByOwner); err != nil {
-		t.Fatal(err)
-	}
-	run(t, w, RunOptions{})
-	wantState(t, w, "f1", tower.StateTakeoff, "")
-	checkInvariants(t, w)
-}
-
-// The Tower refuses a Pipeline whose timeout would do anything but abort or escalate.
+// The Tower refuses a Pipeline whose timeout would do anything but abort.
 func TestDispatchRefusesAnAutoApprovingPipeline(t *testing.T) {
 	w := newWorld(t, 44)
 	for _, p := range []tower.Pipeline{
 		{Name: "acme/ship", ApprovalTimeout: time.Hour, OnTimeout: "auto-approve"},
 		{Name: "acme/ship", ApprovalTimeout: time.Hour},
+		{Name: "acme/ship", ApprovalTimeout: time.Hour, OnTimeout: "escalate"},
 		{Name: "acme/ship", OnTimeout: tower.OnTimeoutAbort},
 		{Name: "acme/ship", MaxRestarts: -1},
 	} {
