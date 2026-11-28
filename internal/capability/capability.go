@@ -90,6 +90,46 @@ func (i *Issuer) now() time.Time {
 	return time.Now()
 }
 
+// SupervisorPrefix starts the principal of a supervisor capability, recorded where a run's token
+// records its run: supervisor/<org>. A run id never holds a slash, so neither can be taken for the
+// other (LUCY-RUN-010).
+const SupervisorPrefix = "supervisor/"
+
+// Supervisor capabilities' lifetimes: short, and re-issued for every model call.
+const (
+	SupervisorTTL    = 2 * time.Minute
+	SupervisorMaxTTL = 10 * time.Minute
+)
+
+// IsSupervisor reports whether c is a supervisor capability rather than a run's.
+func (c Capability) IsSupervisor() bool {
+	return strings.HasPrefix(c.Run, SupervisorPrefix) && c.Fence == 0
+}
+
+// IssueSupervisor makes a capability for org's supervisor (LUCY-RUN-010): bound to org and to its
+// one model route, never to a run, expiring after ttl (SupervisorTTL when zero, at most
+// SupervisorMaxTTL). It is recorded like every capability, under the principal supervisor/<org>,
+// revocable like any, and the gateway verifies it as it does a run's, without a lease to check.
+// The daemon that asks for it holds no credential: the gateway injects the org's key upstream.
+func (i *Issuer) IssueSupervisor(ctx context.Context, org, route string, ttl time.Duration) (string, Capability, error) {
+	if org == "" || route == "" {
+		return "", Capability{}, errors.New("capability: IssueSupervisor needs an org and its model route")
+	}
+	if ttl <= 0 {
+		ttl = SupervisorTTL
+	}
+	ttl = min(ttl, SupervisorMaxTTL)
+	now := i.now().UTC()
+	token, c, ev, err := mint(Capability{Org: org, Run: SupervisorPrefix + org, Routes: []string{route}, Issued: now, Start: now, Expires: now.Add(ttl)})
+	if err != nil {
+		return "", Capability{}, err
+	}
+	if _, err := i.Store.Append(ctx, Stream(org), eventstore.AnyVersion, "daemon", ev); err != nil {
+		return "", Capability{}, err
+	}
+	return token, c, nil
+}
+
 // StreamPrefix starts each org's capability stream.
 const StreamPrefix = "capability/"
 
@@ -107,7 +147,7 @@ func ID(token string) string {
 // Issue makes a token for org's run, leased under fence, for routes, expiring after ttl
 // (DefaultTTL when zero, at most MaxTTL). It returns the token, which only the caller ever sees.
 func (i *Issuer) Issue(ctx context.Context, org, run string, fence int64, routes []string, ttl time.Duration) (string, Capability, error) {
-	if org == "" || run == "" || fence <= 0 {
+	if org == "" || run == "" || fence <= 0 || strings.HasPrefix(run, SupervisorPrefix) {
 		return "", Capability{}, errors.New("capability: Issue needs an org, a run and its fence")
 	}
 	if len(routes) > MaxRoutes {
@@ -262,6 +302,9 @@ func (i *Issuer) Verify(ctx context.Context, token, org, route string) (Capabili
 	case !now.Before(c.Expires):
 		return c, ErrExpired
 	}
+	if c.IsSupervisor() {
+		return c, nil // no run to check: its own expiry, its revocation and its one route bound it
+	}
 	live, err := i.leased(ctx, c, now, true)
 	if err != nil {
 		return c, err
@@ -315,6 +358,9 @@ func (i *Issuer) RevokeEnded(ctx context.Context) (int, error) {
 	}
 	n := 0
 	for _, c := range open {
+		if c.IsSupervisor() {
+			continue // bound to no run: it expires on its own, within SupervisorMaxTTL
+		}
 		live, err := i.leased(ctx, c, now, false)
 		if err != nil {
 			return n, err

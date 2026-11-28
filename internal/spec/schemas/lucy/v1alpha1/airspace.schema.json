@@ -4,19 +4,74 @@
   "title": "lucy Airspace",
   "description": "An org: one hard-isolated sandbox with its own credentials, postures and runways. Its name and namespace are the org's name. Stub: later slices add fields.",
   "type": "object",
-  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
   "properties": {
-    "apiVersion": { "$ref": "common.schema.json#/$defs/apiVersion" },
-    "kind": { "type": "string", "const": "Airspace" },
-    "metadata": { "$ref": "common.schema.json#/$defs/metadata" },
+    "apiVersion": {
+      "$ref": "common.schema.json#/$defs/apiVersion"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Airspace"
+    },
+    "metadata": {
+      "$ref": "common.schema.json#/$defs/metadata"
+    },
     "spec": {
       "type": "object",
       "properties": {
-        "displayName": { "type": "string", "maxLength": 128, "description": "How surfaces show the airspace." }
+        "displayName": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "How surfaces show the airspace."
+        },
+        "supervisor": {
+          "type": "object",
+          "description": "Opts the org into a model-backed supervisor (LUCY-RUN-010), which only proposes answers to its Pilots' questions; the daemon arms it only when started with --supervise. Absent: rules-only supervision.",
+          "required": [
+            "route",
+            "smallModel",
+            "largeModel",
+            "dailyTokens"
+          ],
+          "properties": {
+            "route": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "The org's credential gateway route that model calls go through; the gateway holds the key."
+            },
+            "smallModel": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "description": "The model asked first."
+            },
+            "largeModel": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "description": "The model asked when the small one is not confident."
+            },
+            "dailyTokens": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000000,
+              "description": "The most tokens the supervisor may spend for the org in a UTC day; once spent, questions go straight to the owner."
+            }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },
-    "status": { "$ref": "common.schema.json#/$defs/status" }
+    "status": {
+      "$ref": "common.schema.json#/$defs/status"
+    }
   },
   "additionalProperties": false
 }

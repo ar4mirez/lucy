@@ -119,6 +119,12 @@ func (s *Server) status(ctx context.Context, _ *api.NoParams) (api.Status, error
 	if s.opts.Refused != nil {
 		st.RefusedConnections = s.opts.Refused()
 	}
+	st.Supervisors = []api.SupervisorUsage{}
+	if s.opts.Supervisors != nil {
+		if st.Supervisors, err = s.opts.Supervisors(ctx); err != nil {
+			return api.Status{}, err
+		}
+	}
 	return st, nil
 }
 

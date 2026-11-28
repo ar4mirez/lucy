@@ -2,7 +2,7 @@
 id: tech-gateway
 title: The credential gateway
 status: active
-version: 6
+version: 7
 owner: ar4mirez
 requirements: [LUCY-CRED-001, LUCY-CRED-004, LUCY-CRED-005, LUCY-SPEC-016]
 ---
@@ -34,7 +34,9 @@ How a worker reaches a service without ever holding its credential (TECH.md sect
   ([capabilities](capability.md)); one without is refused before any credential is read, the
   daemon checks the token in `gateway.verify` before the credential is read or the upstream looked
   up, and again in `gateway.use` before the credential's use is decided. It is never
-  forwarded.
+  forwarded. A supervisor capability (`supervisor/<org>`, LUCY-RUN-010) is the one kind bound to
+  no run: the daemon mints it for an org's model route alone, for at most ten minutes, and the
+  gateway verifies it the same way, with no lease to check.
 - **Headers.** The worker's own credential and forwarding headers (`Authorization`, `Cookie`,
   `X-Api-Key`, `Proxy-Authorization`, `Forwarded`, `X-Forwarded-*` and the like) and hop-by-hop
   headers are removed before the route's credential is added. So are `Accept-Encoding`, `Range`

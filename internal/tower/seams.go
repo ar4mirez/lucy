@@ -106,6 +106,7 @@ type Supervisor interface {
 // Escalation is what a Supervisor is asked about: one flight's open question.
 type Escalation struct {
 	Org, Flight, Project string
+	Session              string         // the Pilot session that asked, for Tower.Propose
 	Goal                 string         // the flight's goal
 	Posture              policy.Posture // the flight's posture
 	Question             string         // the Pilot's question, untrusted

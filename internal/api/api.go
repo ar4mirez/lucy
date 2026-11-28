@@ -63,7 +63,9 @@ const Version = 1
 // Revision 24 added a supervisor's proposed answer: questions.list's and decisions.list's proposal_id,
 // proposed_by and proposed, questions.list's question_sha256, and questions.answer's accept_proposal
 // and question_sha256.
-const SchemaRevision = 24
+// Revision 25 added status.get's supervisors: each org's model supervisor tokens today against its
+// daily budget.
+const SchemaRevision = 25
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"

@@ -355,3 +355,41 @@ func (testPlacement) VerifyPlacement(_ context.Context, _, _, proof string) erro
 	}
 	return nil
 }
+
+// A supervisor capability is bound to its org and its one model route, never to a run: the gateway
+// verifies it with no lease to check, the run sweep leaves it alone, it expires on its own and is
+// revocable like any (LUCY-RUN-010).
+func TestSupervisorCapability(t *testing.T) {
+	f := open(t)
+	token, c, err := f.iss.IssueSupervisor(context.Background(), "acme", "models", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.IsSupervisor() || c.Run != "supervisor/acme" || c.Fence != 0 || len(c.Routes) != 1 || c.Routes[0] != "models" {
+		t.Fatalf("capability %+v", c)
+	}
+	if _, err := f.iss.Verify(context.Background(), token, "acme", "models"); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	for org, route := range map[string]string{"acme": "github", "beta": "models"} {
+		if _, err := f.iss.Verify(context.Background(), token, org, route); !errors.Is(err, capability.ErrScope) {
+			t.Errorf("%s/%s: %v, want ErrScope", org, route, err)
+		}
+	}
+	if n, err := f.iss.RevokeEnded(context.Background()); err != nil || n != 0 {
+		t.Fatalf("the run sweep revoked %d, %v", n, err)
+	}
+	if _, err := f.iss.Verify(context.Background(), token, "acme", "models"); err != nil {
+		t.Fatalf("after the sweep: %v", err)
+	}
+	if _, _, err := f.iss.IssueSupervisor(context.Background(), "acme", "models", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	f.clock.add(capability.SupervisorMaxTTL)
+	if _, err := f.iss.Verify(context.Background(), token, "acme", "models"); !errors.Is(err, capability.ErrExpired) {
+		t.Fatalf("past its lifetime: %v", err)
+	}
+	if _, _, err := f.iss.Issue(context.Background(), "acme", "supervisor/acme", 1, []string{"models"}, 0); err == nil {
+		t.Fatal("a run token took a supervisor's principal")
+	}
+}

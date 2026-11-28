@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.24.0"
+    "version": "1.25.0"
   },
   "servers": [
     {
@@ -203,6 +203,47 @@
               "format": "date-time",
               "type": "string"
             },
+            "supervisors": {
+              "description": "Each org that opts into a model supervisor: its tokens today against its daily budget.",
+              "items": {
+                "properties": {
+                  "armed": {
+                    "description": "Whether the daemon was started with --supervise; without it the org's questions go to the owner with no model call.",
+                    "type": "boolean"
+                  },
+                  "daily_tokens": {
+                    "description": "The org's daily budget; once spent, questions go straight to the owner.",
+                    "type": "integer"
+                  },
+                  "day": {
+                    "description": "The UTC day the tokens are counted in, YYYY-MM-DD.",
+                    "type": "string"
+                  },
+                  "org": {
+                    "description": "The org.",
+                    "type": "string"
+                  },
+                  "route": {
+                    "description": "The org's gateway route its model calls go through.",
+                    "type": "string"
+                  },
+                  "tokens": {
+                    "description": "Tokens the supervisor spent for the org on that day, input and output.",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "org",
+                  "armed",
+                  "day",
+                  "tokens",
+                  "daily_tokens",
+                  "route"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
             "uptime_seconds": {
               "description": "Seconds since the daemon started.",
               "type": "integer"
@@ -215,7 +256,8 @@
             "started_at",
             "uptime_seconds",
             "event_head",
-            "refused_connections"
+            "refused_connections",
+            "supervisors"
           ],
           "type": "object"
         }

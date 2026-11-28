@@ -22,6 +22,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/runner"
 	"github.com/ar4mirez/lucy/internal/spec"
+	"github.com/ar4mirez/lucy/internal/supervise"
 	"github.com/ar4mirez/lucy/internal/tower"
 	"github.com/ar4mirez/lucy/internal/worktree"
 )
@@ -66,6 +67,71 @@ type hostedTower struct {
 	// last is the last reload's outcome when it was not applied, guarded by mu.
 	last     api.ReloadOutcome
 	reloadMu sync.Mutex
+	// supervision is the orgs that opt into a model supervisor in the config the daemon runs on,
+	// guarded by mu, for status.get.
+	supervision map[string]supervise.Config
+	async       *asyncSupervisor // nil unless the daemon was started with --supervise
+}
+
+// asyncSupervisor asks the model supervisor off the Tower's step: the Tower steps under mu, and a
+// model call takes seconds. The Tower asks it once per question; it answers at once with no
+// proposal, calls the model in the background, and hands what it proposes to Tower.Propose, which
+// records it only while that same question is still open (LUCY-RUN-010).
+type asyncSupervisor struct {
+	ctx context.Context // the daemon's: its end stops every call
+	sup *supervise.Supervisor
+	h   *hostedTower
+	wg  sync.WaitGroup
+}
+
+// ProposeAnswer implements tower.Supervisor.
+func (a *asyncSupervisor) ProposeAnswer(_ context.Context, e tower.Escalation) (tower.Proposal, bool, error) {
+	a.wg.Go(func() {
+		p, ok, err := a.sup.ProposeAnswer(a.ctx, e)
+		if err != nil {
+			a.h.log.Warn("the supervisor could not propose an answer", "flight", e.Flight, "err", err)
+		}
+		if !ok || a.ctx.Err() != nil {
+			return
+		}
+		a.h.mu.Lock()
+		err = a.h.tw.Propose(a.ctx, e, p)
+		a.h.mu.Unlock()
+		if err != nil {
+			a.h.log.Info("the supervisor's proposal was not recorded", "flight", e.Flight, "err", err)
+		}
+	})
+	return tower.Proposal{}, false, nil
+}
+
+// wait waits for the supervisor's calls in flight, which end with the daemon's context.
+func (h *hostedTower) waitSupervisor() {
+	if h.async != nil {
+		h.async.wg.Wait()
+	}
+}
+
+// supervisorUsage is each opted-in org's supervisor tokens today against its daily budget, and
+// whether the daemon armed it (--supervise).
+func (h *hostedTower) supervisorUsage(ctx context.Context, store *eventstore.Store, armed bool) ([]api.SupervisorUsage, error) {
+	h.mu.Lock()
+	orgs := make([]supervise.Config, 0, len(h.supervision))
+	for _, c := range h.supervision {
+		orgs = append(orgs, c)
+	}
+	h.mu.Unlock()
+	slices.SortFunc(orgs, func(a, b supervise.Config) int { return strings.Compare(a.Org, b.Org) })
+	day := supervise.Day(time.Now())
+	out := make([]api.SupervisorUsage, 0, len(orgs))
+	for _, c := range orgs {
+		used, err := supervise.Used(ctx, store, c.Org, day)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, api.SupervisorUsage{Org: c.Org, Armed: armed, Day: day, Tokens: used, DailyTokens: c.DailyTokens,
+			Route: c.Route})
+	}
+	return out, nil
 }
 
 // ErrTakeoverGate refuses to dispatch a Flight whose Runway names a real repository: until runs
@@ -130,14 +196,24 @@ func takeoverGate(remote string) error {
 // yet and that gate lets through; either way it adds each Ready Flight's Dispatched condition to
 // set, which the daemon then records.
 func startTower(ctx context.Context, store *eventstore.Store, broker *runner.Broker, set *spec.Set, pipelines *pipeline.Catalog, poll time.Duration, log *slog.Logger,
-	dispatch bool, gate func(org, project string) error) (*hostedTower, error) {
-	tw, err := tower.New(ctx, tower.Config{Store: store, Runtime: runner.Runtime{Broker: broker}, Forge: stubForge{},
+	dispatch bool, gate func(org, project string) error, sup *supervise.Supervisor) (*hostedTower, error) {
+	cfg := tower.Config{Store: store, Runtime: runner.Runtime{Broker: broker}, Forge: stubForge{},
 		Clock: wallClock{}, ForgeIdentity: stubIdentity, PollInterval: poll,
-		Refusal: func(err error) bool { return errors.Is(err, errNoForge) }})
+		Refusal: func(err error) bool { return errors.Is(err, errNoForge) }}
+	var async *asyncSupervisor
+	if sup != nil {
+		async = &asyncSupervisor{ctx: ctx, sup: sup}
+		cfg.Supervisor = async // left nil when off: the Tower then asks no supervisor
+	}
+	tw, err := tower.New(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	h := &hostedTower{tw: tw, log: log, pipelines: pipelines, set: set, broker: broker}
+	h := &hostedTower{tw: tw, log: log, pipelines: pipelines, set: set, broker: broker, supervision: supervise.Configs(set.Admitted()),
+		async: async}
+	if async != nil {
+		async.h = h
+	}
 	h.dispatch(ctx, set, dispatch, gate)
 	h.tighten(ctx, set)
 	return h, nil

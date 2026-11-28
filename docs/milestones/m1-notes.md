@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 36
+version: 37
 owner: ar4mirez
 requirements: []
 ---
@@ -145,9 +145,13 @@ slice table, requirement status and exit tests stay in the plan.
   suggestion with `lucy answer <flight> --accept-proposal <proposal>`, recorded as the owner's
   answer and refused as stale when the question or proposal changed since `lucy questions`. The
   Tower's own questions are never put to it; with none configured nothing changes. Delegating
-  unattended answers is an m2 open question. Next: the model-backed supervisor (small model, then
-  large, then the owner), through the org's gateway, against a fake model server, off by default,
-  and per-org daily budgets.
+  unattended answers is an m2 open question. The model-backed supervisor (`internal/supervise`) asks a
+  small model, then a large one, then leaves it to the owner. It takes two keys: the org's Airspace
+  `spec.supervisor` (gateway route, models, daily token budget) and `lucy daemon --supervise`. Its
+  calls go through the org's gateway with a short-lived supervisor capability bound to that one
+  route, off the Tower's step, carrying only the question and the flight's org, project and goal;
+  the gateway injects the key. Each call is `supervisor.called` with its tokens; a spent budget, a
+  refusal or an error is `supervisor.declined`. Tests use a fake model server only.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real
   work on the host before it lands, since a host Pilot shares the daemon's uid and API authority.
   Shadow mode (slice 10) runs no Pilot and is unaffected.

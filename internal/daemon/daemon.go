@@ -35,6 +35,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/sandbox"
 	"github.com/ar4mirez/lucy/internal/server"
 	"github.com/ar4mirez/lucy/internal/spec"
+	"github.com/ar4mirez/lucy/internal/supervise"
 	"github.com/ar4mirez/lucy/internal/tower"
 	"github.com/ar4mirez/lucy/internal/vault"
 	"github.com/ar4mirez/lucy/internal/worktree"
@@ -86,7 +87,7 @@ func Registry() (*eventstore.Registry, error) {
 	payloads := append(spec.Payloads(), Started{}, Stopped{}, ConfigReloadFailed{}, server.CommandEvent{}, policy.DecisionRecord{})
 	payloads = append(append(append(payloads, runner.Payloads()...), sandbox.Payloads()...), gateway.Payloads()...)
 	payloads = append(append(append(payloads, capability.Payloads()...), vault.Payloads()...), worktree.Payloads()...)
-	payloads = append(payloads, tower.Payloads()...)
+	payloads = append(append(payloads, tower.Payloads()...), supervise.Payloads()...)
 	return eventstore.NewRegistry(payloads...)
 }
 
@@ -96,7 +97,7 @@ func Registry() (*eventstore.Registry, error) {
 // transaction.
 func Projectors() []eventstore.Projector {
 	return []eventstore.Projector{spec.StatusProjector{}, runner.Projector{}, sandbox.Projector{}, capability.Projector{}, worktree.Projector{},
-		decision.Projector{}, audit.Projector{}}
+		decision.Projector{}, audit.Projector{}, supervise.Projector{}}
 }
 
 // ExpiryInterval is how often the daemon expires runner leases that were not renewed in time.
@@ -127,6 +128,13 @@ type Options struct {
 	// daemon only flies the flights already in its log. Even on, a Flight whose Runway names a
 	// repository with a real remote is refused (ErrTakeoverGate).
 	Dispatch bool
+	// Supervise arms the model-backed supervisor (LUCY-RUN-010) for the orgs whose Airspace opts in
+	// with spec.supervisor; off by default, and an org that did not opt in is never supervised by a
+	// model. It only proposes answers to Pilots' questions, which only the owner answers.
+	Supervise bool
+	// GatewayDir holds each org's credential gateway socket, <org>.sock, which the supervisor's
+	// model calls go through; gateway/ in lucy's runtime directory when empty.
+	GatewayDir string
 	// TowerPollInterval is the longest the hosted Tower goes between steps while a flight is active
 	// (a change to the log steps it sooner); tower.DefaultPollInterval when zero.
 	TowerPollInterval time.Duration
@@ -279,7 +287,20 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		return takeoverGate(remote)
 	}
-	hosted, err := startTower(ctx, store, broker, &set, pipelines, poll, log, opts.Dispatch, gate)
+	var sup *supervise.Supervisor
+	if opts.Supervise {
+		dir := opts.GatewayDir
+		if dir == "" {
+			rt, err := RuntimeDir()
+			if err != nil {
+				return err
+			}
+			dir = filepath.Join(rt, "gateway")
+		}
+		sup = &supervise.Supervisor{Store: store, Issuer: caps, Transport: supervise.GatewayTransport(dir)}
+		sup.SetOrgs(supervise.Configs(set.Admitted()))
+	}
+	hosted, err := startTower(ctx, store, broker, &set, pipelines, poll, log, opts.Dispatch, gate, sup)
 	// refresh brings what the daemon built from the config at start up to an applied reload: the
 	// Pipelines and the worktree pool's Runways. TODO(LUCY-POL-005): the roles' blocked paths and the
 	// gateway's routes still take a restart.
@@ -295,6 +316,12 @@ func Run(ctx context.Context, opts Options) error {
 		hosted.pipelines = p
 		hosted.mu.Unlock()
 		worktrees.SetRunways(next.Admitted())
+		if sup != nil {
+			sup.SetOrgs(supervise.Configs(next.Admitted()))
+		}
+		hosted.mu.Lock()
+		hosted.supervision = supervise.Configs(next.Admitted())
+		hosted.mu.Unlock()
 		return nil
 	}
 	if err != nil {
@@ -321,6 +348,9 @@ func Run(ctx context.Context, opts Options) error {
 			return hosted.reload(context.WithoutCancel(ctx), store, opts.ResourcesDir, opts.Dispatch, gate, refresh)
 		},
 		LastReload: hosted.lastReloadOutcome,
+		Supervisors: func(ctx context.Context) ([]api.SupervisorUsage, error) {
+			return hosted.supervisorUsage(ctx, store, opts.Supervise)
+		},
 	})
 	if err != nil {
 		return err
@@ -391,6 +421,7 @@ func Run(ctx context.Context, opts Options) error {
 	<-towering
 	<-reloading
 	worktrees.Wait()
+	hosted.waitSupervisor()
 	if _, err := store.Append(shutdownCtx, DaemonStream, eventstore.AnyVersion, "daemon",
 		Stopped{PID: os.Getpid(), Reason: reason}); err != nil {
 		log.Warn("could not record daemon.stopped", "err", err)
