@@ -2,7 +2,7 @@
 id: tech-harness
 title: Harness adapters
 status: active
-version: 4
+version: 5
 owner: ar4mirez
 requirements: [LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-008, LUCY-RUN-013]
 ---
@@ -62,4 +62,6 @@ A `harness.SkillHost` adapter names the directory its harness reads skills from 
 (`internal/skills`, LUCY-RUN-009), verifies each against its SHA-256 in the bundled manifest,
 and removes everything else through the path guard; a mismatch refuses the spawn. Sessions still
 run with skills off (`--disable-slash-commands`) until a live check shows that no skill's
-`allowed-tools` skips the permission prompt and that no repository skill loads.
+`allowed-tools` skips the permission prompt and that no repository skill loads. The Pilot role's
+instructions, the body of its bundled skill, reach the session in lucy's appended system prompt
+instead (`harness.Session.Role`), before the repository's instructions.

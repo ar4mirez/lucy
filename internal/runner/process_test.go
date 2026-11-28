@@ -853,6 +853,9 @@ func TestHarnessGetsRepositoryInstructions(t *testing.T) {
 		_, rest, _ := strings.Cut(argv[i+1], "<repository-instructions>\n")
 		framed, _, _ = strings.Cut(rest, "\n</repository-instructions>")
 	}
+	if i < 0 || i+1 >= len(argv) || !strings.Contains(argv[i+1], "# lucy ship worker") {
+		t.Errorf("the system prompt lacks the ship worker's instructions (LUCY-SPEC-015): %q", argv)
+	}
 	if !strings.Contains(framed, "run-dir-agents-9c1e") {
 		t.Errorf("the launch arguments lack the run directory's AGENTS.md: %q", argv)
 	}

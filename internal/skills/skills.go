@@ -212,3 +212,33 @@ func readDir(home *os.Root, dir string) ([]fs.DirEntry, error) {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	return entries, nil
 }
+
+// Instructions returns the body of the bundled skill for a Pilot role (lucy-<role>), without its
+// front matter, verified against its manifest hash: the role's instructions, lucy's own text.
+func Instructions(role string) (string, error) {
+	files, err := Manifest()
+	if err != nil {
+		return "", err
+	}
+	want := "lucy-" + role + "/SKILL.md"
+	for _, f := range files {
+		if f.Path != want {
+			continue
+		}
+		b, err := builtinFS.ReadFile("builtin/" + f.Path)
+		if err != nil {
+			return "", err
+		}
+		if digest(b) != f.SHA256 {
+			return "", fmt.Errorf("%w: the bundled %s", ErrMismatch, f.Path)
+		}
+		body := string(b)
+		if rest, ok := strings.CutPrefix(body, "---\n"); ok {
+			if _, after, found := strings.Cut(rest, "\n---\n"); found {
+				body = after
+			}
+		}
+		return strings.TrimSpace(body), nil
+	}
+	return "", fmt.Errorf("skills: no bundled skill for the %q role", role)
+}

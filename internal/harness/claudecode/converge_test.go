@@ -216,3 +216,24 @@ func TestNeeds(t *testing.T) {
 		t.Fatalf("a home whose state file is a link: %q, want a need", got)
 	}
 }
+
+// The Pilot role's instructions reach the session in lucy's system prompt, before the repository's
+// instructions, and the session keeps skills off (LUCY-RUN-009, LUCY-SPEC-015).
+func TestArgsCarryTheRoleBeforeTheRepository(t *testing.T) {
+	args := Adapter{}.Args(harness.Session{Goal: "g", Role: "ROLE-TEXT-7f3a", Instructions: "REPO-TEXT-2b9c"})
+	var prompt string
+	disabled := false
+	for i, a := range args {
+		if a == "--append-system-prompt" && i+1 < len(args) {
+			prompt = args[i+1]
+		}
+		disabled = disabled || a == "--disable-slash-commands"
+	}
+	r, p := strings.Index(prompt, "ROLE-TEXT-7f3a"), strings.Index(prompt, "REPO-TEXT-2b9c")
+	if r < 0 || p < 0 || r > p {
+		t.Fatalf("the role's text at %d, the repository's at %d, in %q", r, p, prompt)
+	}
+	if !disabled {
+		t.Fatal("the session runs with skills on")
+	}
+}

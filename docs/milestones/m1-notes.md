@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 33
+version: 34
 owner: ar4mirez
 requirements: []
 ---
@@ -126,7 +126,11 @@ slice table, requirement status and exit tests stay in the plan.
   through its Root, reads each back against the manifest, refuses a linked directory, and removes
   every other entry through the runner's path guard. A session still runs with skills off
   (`--disable-slash-commands`): a skill's `allowed-tools` would skip the prompt, and turning skills
-  on may load a repository's own; that waits on a live contract check.
+  on may load a repository's own; that waits on a live contract test (TODO(LUCY-RUN-009)). The
+  role's instructions reach the session instead in lucy's appended system prompt, before the
+  repository's instructions: `skills.Instructions` gives the role's skill body, hash-verified, as
+  `harness.Session.Role`. Every run is a ship worker's so far; the lease names the role once
+  research and review runs fly.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real
   work on the host before it lands, since a host Pilot shares the daemon's uid and API authority.
   Shadow mode (slice 10) runs no Pilot and is unaffected.

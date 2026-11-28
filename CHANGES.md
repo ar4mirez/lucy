@@ -57,7 +57,8 @@ Changes since the last release. When a version is cut, its section moves to
   home, verifies each against the manifest, and removes anything else there, through the path
   guard; a mismatch refuses the spawn. Only lucy's skills are ever installed. Sessions still run
   with skills switched off until a live check of the harness shows they cannot skip a permission
-  prompt.
+  prompt; a Pilot gets its role's instructions, from the same bundle, in lucy's system prompt,
+  before the repository's instructions.
 
 - A Pilot whose harness has no login in its org's synthetic home is held for you instead of
   wedged on a login prompt: the runner does not start it and finishes the run `needs_owner`

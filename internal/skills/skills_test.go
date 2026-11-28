@@ -141,3 +141,18 @@ func TestInstallRefusesALinkedDirectory(t *testing.T) {
 		}
 	}
 }
+
+// A role's instructions are its bundled skill's body, without the front matter; an unknown role has
+// none.
+func TestInstructions(t *testing.T) {
+	got, err := Instructions("worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "# lucy ship worker") || strings.Contains(got, "description:") || !strings.Contains(got, "lucy:pr=") {
+		t.Fatalf("the worker's instructions: %q", got)
+	}
+	if _, err := Instructions("admin"); err == nil {
+		t.Fatal("instructions for an unknown role")
+	}
+}

@@ -60,6 +60,10 @@ type Session struct {
 	// Instructions are the repository's agent instructions, as Instructions read them from the
 	// run's directory: repository text the Pilot follows, never the owner's authority.
 	Instructions string
+	// Role is the Pilot role's instructions, lucy's own text from its bundled, hash-verified
+	// skill for the role (LUCY-SPEC-015, LUCY-RUN-009): they come with lucy's system prompt,
+	// before any repository text.
+	Role string
 }
 
 // Access is what a prompted tool asks to do with files.

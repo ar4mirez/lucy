@@ -209,6 +209,12 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 		}
 		// The repository's instructions come from the run's checkout; a run with none (its project
 		// names no repository) has an empty scratch directory, and nothing is injected.
+		// Every run lucy flies so far is a ship worker's (research Flights are not flown yet).
+		// TODO(LUCY-SPEC-015): the lease names the Pilot's role once research and review runs fly.
+		if session.Role, err = skills.Instructions("worker"); err != nil {
+			pe.cleanup()
+			return nil, err
+		}
 		if session.Instructions, err = harness.Instructions(work); err != nil {
 			pe.cleanup()
 			return nil, err
