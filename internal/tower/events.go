@@ -48,6 +48,15 @@ type PilotStartFailed struct {
 	Error      string `json:"error"` // the runtime's error, capped
 }
 
+// PostureTightened records a flight in flight moved to a stricter posture: its Runway was demoted,
+// its own autonomy tightened, or its Runway's AutonomyPolicy became invalid (then owner). A posture
+// is never loosened in flight: a promotion applies only to flights dispatched after it.
+type PostureTightened struct {
+	From   policy.Posture `json:"from"`
+	To     policy.Posture `json:"to"`
+	Reason string         `json:"reason"` // why, capped
+}
+
 // PilotStarted records a Pilot session started for the flight.
 type PilotStarted struct {
 	Session    string `json:"session"`
@@ -182,6 +191,8 @@ func (Takeoff) EventVersion() int          { return 1 }
 func (Grounded) EventVersion() int         { return 1 }
 func (PilotStartFailed) EventType() string { return "task.pilot_start_failed" }
 func (PilotStartFailed) EventVersion() int { return 1 }
+func (PostureTightened) EventType() string { return "task.posture_tightened" }
+func (PostureTightened) EventVersion() int { return 1 }
 func (MergedOutside) EventVersion() int    { return 1 }
 
 // Payloads returns a sample of every event the Tower appends, for an eventstore.Registry. The
@@ -189,6 +200,6 @@ func (MergedOutside) EventVersion() int    { return 1 }
 func Payloads() []eventstore.Payload {
 	return []eventstore.Payload{
 		Dispatched{}, PilotStarted{}, PilotAsked{}, PilotAnswered{}, PilotExited{}, PRObserved{},
-		Approved{}, Cleared{}, MergeFailed{}, Takeoff{}, Grounded{}, MergedOutside{}, PilotStartFailed{},
+		Approved{}, Cleared{}, MergeFailed{}, Takeoff{}, Grounded{}, MergedOutside{}, PilotStartFailed{}, PostureTightened{},
 	}
 }

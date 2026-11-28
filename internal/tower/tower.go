@@ -103,6 +103,32 @@ type Spec struct {
 	Pipeline   *Pipeline          // how the flight is flown; nil flies it on the Tower's own defaults
 }
 
+// strictness orders the postures: a stricter one needs more human word before a merge.
+var strictness = map[policy.Posture]int{policy.PostureGreen: 0, policy.PostureOwner: 1, policy.PostureClient: 2}
+
+// Stricter reports whether posture a needs more human word before a merge than b: green, then
+// owner, then client (the owner's word and the client's confirmation). An unknown a is never
+// stricter, and any known a is stricter than an unknown b.
+func Stricter(a, b policy.Posture) bool {
+	sa, oka := strictness[a]
+	sb, okb := strictness[b]
+	return oka && (!okb || sa > sb)
+}
+
+// Tighten moves a flight in flight to a stricter posture, recorded as PostureTightened with why;
+// its next merge is decided again under it. It does nothing, and reports false, for a final
+// flight or for a posture that is not stricter than the flight's: a flight is never loosened.
+func (t *Tower) Tighten(ctx context.Context, id string, to policy.Posture, why string) (bool, error) {
+	f, ok := t.flights[id]
+	if !ok {
+		return false, fmt.Errorf("tower: no flight %q", id)
+	}
+	if f.state.Final() || !Stricter(to, f.spec.Posture) {
+		return false, nil
+	}
+	return true, t.record(ctx, f, ActorDaemon, PostureTightened{From: f.spec.Posture, To: to, Reason: capText(why)})
+}
+
 // OnTimeoutAbort is the one approval timeout action the Tower flies: it grounds the flight. A
 // timeout never approves a merge.
 const OnTimeoutAbort = "abort"
@@ -746,6 +772,12 @@ func (f *flight) apply(e eventstore.Event, p eventstore.Payload) {
 		enter(StateReview) // a holding clearance was for the old facts
 	case Approved:
 		f.approvals = append(f.approvals, p.Approval)
+	case PostureTightened:
+		f.spec.Posture = p.To
+		f.cleared = "" // the last clearance was for the looser posture: decide again
+		if f.state == StateHolding {
+			enter(StateReview)
+		}
 	case Cleared:
 		f.decision = p
 		f.cleared = f.clearanceKey()

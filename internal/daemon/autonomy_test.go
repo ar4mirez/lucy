@@ -93,14 +93,15 @@ func listedAutonomy(t *testing.T, c *client.Client) string {
 	return ""
 }
 
-// flights.list reports the posture a Flight in flight was dispatched under, as its log records it,
-// even after the owner changes its Runway's level by hand.
+// flights.list reports the posture a Flight in flight is flown under, as its log records it, not
+// one worked out again from the config: after the owner promotes its Runway by hand, it still
+// reports the stricter posture the flight keeps (LUCY-POL-005).
 func TestFlightsListReportsTheRecordedPosture(t *testing.T) {
 	dir := shortTempDir(t)
 	o := opts(dir)
 	o.TowerPollInterval = 20 * time.Millisecond
 	o.Dispatch = true
-	writeFlights(t, o, "spec: { autonomyPolicy: standard, autonomyLevel: 1 }")
+	writeFlights(t, o, "spec: { autonomyPolicy: standard, autonomyLevel: 0 }")
 	for file, doc := range map[string]string{
 		"policy.yaml": standardPolicy,
 		"ready.yaml": "apiVersion: lucy/v1alpha1\nkind: Flight\nmetadata: { name: fix-login, namespace: acme }\n" +
@@ -116,8 +117,8 @@ func TestFlightsListReportsTheRecordedPosture(t *testing.T) {
 	if d := dispatched(t, c, "acme", "fix-login"); d.Reason != ReasonDispatched {
 		t.Fatalf("the Dispatched condition %+v", d)
 	}
-	if got := listedAutonomy(t, c); got != string(policy.PostureGreen) {
-		t.Fatalf("flights.list's autonomy %q, want green", got)
+	if got := listedAutonomy(t, c); got != string(policy.PostureOwner) {
+		t.Fatalf("flights.list's autonomy %q, want owner", got)
 	}
 	if _, err := c.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
@@ -125,7 +126,7 @@ func TestFlightsListReportsTheRecordedPosture(t *testing.T) {
 	if err := r.wait(t); err != nil {
 		t.Fatal(err)
 	}
-	writeFlights(t, o, "spec: { autonomyPolicy: standard, autonomyLevel: 0 }")
+	writeFlights(t, o, "spec: { autonomyPolicy: standard, autonomyLevel: 1 }")
 	if err := os.WriteFile(filepath.Join(o.ResourcesDir, "ready.yaml"), []byte("apiVersion: lucy/v1alpha1\nkind: Flight\nmetadata: { name: fix-login, namespace: acme }\n"+
 		"spec: { shape: ship, goal: fix the login page, runway: web, delivery: pull-request, acceptance: the login test passes }\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -137,7 +138,85 @@ func TestFlightsListReportsTheRecordedPosture(t *testing.T) {
 	if d := dispatched(t, c, "acme", "fix-login"); d.Reason != ReasonInFlight {
 		t.Fatalf("the Dispatched condition after a restart: %+v", d)
 	}
-	if got := listedAutonomy(t, c); got != string(policy.PostureGreen) {
-		t.Fatalf("flights.list's autonomy after a hand demotion %q, want the recorded green", got)
+	if got := listedAutonomy(t, c); got != string(policy.PostureOwner) {
+		t.Fatalf("flights.list's autonomy after a hand promotion %q, want the recorded owner", got)
 	}
+}
+
+// A Runway's posture change applies to its flights in flight when the daemon next loads its config
+// (LUCY-POL-005): a demotion tightens them, recorded as task.posture_tightened; a promotion leaves
+// them as they are; an AutonomyPolicy that can no longer be read moves them to owner.
+func TestARunwaysPostureChangeTightensFlightsInFlight(t *testing.T) {
+	for name, c := range map[string]struct {
+		level  string
+		policy string
+		want   []string // "from>to" of each task.posture_tightened
+	}{
+		"a demotion tightens":         {"0", standardPolicy, []string{"green>owner"}},
+		"a promotion does not loosen": {"1", standardPolicy, nil},
+		"an invalid policy is owner":  {"1", strings.Replace(standardPolicy, "requireApproval: security-critical-only }", "requireApproval: security-critical-only, maxLinesPerPR: 500 }", 1), []string{"green>owner"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := shortTempDir(t)
+			o := opts(dir)
+			o.TowerPollInterval = 20 * time.Millisecond
+			o.Dispatch = true
+			start := "1"
+			if name == "a promotion does not loosen" {
+				start = "0"
+			}
+			writeFlights(t, o, "spec: { autonomyPolicy: standard, autonomyLevel: "+start+" }")
+			if err := os.WriteFile(filepath.Join(o.ResourcesDir, "policy.yaml"), []byte(standardPolicy), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(o.ResourcesDir, "ready.yaml"), []byte("apiVersion: lucy/v1alpha1\nkind: Flight\nmetadata: { name: fix-login, namespace: acme }\n"+
+				"spec: { shape: ship, goal: fix the login page, runway: web, delivery: pull-request, acceptance: the login test passes }\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			r := startDaemon(t, o)
+			cl := clientFor(t, r)
+			if d := dispatched(t, cl, "acme", "fix-login"); d.Reason != ReasonDispatched {
+				t.Fatalf("first start: %+v", d)
+			}
+			if _, err := cl.Shutdown(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.wait(t); err != nil {
+				t.Fatal(err)
+			}
+			writeFlights(t, o, "spec: { autonomyPolicy: standard, autonomyLevel: "+c.level+" }")
+			if err := os.WriteFile(filepath.Join(o.ResourcesDir, "policy.yaml"), []byte(c.policy), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(o.ResourcesDir, "ready.yaml"), []byte("apiVersion: lucy/v1alpha1\nkind: Flight\nmetadata: { name: fix-login, namespace: acme }\n"+
+				"spec: { shape: ship, goal: fix the login page, runway: web, delivery: pull-request, acceptance: the login test passes }\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			c2 := clientFor(t, startDaemon(t, o))
+			page, err := c2.Events(context.Background(), api.EventsParams{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, e := range page.Events {
+				if e.Type == "task.posture_tightened" {
+					var p tower.PostureTightened
+					if err := json.Unmarshal(e.Payload, &p); err != nil {
+						t.Fatal(err)
+					}
+					got = append(got, string(p.From)+">"+string(p.To))
+				}
+			}
+			if strings.Join(got, ",") != strings.Join(c.want, ",") {
+				t.Fatalf("tightenings %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func clientFor(t *testing.T, r *running) *client.Client {
+	t.Helper()
+	c := client.New(r.sock, "test", "0")
+	t.Cleanup(func() { c.Close() })
+	return c
 }

@@ -21,6 +21,7 @@ import (
 
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/spec"
+	"github.com/ar4mirez/lucy/internal/tower"
 )
 
 // ErrUnsupported refuses an AutonomyPolicy field or value lucy does not act on yet.
@@ -31,9 +32,6 @@ var ErrInvalid = errors.New("autonomy: invalid")
 
 // ErrLoosens refuses a Flight whose autonomy is looser than its Runway's posture.
 var ErrLoosens = errors.New("autonomy: a Flight's autonomy may only tighten its Runway's posture")
-
-// strictness orders the postures: a stricter one needs more human word before a merge.
-var strictness = map[policy.Posture]int{policy.PostureGreen: 0, policy.PostureOwner: 1, policy.PostureClient: 2}
 
 var (
 	specFields      = []string{"levels", "promotionCriteria", "demotionTriggers"}
@@ -139,11 +137,10 @@ func Effective(runwayPosture policy.Posture, runwaySets bool, flight policy.Post
 	if flight == "" {
 		return runwayPosture, nil
 	}
-	fs, ok := strictness[flight]
-	if !ok {
+	if flight != policy.PostureGreen && flight != policy.PostureOwner && flight != policy.PostureClient {
 		return "", fmt.Errorf("%w: unknown autonomy %q", ErrInvalid, flight)
 	}
-	if fs < strictness[runwayPosture] {
+	if tower.Stricter(runwayPosture, flight) {
 		return "", fmt.Errorf("%w: the Flight's %s is looser than its Runway's %s", ErrLoosens, flight, runwayPosture)
 	}
 	return flight, nil

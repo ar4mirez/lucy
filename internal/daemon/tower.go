@@ -131,6 +131,7 @@ func startTower(ctx context.Context, store *eventstore.Store, broker *runner.Bro
 	}
 	h := &hostedTower{tw: tw, log: log, pipelines: pipelines}
 	h.dispatch(ctx, set, dispatch, gate)
+	h.tighten(ctx, set)
 	return h, nil
 }
 
@@ -364,4 +365,57 @@ func flightPosture(set *spec.Set, f spec.Resource) (policy.Posture, error) {
 		return "", err
 	}
 	return autonomy.Effective(rp, sets, policy.Posture(own))
+}
+
+// tighten moves every flight in flight to a stricter posture when the config now asks for one
+// (LUCY-POL-005): its Runway's AutonomyPolicy level was demoted, or its Flight's own autonomy
+// tightened; a Runway whose AutonomyPolicy can no longer be read moves its flights to owner. A
+// flight is never loosened in flight: a promotion applies only to flights dispatched after it.
+func (h *hostedTower) tighten(ctx context.Context, set *spec.Set) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	policies := map[string]spec.Resource{}
+	runways := map[string]spec.Resource{}
+	flights := map[string]spec.Resource{}
+	for _, r := range set.Admitted() {
+		id := r.Metadata.Namespace + "/" + r.Metadata.Name
+		switch {
+		case r.APIVersion == spec.CoreAPIVersion && r.Kind == "AutonomyPolicy":
+			policies[id] = r
+		case r.APIVersion == spec.LucyAPIVersion && r.Kind == "Runway":
+			runways[id] = r
+		case r.APIVersion == spec.LucyAPIVersion && r.Kind == "Flight":
+			flights[id] = r
+		}
+	}
+	for _, st := range h.tw.Flights() {
+		if st.State.Final() {
+			continue
+		}
+		to, why := policy.Posture(""), ""
+		if rw, ok := runways[st.Org+"/"+st.Project]; ok {
+			rp, sets, err := autonomy.RunwayPosture(rw, policies)
+			switch {
+			case err != nil:
+				to, why = policy.PostureOwner, "its Runway's autonomy can no longer be read: "+err.Error()
+			case sets:
+				to, why = rp, fmt.Sprintf("its Runway %s/%s now sets %s", st.Org, st.Project, rp)
+			}
+		}
+		if f, ok := flights[st.Org+"/"+st.ID]; ok {
+			if own, _ := f.Spec["autonomy"].(string); tower.Stricter(policy.Posture(own), to) {
+				to, why = policy.Posture(own), "its Flight's autonomy is now "+own
+			}
+		}
+		if to == "" {
+			continue
+		}
+		done, err := h.tw.Tighten(ctx, st.ID, to, why)
+		switch {
+		case err != nil:
+			h.log.Warn("could not tighten a flight's posture", "flight", st.Org+"/"+st.ID, "to", to, "err", err)
+		case done:
+			h.log.Info("flight's posture tightened", "flight", st.Org+"/"+st.ID, "to", to, "why", why)
+		}
+	}
 }
