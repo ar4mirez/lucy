@@ -2,8 +2,11 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/ar4mirez/lucy/internal/api"
@@ -20,12 +23,15 @@ type Questions interface {
 	// flight is not asking.
 	Answer(ctx context.Context, flight, answer string) (tower.Status, error)
 	// AcceptProposal answers the flight's question, as the owner, with the supervisor's proposed
-	// answer. It fails with ErrNotAsking, or ErrNoProposal when no supervisor proposed one.
-	AcceptProposal(ctx context.Context, flight string) (tower.Status, error)
+	// answer the owner saw: the proposal named by proposalID, for the question whose SHA-256 starts
+	// with questionSHA256. It fails with ErrNotAsking, or ErrStaleProposal when the flight's
+	// proposal or question is no longer the one named.
+	AcceptProposal(ctx context.Context, flight, proposalID, questionSHA256 string) (tower.Status, error)
 }
 
-// ErrNoProposal refuses to accept a proposal for a question no supervisor proposed an answer to.
-var ErrNoProposal = errors.New("server: no supervisor proposed an answer to the flight's question")
+// ErrStaleProposal refuses to accept a proposal the owner was not shown: the flight's proposal or
+// its question changed since, or it has none.
+var ErrStaleProposal = errors.New("server: the flight's question or its proposal changed")
 
 // ErrNotAsking refuses an answer to a flight that has no open question.
 var ErrNotAsking = errors.New("server: the flight is not asking")
@@ -68,20 +74,20 @@ func (q TowerQuestions) Answer(ctx context.Context, flight, answer string) (towe
 }
 
 // AcceptProposal implements Questions: the owner's answer is the supervisor's proposed one.
-func (q TowerQuestions) AcceptProposal(ctx context.Context, flight string) (tower.Status, error) {
+func (q TowerQuestions) AcceptProposal(ctx context.Context, flight, proposalID, questionSHA256 string) (tower.Status, error) {
 	q.Lock.Lock()
 	defer q.Lock.Unlock()
-	if st, ok := q.Tower.Flight(flight); !ok || st.State != tower.StateAsking {
+	st, ok := q.Tower.Flight(flight)
+	if !ok || st.State != tower.StateAsking {
 		return tower.Status{}, ErrNotAsking
 	}
-	_, answer, ok := q.Tower.Proposal(flight)
-	if !ok {
-		return tower.Status{}, ErrNoProposal
+	if st.ProposalID != proposalID || !strings.HasPrefix(questionDigest(st.Question), questionSHA256) {
+		return tower.Status{}, ErrStaleProposal
 	}
-	if err := q.Tower.Answer(ctx, flight, answer); err != nil {
+	if err := q.Tower.Answer(ctx, flight, st.Proposed); err != nil {
 		return tower.Status{}, err
 	}
-	st, _ := q.Tower.Flight(flight)
+	st, _ = q.Tower.Flight(flight)
 	return st, nil
 }
 
@@ -96,9 +102,26 @@ func (s *Server) questions(ctx context.Context, _ *api.NoParams) (api.QuestionsL
 	}
 	for _, f := range open {
 		out.Questions = append(out.Questions, api.Question{Flight: f.ID, Org: f.Org, Project: f.Project,
-			Question: f.Question, Since: f.Since.UTC(), ProposedBy: f.ProposedBy, Proposed: f.Proposed})
+			Question: f.Question, QuestionSHA256: questionDigest(f.Question), Since: f.Since.UTC(), ProposalID: f.ProposalID,
+			ProposedBy: f.ProposedBy, Proposed: f.Proposed})
 	}
 	return out, nil
+}
+
+// questionDigest is the SHA-256, in hex, of a question exactly as questions.list shows it.
+func questionDigest(q string) string {
+	sum := sha256.Sum256([]byte(q))
+	return hex.EncodeToString(sum[:])
+}
+
+// minQuestionDigest is the fewest hex characters of a question's digest that name it.
+const minQuestionDigest = 16
+
+func validQuestionDigest(d string) bool {
+	if len(d) < minQuestionDigest || len(d) > sha256.Size*2 {
+		return false
+	}
+	return strings.Trim(d, "0123456789abcdef") == ""
 }
 
 func (s *Server) answer(ctx context.Context, p *api.AnswerParams) (api.AnswerResult, error) {
@@ -109,17 +132,23 @@ func (s *Server) answer(ctx context.Context, p *api.AnswerParams) (api.AnswerRes
 	var st tower.Status
 	var err error
 	switch {
-	case p.AcceptProposal && p.Answer != "":
+	case p.AcceptProposal != "" && p.Answer != "":
 		return api.AnswerResult{}, api.FieldError(api.CodeInvalidParams, "answer", "give an answer or accept the proposal, not both")
-	case p.AcceptProposal:
-		st, err = s.opts.Questions.AcceptProposal(ctx, p.Flight)
+	case p.AcceptProposal == "" && p.QuestionSHA256 != "":
+		return api.AnswerResult{}, api.FieldError(api.CodeInvalidParams, "question_sha256", "question_sha256 goes with accept_proposal only")
+	case p.AcceptProposal != "" && !validQuestionDigest(p.QuestionSHA256):
+		return api.AnswerResult{}, api.FieldError(api.CodeInvalidParams, "question_sha256",
+			"name the question you saw: its question_sha256 from `lucy questions`, at least 16 lowercase hex characters")
+	case p.AcceptProposal != "":
+		st, err = s.opts.Questions.AcceptProposal(ctx, p.Flight, p.AcceptProposal, p.QuestionSHA256)
 	case p.Answer == "":
 		return api.AnswerResult{}, api.FieldError(api.CodeInvalidParams, "answer", "an answer is required, unless accept_proposal is set")
 	default:
 		st, err = s.opts.Questions.Answer(ctx, p.Flight, p.Answer)
 	}
-	if errors.Is(err, ErrNoProposal) {
-		return api.AnswerResult{}, api.FieldError(api.CodeInvalidParams, "accept_proposal", "no supervisor proposed an answer to this question; answer it yourself")
+	if errors.Is(err, ErrStaleProposal) {
+		return api.AnswerResult{}, api.FieldError(api.CodeInvalidParams, "accept_proposal",
+			"the question or its suggestion changed since you saw it; run `lucy questions` and accept the one shown now")
 	}
 	if errors.Is(err, ErrNotAsking) {
 		return api.AnswerResult{}, api.FieldError(api.CodeInvalidParams, "flight", "the flight is not asking; run `lucy questions` to see the open ones")

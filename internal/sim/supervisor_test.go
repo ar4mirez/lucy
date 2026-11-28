@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,11 +62,10 @@ func TestOnlyTheOwnerAnswersUnderEveryPosture(t *testing.T) {
 					t.Fatalf("the Pilot got an answer no owner gave: %v", a)
 				}
 			}
-			by, answer, ok := w.Tower.Proposal("f1")
-			if !ok || by != "supervisor/test" {
-				t.Fatalf("the proposal: %q %q %v", by, answer, ok)
+			if st.ProposalID == "" {
+				t.Fatalf("the proposal has no id: %+v", st)
 			}
-			if err := w.Tower.Answer(ctx, "f1", answer); err != nil { // the owner accepts it
+			if err := w.Tower.Answer(ctx, "f1", st.Proposed); err != nil { // the owner accepts it
 				t.Fatal(err)
 			}
 			run(t, w, RunOptions{})
@@ -111,5 +111,55 @@ func TestADecliningOrFailingSupervisorLeavesItToTheOwner(t *testing.T) {
 	run(t, w, RunOptions{})
 	if st := state(t, w, "f1"); st.State != tower.StateAsking || len(s.asked) != 0 {
 		t.Fatalf("flight %+v; the Tower's own question was put to the supervisor %d times", st, len(s.asked))
+	}
+}
+
+// The same question asked again, after the owner answered it, is a new question: the supervisor is
+// asked about it and proposes again, with a new proposal id. A restart in between changes nothing
+// the log records.
+func TestTheSameQuestionAskedAgainIsProposedOnAgain(t *testing.T) {
+	ctx := context.Background()
+	var logs [2][]string
+	for i, restart := range []bool{false, true} {
+		s := &fakeSupervisor{answer: "eu-west"}
+		w := supervisedWorld(t, 85, s)
+		dispatch(t, w, spec("f1", policy.PostureGreen), Work(5*time.Minute), Ask("which region?"), Work(5*time.Minute),
+			Ask("which region?"), OpenPR(Passing("ci", time.Minute)))
+		run(t, w, RunOptions{})
+		first := state(t, w, "f1")
+		if first.State != tower.StateAsking || first.ProposalID == "" || len(s.asked) != 1 {
+			t.Fatalf("restart %v: first ask %+v, asked %d times", restart, first, len(s.asked))
+		}
+		if err := w.Tower.Answer(ctx, "f1", "us-east"); err != nil {
+			t.Fatal(err)
+		}
+		if restart {
+			if err := w.Restart(ctx); err != nil {
+				t.Fatal(err)
+			}
+		}
+		run(t, w, RunOptions{})
+		second := state(t, w, "f1")
+		if second.State != tower.StateAsking || second.Question != first.Question || len(s.asked) != 2 {
+			t.Fatalf("restart %v: second ask %+v, asked %d times; want the supervisor asked again", restart, second, len(s.asked))
+		}
+		if second.ProposalID == "" || second.ProposalID == first.ProposalID || second.Proposed != "eu-west" {
+			t.Fatalf("restart %v: second proposal %q after %q", restart, second.ProposalID, first.ProposalID)
+		}
+		log, err := w.Log(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, l := range log {
+			if strings.HasSuffix(l.Stream, "/f1") {
+				logs[i] = append(logs[i], l.Type)
+			}
+		}
+	}
+	if !slices.Equal(logs[0], logs[1]) {
+		t.Fatalf("a restart changed the log:\n%v\n%v", logs[0], logs[1])
+	}
+	if n := strings.Count(strings.Join(logs[0], " "), "task.answer_proposed"); n != 2 {
+		t.Fatalf("%d proposals recorded, want 2: %v", n, logs[0])
 	}
 }

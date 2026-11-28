@@ -45,6 +45,7 @@ func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
 			superseded_by INTEGER NOT NULL DEFAULT 0,
 			opened_ns     INTEGER NOT NULL,
 			updated_ns    INTEGER NOT NULL,
+			proposal_id   TEXT NOT NULL DEFAULT '',
 			proposed_by   TEXT NOT NULL DEFAULT '',
 			proposed      TEXT NOT NULL DEFAULT ''
 		)`,
@@ -144,8 +145,8 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 		if err := decode(&p); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, `UPDATE decision_catalog SET proposed_by = ?, proposed = ?, updated_ns = ?
-			WHERE kind = ? AND org = ? AND subject = ? AND lifecycle = ?`, p.By, p.Answer, at, KindQuestion, org, flight, Open)
+		_, err := tx.ExecContext(ctx, `UPDATE decision_catalog SET proposal_id = ?, proposed_by = ?, proposed = ?, updated_ns = ?
+			WHERE kind = ? AND org = ? AND subject = ? AND lifecycle = ?`, fmt.Sprintf("p%d", e.StreamVersion), p.By, p.Answer, at, KindQuestion, org, flight, Open)
 		return err
 	case tower.PilotAnswered{}.EventType():
 		return answer(KindQuestion, org, flight)
@@ -205,7 +206,7 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 }
 
 const rowColumns = `seq, kind, org, subject, ref, summary, body, lifecycle, answered_by, answered_ns, superseded_by, opened_ns, updated_ns,
-	proposed_by, proposed`
+	proposal_id, proposed_by, proposed`
 
 type rowScanner interface{ Scan(dest ...any) error }
 
@@ -213,7 +214,7 @@ func scan(r rowScanner) (Row, error) {
 	var d Row
 	var answered, opened, updated int64
 	err := r.Scan(&d.Seq, &d.Kind, &d.Org, &d.Subject, &d.Ref, &d.Summary, &d.Body, &d.Lifecycle, &d.AnsweredBy, &answered,
-		&d.SupersededBy, &opened, &updated, &d.ProposedBy, &d.Proposed)
+		&d.SupersededBy, &opened, &updated, &d.ProposalID, &d.ProposedBy, &d.Proposed)
 	if err != nil {
 		return Row{}, err
 	}

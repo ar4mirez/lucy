@@ -142,7 +142,8 @@ slice table, requirement status and exit tests stay in the plan.
   (`task.answer_proposed`, naming the supervisor) and shown in `lucy questions` and
   `lucy decisions` as a suggestion. It never reaches the Pilot and never closes the question, under
   any posture (corpus rule channel-05, now executable); the owner answers, or accepts the
-  suggestion with `lucy answer <flight> --accept-proposal`, recorded as the owner's answer. The
+  suggestion with `lucy answer <flight> --accept-proposal <proposal>`, recorded as the owner's
+  answer and refused as stale when the question or proposal changed since `lucy questions`. The
   Tower's own questions are never put to it; with none configured nothing changes. Delegating
   unattended answers is an m2 open question. Next: the model-backed supervisor (small model, then
   large, then the owner), through the org's gateway, against a fake model server, off by default,

@@ -55,6 +55,9 @@ func TestUsageErrors(t *testing.T) {
 		{"runner", "--org", "acme", "--placement", "container", "--", "true"}, {"runner", "--placement", "container", "--", "true"},
 		{"runner", "host-org"}, {"runner", "host-org", "a", "b"}, {"runner", "host-org", "--nope"},
 		{"questions", "extra"}, {"answer"}, {"answer", "f1"},
+		{"answer", "f1", "--accept-proposal"}, {"answer", "f1", "--accept-proposal", "p3"}, {"answer", "f1", "--accept-proposal", "p3.0123"},
+		{"answer", "f1", "--accept-proposal", ".0123456789abcdef"}, {"answer", "f1", "--accept-proposal", "p3.0123456789abcdef", "yes"},
+		{"answer", "--accept-proposal", "p3.0123456789abcdef"},
 		{"sandbox"}, {"sandbox", "nope"}, {"sandbox", "held", "extra"}, {"sandbox", "confirm", "acme", "restart"},
 		{"sandbox", "confirm", "acme", "restart", "x"}, {"sandbox", "confirm", "acme", "restart", "0"},
 		{"gateway"}, {"gateway", "--nope"}, {"gateway", "--org", "acme", "extra"},
@@ -252,6 +255,27 @@ func TestWorktreeRowQuotesAReasonOnce(t *testing.T) {
 		if w := "  acme/web/1,quarantined,,f1#1,lucy/f1-1,abc," + want + "\n"; got != w {
 			t.Errorf("reason %q: got %q, want %q", reason, got, w)
 		}
+	}
+}
+
+// A proposal is shown as one token naming it and the question it answers; the token the owner
+// copies into lucy answer --accept-proposal splits back into both.
+func TestQuestionsShowAProposalToAccept(t *testing.T) {
+	digest := strings.Repeat("0123456789abcdef", 4)
+	q := api.Question{Flight: "f1", Org: "acme", Project: "web", Question: "which account?", QuestionSHA256: digest,
+		Since: time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC), ProposalID: "p7", ProposedBy: "supervisor/test", Proposed: "staging"}
+	var out bytes.Buffer
+	writeQuestions(&out, api.QuestionsList{Questions: []api.Question{q}})
+	want := "questions[1]{flight,org,project,since,question}:\n" +
+		"  f1,acme,web,2026-11-27T10:00:00Z,which account?\n" +
+		"    proposal p7.0123456789abcdef by supervisor/test: staging\n" +
+		"help: run `lucy answer <flight> <answer>` to answer one\n" +
+		"help: run `lucy answer <flight> --accept-proposal <proposal>` to answer with a proposal, as your answer\n"
+	if out.String() != want {
+		t.Fatalf("got\n%s\nwant\n%s", out.String(), want)
+	}
+	if id, d, ok := parseProposal("p7.0123456789abcdef"); !ok || id != "p7" || !strings.HasPrefix(digest, d) {
+		t.Fatalf("parsed %q %q %v", id, d, ok)
 	}
 }
 

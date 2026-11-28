@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ar4mirez/lucy/internal/eventstore"
@@ -255,7 +256,7 @@ func TestAProposalNeverAnswersAQuestion(t *testing.T) {
 	q := appendAs(t, st, f1, "daemon", tower.PilotAsked{Session: "f1#1", Question: "which account?"})
 	appendAs(t, st, f1, "daemon", tower.AnswerProposed{Session: "f1#1", By: "supervisor/test", Answer: "staging"})
 	d, ok := list(t, st, false)[Row{Seq: q}.ID()]
-	if !ok || d.Lifecycle != Open || d.ProposedBy != "supervisor/test" || d.Proposed != "staging" || d.AnsweredBy != "" {
+	if !ok || d.Lifecycle != Open || !strings.HasPrefix(d.ProposalID, "p") || d.ProposedBy != "supervisor/test" || d.Proposed != "staging" || d.AnsweredBy != "" {
 		t.Fatalf("after a proposal: %+v, %v", d, ok)
 	}
 	appendAs(t, st, f1, "owner", tower.PilotAnswered{Session: "f1#1", AnswerSHA256: "x"})
