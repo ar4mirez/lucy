@@ -750,7 +750,7 @@ type FlightInfo struct {
 	RetryAt    time.Time     `json:"retry_at,omitempty,omitzero" doc:"When the Tower steps the flight again after a failed step, UTC; absent after a clean one."`
 	Ready      ConditionInfo `json:"ready" doc:"Its Ready condition: whether it has what dispatch needs."`
 	Dispatched ConditionInfo `json:"dispatched" doc:"Its Dispatched condition: whether the Tower flies it, and why not; empty (no type) when the Flight is not Ready."`
-	Runs       int           `json:"runs,omitempty" doc:"How many runs, one per Pilot generation, the flight has had."`
+	Runs       int           `json:"runs,omitempty" doc:"How many runs, one per Pilot generation, the flight has had: its tokens and cost are summed over all of them, so a cost spread over several restarts reads apart from one run's (LUCY-RUN-011)."`
 	Tokens     Tokens        `json:"tokens,omitzero" doc:"The tokens its runs' steps reported, summed over every generation (LUCY-RUN-011)."`
 	CostMicros int64         `json:"cost_micros,omitempty" doc:"Its runs' cost as their harness reported it, summed, in millionths of a US dollar. Untrusted."`
 }

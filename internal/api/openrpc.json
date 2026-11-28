@@ -1851,7 +1851,7 @@
                     "type": "string"
                   },
                   "runs": {
-                    "description": "How many runs, one per Pilot generation, the flight has had.",
+                    "description": "How many runs, one per Pilot generation, the flight has had: its tokens and cost are summed over all of them, so a cost spread over several restarts reads apart from one run's (LUCY-RUN-011).",
                     "type": "integer"
                   },
                   "runway": {

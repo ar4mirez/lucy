@@ -269,6 +269,7 @@ type message struct {
 
 	// assistant, user
 	Message struct {
+		ID      string          `json:"id"`
 		Content json.RawMessage `json:"content"`
 		Usage   *usage          `json:"usage"`
 	} `json:"message"`
@@ -340,6 +341,11 @@ type conn struct {
 	pending *question
 
 	permit harness.Permit // nil refuses every prompted file tool
+
+	// usageID is the id of the assistant message whose usage was last counted. Claude Code
+	// streams a turn's content blocks as consecutive messages that share an id and repeat its
+	// usage, so the turn is counted once. Only Decode touches it.
+	usageID string
 }
 
 // actionTools are the prompted tools the policy engine decides as a shell command or a network
@@ -476,7 +482,8 @@ func (c *conn) decode(line []byte) ([]harness.Event, *harness.Exit) {
 		return []harness.Event{ev(harness.Activity, fmt.Sprintf("session started: claude-code %s, model %s", capped(m.Version, 32), capped(m.Model, 64)))}, nil
 	case "assistant", "user":
 		evs := contentEvents(m.Type, m.Message.Content)
-		if u, ok := usageEvent(m.Message.Usage); ok && m.Type == "assistant" {
+		if u, ok := usageEvent(m.Message.Usage); ok && m.Type == "assistant" && (m.Message.ID == "" || m.Message.ID != c.usageID) {
+			c.usageID = m.Message.ID
 			evs = append(evs, u)
 		}
 		return evs, nil

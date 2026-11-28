@@ -256,6 +256,37 @@ func TestUsageAndCost(t *testing.T) {
 	}
 }
 
+// Claude Code streams a turn of several content blocks as one assistant message per block, each
+// with the turn's id and usage: the turn's tokens are counted once (LUCY-RUN-011).
+func TestUsageCountedOncePerMessage(t *testing.T) {
+	c := &conn{in: nopCloser{}}
+	u := `"usage":{"input_tokens":1200,"output_tokens":40}`
+	lines := []string{
+		`{"type":"assistant","message":{"id":"msg_01","content":[{"type":"text","text":"I will run the tests."}],` + u + `}}`,
+		`{"type":"assistant","message":{"id":"msg_01","content":[{"type":"tool_use","id":"toolu_01","name":"Bash","input":{}}],` + u + `}}`,
+		`{"type":"assistant","message":{"id":"msg_01","content":[{"type":"tool_use","id":"toolu_02","name":"Grep","input":{}}],` + u + `}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_01"}]}}`,
+		`{"type":"assistant","message":{"id":"msg_02","content":[{"type":"text","text":"Done."}],"usage":{"input_tokens":1300,"output_tokens":20}}}`,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"no id"}],"usage":{"input_tokens":5,"output_tokens":1}}}`,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"no id"}],"usage":{"input_tokens":5,"output_tokens":1}}}`,
+	}
+	var sum harness.Tokens
+	n := 0
+	for _, l := range lines {
+		evs, _ := c.decode([]byte(l))
+		for _, e := range evs {
+			if e.Kind == harness.Usage {
+				n++
+				sum.Input += e.Tokens.Input
+				sum.Output += e.Tokens.Output
+			}
+		}
+	}
+	if n != 4 || sum != (harness.Tokens{Input: 2510, Output: 62}) {
+		t.Fatalf("%d usage events summing %+v, want 4 summing 2510 input and 62 output", n, sum)
+	}
+}
+
 type nopCloser struct{}
 
 func (nopCloser) Write(p []byte) (int, error) { return len(p), nil }
