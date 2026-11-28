@@ -2,7 +2,7 @@
 id: readme
 title: lucy
 status: active
-version: 12
+version: 13
 owner: ar4mirez
 requirements: [LUCY-REPO-001, LUCY-REPO-006]
 ---
@@ -17,7 +17,7 @@ deterministic policy decides what actually happens.
 
 ## Status
 
-**m0 (foundation) done; m1 (ar4mirez end to end) in progress, released as 0.7.0.** This repository
+**m0 (foundation) done; m1 (ar4mirez end to end) in progress, released as 0.8.0.** This repository
 holds the skeleton, the signed release pipeline, the event store, the first part of the typed API
 with `lucy daemon`, the policy engine, the ai-sdlc spec model and the design docs; the binary prints
 its version and help, updates itself, validates config (`lucy config validate`), and runs a daemon
