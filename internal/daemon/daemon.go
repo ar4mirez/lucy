@@ -112,7 +112,8 @@ type Options struct {
 	// daemon only flies the flights already in its log. Even on, a Flight whose Runway names a
 	// repository with a real remote is refused (ErrTakeoverGate).
 	Dispatch bool
-	// TowerPollInterval is how often the hosted Tower steps; tower.DefaultPollInterval when zero.
+	// TowerPollInterval is the longest the hosted Tower goes between steps while a flight is active
+	// (a change to the log steps it sooner); tower.DefaultPollInterval when zero.
 	TowerPollInterval time.Duration
 	Version           string       // lucy's version
 	Log               *slog.Logger // slog.Default when nil
