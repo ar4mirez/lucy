@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"unicode/utf8"
 
 	"github.com/ar4mirez/lucy/internal/tower"
 )
@@ -33,9 +34,26 @@ var safety = []struct {
 	name string
 	re   *regexp.Regexp
 }{
-	{"a secret or a credential", regexp.MustCompile(`(?i)\b(passwords?|passphrases?|passwd|secrets?|credentials?|tokens?|api[ _-]?keys?|private[ _-]?keys?|ssh[ _-]?keys?|access[ _-]?keys?|keys? ?pairs?|log[ -]?ins?|sign[ -]?ins?|2fa|mfa|otp|one[ -]?time (codes?|passwords?)|cookies?|session ids?|certificates?)\b`)},
-	{"a payment", regexp.MustCompile(`(?i)\b(payments?|pay|paid|paying|credit[ -]?cards?|card numbers?|billing|invoices?|purchases?|subscriptions?|charges?|refunds?|bank|wire transfers?)\b`)},
-	{"an irreversible or production change", regexp.MustCompile(`(?i)\b(prod|production|live (sites?|servers?|databases?|data|traffic)|deploy(s|ed|ing|ments?)?|releases?|delete[sd]?|deleting|drop(s|ped|ping)?|truncate|wipe[sd]?|destroy(s|ed|ing)?|purge[sd]?|force[ -]?push(es|ed|ing)?|rewrite (the )?history|reset --hard|rm -rf|irreversible|cannot be undone|can't be undone)\b`)},
+	{"a secret or a credential", keywords(
+		`passwords?|passphrases?|passwd|secrets?|credentials?|tokens?|api[ _-]?keys?|private[ _-]?keys?|access[ _-]?keys?`,
+		`ssh[ _-]?keys?|keys? ?pairs?|log[ -]?ins?|sign[ -]?ins?|2fa|mfa|otp|one[ -]?time (codes?|passwords?)|cookies?|session ids?|certificates?`)},
+	{"a payment", keywords(``,
+		`payments?|pay|paid|paying|credit[ -]?cards?|card numbers?|billing|invoices?|purchases?|subscriptions?|charges?|refunds?|bank|wire transfers?`)},
+	{"an irreversible or production change", keywords(`prod|production`,
+		`live (sites?|servers?|databases?|data|traffic)|deploy(s|ed|ing|ments?)?|releases?|delete[sd]?|deleting|drop(s|ped|ping)?|truncate|wipe[sd]?|destroy(s|ed|ing)?|purge[sd]?|force[ -]?push(es|ed|ing)?|rewrite (the )?history|reset --hard|rm -rf|irreversible|cannot be undone|can't be undone`)},
+}
+
+// keywords matches, case-insensitively, any of the terms as a word, where anything but a letter
+// separates words, so snake_case, SCREAMING_CASE and file names match, and an upper-case letter
+// ends one, so camelCase does. The compound terms also match inside a longer word, as in
+// githubToken or dbPassword.
+func keywords(compound, plain string) *regexp.Regexp {
+	const end = `(?:$|[^a-z])`
+	re := `(?:^|[^a-zA-Z])(?i:` + plain + `)` + end
+	if compound != "" {
+		re = `(?i:` + compound + `)` + end + `|` + re
+	}
+	return regexp.MustCompile(re)
 }
 
 // Limits on an org's rules, as the Airspace schema caps them.
@@ -62,7 +80,7 @@ func parseRules(v any) ([]Rule, string) {
 		match, _ := m["match"].(string)
 		propose, _ := m["propose"].(string)
 		owner, _ := m["owner"].(bool)
-		if match == "" || len(match) > maxMatch || len(propose) > maxPropose || (propose == "") == !owner {
+		if match == "" || utf8.RuneCountInString(match) > maxMatch || utf8.RuneCountInString(propose) > maxPropose || (propose == "") == !owner {
 			return nil, fmt.Sprintf("spec.supervisor.rules[%d] needs a match and either propose or owner: true", i)
 		}
 		re, err := regexp.Compile("(?i)" + match)

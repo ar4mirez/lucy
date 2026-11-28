@@ -67,10 +67,10 @@ type hostedTower struct {
 	// last is the last reload's outcome when it was not applied, guarded by mu.
 	last     api.ReloadOutcome
 	reloadMu sync.Mutex
-	// supervision is the orgs that opt into a model supervisor in the config the daemon runs on,
-	// guarded by mu, for status.get.
+	// supervision is the orgs that opt into supervision, by rules, models or both, in the config the
+	// daemon runs on, guarded by mu, for status.get.
 	supervision map[string]supervise.Config
-	async       *asyncSupervisor // nil unless the daemon was started with --supervise
+	async       *asyncSupervisor
 }
 
 // asyncSupervisor asks the supervisor's rules in the Tower's step and its models off it: the Tower steps under mu, and a
@@ -114,9 +114,7 @@ func (a *asyncSupervisor) ProposeAnswer(ctx context.Context, e tower.Escalation)
 
 // wait waits for the supervisor's calls in flight, which end with the daemon's context.
 func (h *hostedTower) waitSupervisor() {
-	if h.async != nil {
-		h.async.wg.Wait()
-	}
+	h.async.wg.Wait()
 }
 
 // supervisorUsage is each opted-in org's supervisor tokens today against its daily budget, and
@@ -208,20 +206,15 @@ func startTower(ctx context.Context, store *eventstore.Store, broker *runner.Bro
 	cfg := tower.Config{Store: store, Runtime: runner.Runtime{Broker: broker}, Forge: stubForge{},
 		Clock: wallClock{}, ForgeIdentity: stubIdentity, PollInterval: poll,
 		Refusal: func(err error) bool { return errors.Is(err, errNoForge) }}
-	var async *asyncSupervisor
-	if sup != nil {
-		async = &asyncSupervisor{ctx: ctx, sup: sup}
-		cfg.Supervisor = async // left nil when off: the Tower then asks no supervisor
-	}
+	async := &asyncSupervisor{ctx: ctx, sup: sup}
+	cfg.Supervisor = async
 	tw, err := tower.New(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
 	h := &hostedTower{tw: tw, log: log, pipelines: pipelines, set: set, broker: broker, supervision: supervise.Configs(set.Admitted()),
 		async: async}
-	if async != nil {
-		async.h = h
-	}
+	async.h = h
 	h.dispatch(ctx, set, dispatch, gate)
 	h.tighten(ctx, set)
 	return h, nil

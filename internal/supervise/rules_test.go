@@ -56,16 +56,22 @@ func rule(match, propose string) supervise.Rule {
 
 func TestSafetyRulesSendSensitiveQuestionsToTheOwner(t *testing.T) {
 	for q, about := range map[string]string{
-		"What is the database password?":               "a secret or a credential",
-		"Can you give me the API key for the forge?":   "a secret or a credential",
-		"Should I log in with the shared account?":     "a secret or a credential",
-		"Which credit card should the purchase go on?": "a payment",
-		"Shall I pay the invoice?":                     "a payment",
-		"OK to deploy this to production?":             "an irreversible or production change",
-		"Can I force-push the branch?":                 "an irreversible or production change",
-		"Should I delete the old migrations?":          "an irreversible or production change",
-		"Run rm -rf on the build cache?":               "an irreversible or production change",
-		"staging or production?":                       "an irreversible or production change",
+		"What is the database password?":                     "a secret or a credential",
+		"Can you give me the API key for the forge?":         "a secret or a credential",
+		"Should I log in with the shared account?":           "a secret or a credential",
+		"Which credit card should the purchase go on?":       "a payment",
+		"Shall I pay the invoice?":                           "a payment",
+		"OK to deploy this to production?":                   "an irreversible or production change",
+		"Can I force-push the branch?":                       "an irreversible or production change",
+		"Should I delete the old migrations?":                "an irreversible or production change",
+		"Run rm -rf on the build cache?":                     "an irreversible or production change",
+		"staging or production?":                             "an irreversible or production change",
+		"What value should I set for AWS_SECRET_ACCESS_KEY?": "a secret or a credential",
+		"Where do I get GITHUB_TOKEN?":                       "a secret or a credential",
+		"Is DATABASE_PASSWORD in the vault?":                 "a secret or a credential",
+		"set githubToken?":                                   "a secret or a credential",
+		"Where is dbPassword read?":                          "a secret or a credential",
+		"run deploy_prod.sh?":                                "an irreversible or production change",
 	} {
 		t.Run(q, func(t *testing.T) {
 			f := open(t, 1000)
@@ -83,6 +89,17 @@ func TestSafetyRulesSendSensitiveQuestionsToTheOwner(t *testing.T) {
 				t.Fatalf("declined %q, want about %s", r, about)
 			}
 		})
+	}
+}
+
+// Plain questions match no safety rule: an org rule that proposes for everything proposes for them.
+func TestSafetyRulesLetPlainQuestionsThrough(t *testing.T) {
+	for _, q := range []string{"Tabs or spaces?", "Which region should the bucket use?", "Should the product page reproduce the old layout?"} {
+		f := open(t, 1000)
+		withRules(f, false, rule(".*", "yes"))
+		if p, ok, err := f.sup.ProposeAnswer(ctx, ask(q)); err != nil || !ok || p.Answer != "yes" {
+			t.Errorf("%q: %+v, %v, %v; want the org rule's answer", q, p, ok, err)
+		}
 	}
 }
 
@@ -146,6 +163,13 @@ func TestRulesFromTheAirspace(t *testing.T) {
 	c := supervise.Configs([]spec.Resource{*ok[0].Resource})["acme"]
 	if c.Invalid != "" || c.UsesModels() || len(c.Rules) != 2 || c.Rules[0].Propose != "eu-west" || !c.Rules[1].Owner {
 		t.Fatalf("config %+v", c)
+	}
+	// The limits count characters, as the schema does, not bytes.
+	long := strings.Repeat("я", 4000)
+	if r := admit(`{ rules: [ { match: '` + strings.Repeat("я", 500) + `', propose: '` + long + `' } ] }`); len(r) != 1 || r[0].Resource == nil {
+		t.Fatalf("multi-byte rule refused: %+v", r)
+	} else if c := supervise.Configs([]spec.Resource{*r[0].Resource})["acme"]; c.Invalid != "" || len(c.Rules) != 1 || c.Rules[0].Propose != long {
+		t.Fatalf("multi-byte rule not read: %+v", c.Invalid)
 	}
 	for name, bad := range map[string]string{
 		"not RE2":                `{ rules: [ { match: '(?=x)', propose: y } ] }`,
