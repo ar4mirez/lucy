@@ -105,9 +105,8 @@ func TestQuestionsAndMerges(t *testing.T) {
 
 	// A merge holding for the owner opens a decision; the owner's approval answers it.
 	m := appendAs(t, st, f1, "daemon", tower.Cleared{DecisionSeq: 40, Outcome: policy.Holding, Rule: "merge.posture", HeadSHA: "0123456789abcdef"})
-	appendAs(t, st, f1, "daemon", tower.Cleared{DecisionSeq: 41, Outcome: policy.Cleared, Rule: "merge.posture", HeadSHA: "0123456789abcdef"})
 	if open := list(t, st, false); len(open) != 1 || open[Row{Seq: m}.ID()].Ref != 40 {
-		t.Fatalf("a cleared decision closed the owner's: %+v", open)
+		t.Fatalf("a holding merge opened %+v", open)
 	}
 	appendAs(t, st, f1, "owner", tower.Approved{Approval: policy.Approval{Decision: "40", By: policy.ByOwner}})
 	merged := list(t, st, true)[Row{Seq: m}.ID()]
@@ -124,6 +123,61 @@ func TestQuestionsAndMerges(t *testing.T) {
 	}
 	for _, r := range list(t, st, true) {
 		validResource(t, r)
+	}
+}
+
+// A merge decision is open exactly while the Tower holds the flight for the owner.
+func TestMergeDecisionsFollowTheTower(t *testing.T) {
+	st := open(t)
+	f1 := "task/acme/f1"
+	hold := func(seq int64) int64 {
+		return appendAs(t, st, f1, "daemon", tower.Cleared{DecisionSeq: seq, Outcome: policy.Holding, Rule: "merge.posture", HeadSHA: "abc"})
+	}
+	closedBy := func(what string, m, by int64) {
+		t.Helper()
+		if open := list(t, st, false); len(open) != 0 {
+			t.Fatalf("open after %s: %+v", what, open)
+		}
+		if r := list(t, st, true)[Row{Seq: m}.ID()]; r.Lifecycle != Superseded || r.SupersededBy != by {
+			t.Fatalf("the merge decision after %s: %+v", what, r)
+		}
+	}
+
+	m := hold(40)
+	observed := appendAs(t, st, f1, "daemon", tower.PRObserved{PullRequest: tower.PullRequest{HeadSHA: "def"}})
+	closedBy("a new head", m, observed)
+
+	m = hold(41)
+	denied := appendAs(t, st, f1, "daemon", tower.Cleared{DecisionSeq: 42, Outcome: policy.Denied, Rule: "merge.checks", HeadSHA: "def"})
+	closedBy("a denied clearance", m, denied)
+
+	m = hold(43)
+	cleared := appendAs(t, st, f1, "daemon", tower.Cleared{DecisionSeq: 44, Outcome: policy.Cleared, Rule: "merge.posture", HeadSHA: "def"})
+	closedBy("a cleared clearance", m, cleared)
+
+	// The Tower holds after tower.MaxMergeErrors consecutive errored merges, and only then.
+	fail := func(reason string) int64 {
+		return appendAs(t, st, f1, "daemon", tower.MergeFailed{PR: 7, HeadSHA: "def", Reason: reason, Detail: "forge down"})
+	}
+	for range tower.MaxMergeErrors - 1 {
+		fail(tower.MergeError)
+	}
+	fail("conflict") // not an error: the count starts again
+	for range tower.MaxMergeErrors - 1 {
+		fail(tower.MergeError)
+	}
+	if open := list(t, st, false); len(open) != 0 {
+		t.Fatalf("open before the Tower holds: %+v", open)
+	}
+	held := fail(tower.MergeError)
+	r, ok := list(t, st, false)[Row{Seq: held}.ID()]
+	if !ok || r.Kind != KindMerge || r.Subject != "f1" || r.Body != "forge down" {
+		t.Fatalf("a failed-merge hold opened %+v", list(t, st, false))
+	}
+	validResource(t, r)
+	appendAs(t, st, f1, "owner", tower.Approved{Approval: policy.Approval{Decision: "44", By: policy.ByOwner}})
+	if got := list(t, st, true)[Row{Seq: held}.ID()]; got.Lifecycle != Answered {
+		t.Fatalf("approved failed merge %+v", got)
 	}
 }
 
@@ -144,6 +198,33 @@ func TestContainerOperations(t *testing.T) {
 	appendAs(t, st, s, "owner", sandbox.Confirmed{Op: sandbox.OpRestart, DecisionSeq: 6, Approval: policy.Approval{Decision: "6", By: policy.ByOwner}})
 	if got := list(t, st, true)[Row{Seq: c}.ID()]; got.Lifecycle != Answered || got.AnsweredBy != "owner" {
 		t.Fatalf("confirmed operation %+v", got)
+	}
+}
+
+// A container decision is open exactly while the sandbox holds the operation for the owner.
+func TestContainerDecisionsFollowTheSandbox(t *testing.T) {
+	st := open(t)
+	s := sandbox.Stream("acme")
+	appendAs(t, st, s, "daemon", sandbox.Requested{Op: sandbox.OpUp, Outcome: policy.Holding, Rule: "container.other", DecisionSeq: 5})
+	if open := list(t, st, false); len(open) != 0 {
+		t.Fatalf("a hold the owner cannot confirm opened %+v", open)
+	}
+	held := appendAs(t, st, s, "daemon", sandbox.Requested{Op: sandbox.OpUp, Outcome: policy.Holding, DecisionSeq: 6,
+		LiveSessions: []string{"s1"}, NeedsOwner: true})
+	stale := appendAs(t, st, s, "daemon", sandbox.Requested{Op: sandbox.OpUp, Outcome: policy.Denied, DecisionSeq: 7,
+		LiveSessions: []string{"s2"}, NeedsOwner: true})
+	if r := list(t, st, true)[Row{Seq: held}.ID()]; r.Lifecycle != Superseded || r.SupersededBy != stale {
+		t.Fatalf("the earlier container decision %+v", r)
+	}
+	if r, ok := list(t, st, false)[Row{Seq: stale}.ID()]; !ok || r.Ref != 7 {
+		t.Fatalf("a denied request that needs the owner opened %+v", list(t, st, false))
+	}
+	again := appendAs(t, st, s, "daemon", sandbox.Requested{Op: sandbox.OpUp, Outcome: policy.Cleared, DecisionSeq: 8})
+	if open := list(t, st, false); len(open) != 0 {
+		t.Fatalf("open after a request that no longer needs the owner: %+v", open)
+	}
+	if r := list(t, st, true)[Row{Seq: stale}.ID()]; r.Lifecycle != Superseded || r.SupersededBy != again {
+		t.Fatalf("the closed container decision %+v", r)
 	}
 }
 

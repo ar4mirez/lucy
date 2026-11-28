@@ -63,7 +63,7 @@ const (
 	DefaultPatience     = 24 * time.Hour
 	DefaultMaxRestarts  = 1
 	maxTextBytes        = 1024 // a question or a reason kept in an event
-	maxMergeErrors      = 3    // consecutive errored merges of one clearance before the flight holds for the owner
+	MaxMergeErrors      = 3    // consecutive errored merges of one clearance before the flight holds for the owner
 )
 
 // Config is what a Tower runs with. Store, Runtime, Forge, Clock and ForgeIdentity are required;
@@ -431,7 +431,7 @@ func (t *Tower) watchPR(ctx context.Context, f *flight) error {
 	}
 	// A clearance whose merge never reached the forge (the daemon stopped in between) or failed
 	// with an error is merged again: the facts are unchanged, and Merge names the cleared head.
-	// Each errored merge doubles the wait before the next; after maxMergeErrors the flight holds.
+	// Each errored merge doubles the wait before the next; after MaxMergeErrors the flight holds.
 	if f.unmerged && f.decision.HeadSHA == pr.HeadSHA && !t.cfg.Clock.Now().Before(f.retryAt(t.cfg.PollInterval)) {
 		return t.merge(ctx, f, f.decision)
 	}
@@ -498,7 +498,7 @@ func (t *Tower) clearMerge(ctx context.Context, f *flight) error {
 func (t *Tower) merge(ctx context.Context, f *flight, c Cleared) error {
 	mergeSHA, err := t.cfg.Forge.Merge(ctx, f.repo(), f.pr, c.HeadSHA)
 	if err != nil {
-		reason := mergeError
+		reason := MergeError
 		switch {
 		case errors.Is(err, ErrConflict):
 			reason = "conflict"
@@ -510,8 +510,8 @@ func (t *Tower) merge(ctx context.Context, f *flight, c Cleared) error {
 	return t.record(ctx, f, ActorDaemon, Takeoff{PR: f.pr, HeadSHA: c.HeadSHA, MergeSHA: mergeSHA, DecisionSeq: c.DecisionSeq})
 }
 
-// mergeError is a MergeFailed reason for an error that is neither a conflict nor a moved head.
-const mergeError = "error"
+// MergeError is a MergeFailed reason for an error that is neither a conflict nor a moved head.
+const MergeError = "error"
 
 // Answer passes the owner's answer to the Pilot's question.
 func (t *Tower) Answer(ctx context.Context, id, answer string) error {
@@ -629,13 +629,13 @@ func (f *flight) apply(e eventstore.Event, p eventstore.Payload) {
 			enter(StateReview)
 		}
 	case MergeFailed:
-		if p.Reason != mergeError {
+		if p.Reason != MergeError {
 			f.mergeErrs = 0
 			enter(StateReview)
 			break
 		}
 		f.mergeErrs, f.mergeAt = f.mergeErrs+1, e.Time
-		if f.mergeErrs >= maxMergeErrors {
+		if f.mergeErrs >= MaxMergeErrors {
 			f.reason = p.Detail
 			enter(StateHolding)
 			break

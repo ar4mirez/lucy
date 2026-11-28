@@ -16,14 +16,16 @@ import (
 )
 
 // Projector maintains the decision_catalog table from the Tower's flight streams (task/<org>/<id>)
-// and the org container streams (sandbox/<org>). Register it with the store the daemon uses.
+// and the org container streams (sandbox/<org>). Register it with the store the daemon uses. It
+// opens a decision exactly when the Tower or the sandbox starts waiting on the owner, and closes
+// it when they stop.
 type Projector struct{}
 
 // Name implements eventstore.Projector.
 func (Projector) Name() string { return "decision_catalog" }
 
 // Version implements eventstore.Projector.
-func (Projector) Version() int { return 1 }
+func (Projector) Version() int { return 2 }
 
 // Reset implements eventstore.Projector.
 func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
@@ -45,6 +47,13 @@ func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
 			updated_ns    INTEGER NOT NULL
 		)`,
 		`CREATE INDEX decision_catalog_open ON decision_catalog (lifecycle, kind, org, subject)`,
+		`DROP TABLE IF EXISTS decision_merge_errors`,
+		`CREATE TABLE decision_merge_errors (
+			org    TEXT NOT NULL,
+			flight TEXT NOT NULL,
+			errs   INTEGER NOT NULL,
+			PRIMARY KEY (org, flight)
+		)`,
 	} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return err
@@ -57,10 +66,14 @@ func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
 func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.Event) error {
 	at := e.Time.UnixNano()
 	decode := func(v any) error { return json.Unmarshal(e.Payload, v) }
+	supersede := func(kind, org, subject string) error {
+		_, err := tx.ExecContext(ctx, `UPDATE decision_catalog SET lifecycle = ?, superseded_by = ?, updated_ns = ?
+			WHERE lifecycle = ? AND kind = ? AND org = ? AND subject = ?`, Superseded, e.Seq, at, Open, kind, org, subject)
+		return err
+	}
 	open := func(kind, org, subject string, ref int64, summary, body string) error {
 		// A newer decision of the same kind on the same subject replaces any still open.
-		if _, err := tx.ExecContext(ctx, `UPDATE decision_catalog SET lifecycle = ?, superseded_by = ?, updated_ns = ?
-			WHERE lifecycle = ? AND kind = ? AND org = ? AND subject = ?`, Superseded, e.Seq, at, Open, kind, org, subject); err != nil {
+		if err := supersede(kind, org, subject); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO decision_catalog (seq, kind, org, subject, ref, summary, body, lifecycle, opened_ns, updated_ns)
@@ -85,15 +98,13 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 			if err := decode(&p); err != nil {
 				return err
 			}
-			if p.Outcome != policy.Holding {
-				return nil
-			}
-			sessions := "no live session"
-			if len(p.LiveSessions) > 0 {
-				sessions = "sessions " + strings.Join(p.LiveSessions, ", ")
+			// The sandbox holds an operation for the owner exactly when it needs the owner
+			// (sandbox.Projector): a request that does not replaces what was held.
+			if !p.NeedsOwner {
+				return supersede(KindContainer, org, string(p.Op))
 			}
 			return open(KindContainer, org, string(p.Op), p.DecisionSeq,
-				fmt.Sprintf("%s the container of org %s, stopping %s", p.Op, org, sessions), "")
+				fmt.Sprintf("%s the container of org %s, stopping sessions %s", p.Op, org, strings.Join(p.LiveSessions, ", ")), "")
 		case sandbox.Confirmed{}.EventType():
 			var p sandbox.Confirmed
 			if err := decode(&p); err != nil {
@@ -111,6 +122,12 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 	if !ok {
 		return nil
 	}
+	// mergeErrs counts the flight's consecutive errored merges as the Tower does (tower.apply).
+	mergeErrs := func(errs int) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO decision_merge_errors (org, flight, errs) VALUES (?, ?, ?)
+			ON CONFLICT (org, flight) DO UPDATE SET errs = excluded.errs`, org, flight, errs)
+		return err
+	}
 	switch e.Type {
 	case tower.PilotAsked{}.EventType():
 		var p tower.PilotAsked
@@ -122,13 +139,22 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 		return answer(KindQuestion, org, flight)
 	case tower.PilotExited{}.EventType():
 		return archive(org, flight, KindQuestion)
+	case tower.PRObserved{}.EventType():
+		// The Tower returns to review on new facts: a holding clearance was for the old ones.
+		if err := mergeErrs(0); err != nil {
+			return err
+		}
+		return supersede(KindMerge, org, flight)
 	case tower.Cleared{}.EventType():
 		var p tower.Cleared
 		if err := decode(&p); err != nil {
 			return err
 		}
+		if err := mergeErrs(0); err != nil {
+			return err
+		}
 		if p.Outcome != policy.Holding {
-			return nil
+			return supersede(KindMerge, org, flight)
 		}
 		head := p.HeadSHA
 		if len(head) > 12 {
@@ -136,6 +162,28 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 		}
 		return open(KindMerge, org, flight, p.DecisionSeq,
 			fmt.Sprintf("The merge of flight %s at head %s waits for the owner's approval (rule %s)", flight, head, p.Rule), "")
+	case tower.MergeFailed{}.EventType():
+		var p tower.MergeFailed
+		if err := decode(&p); err != nil {
+			return err
+		}
+		if p.Reason != tower.MergeError {
+			return mergeErrs(0)
+		}
+		var errs int
+		err := tx.QueryRowContext(ctx, `SELECT errs FROM decision_merge_errors WHERE org = ? AND flight = ?`, org, flight).Scan(&errs)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		errs++
+		if err := mergeErrs(errs); err != nil {
+			return err
+		}
+		if errs < tower.MaxMergeErrors {
+			return nil
+		}
+		return open(KindMerge, org, flight, 0,
+			fmt.Sprintf("The merge of flight %s failed %d times; the owner's approval is needed to try again", flight, errs), p.Detail)
 	case tower.Approved{}.EventType():
 		return answer(KindMerge, org, flight)
 	case tower.Takeoff{}.EventType(), tower.Grounded{}.EventType(), tower.MergedOutside{}.EventType():
