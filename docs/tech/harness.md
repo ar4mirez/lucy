@@ -4,7 +4,7 @@ title: Harness adapters
 status: active
 version: 6
 owner: ar4mirez
-requirements: [LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-008, LUCY-RUN-013]
+requirements: [LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-008, LUCY-RUN-011, LUCY-RUN-013]
 ---
 
 # Harness adapters
