@@ -52,6 +52,8 @@ const (
 	MethodRevoke    = "capability.revoke"
 	MethodVaultRec  = "vault.record"
 	MethodHostOrg   = "runner.host_org"
+	MethodShImport  = "shadow.import"
+	MethodShList    = "shadow.list"
 	MethodWtList    = "worktree.list"
 	MethodWtDiscard = "worktree.discard"
 	MethodDecList   = "decisions.list"
@@ -96,6 +98,8 @@ var methods = []Method{
 	{MethodVaultRec, "Record one phase of a change to an org's vault, by name only: before the change (requested) and after it (applied or failed).", "command", ScopeAdmin, true, typeOf[VaultRecordParams](), typeOf[VaultRecorded]()},
 	{MethodWtList, "The worktree pool's slots, by org, repository and number: each with its state, the run that holds or last held it, its branch, and why it is held when quarantined or broken.", "query", ScopeRead, false, typeOf[WorktreeListParams](), typeOf[WorktreeList]()},
 	{MethodWtDiscard, "Discard a quarantined or broken slot of the worktree pool: recorded first, then its directory is removed through the path guard. Its branch stays in the repository's clone, so its commits are recoverable until git gc. Refused unless confirm repeats slot exactly, and for a free or leased slot.", "command", ScopeAdmin, true, typeOf[WorktreeDiscardParams](), typeOf[WorktreeSlot]()},
+	{MethodShImport, "Record one task of the existing supervisor, as an offline import file holds it (shadow mode, LUCY-RUN-012): its org, class, goal, repository, posture and actions. The daemon checks it against the import format again and refuses a task of an org it has no admitted Airspace for, or one with any value that looks like a credential. The same task again records nothing; a task id imported before with other contents is refused. Nothing is fetched and nothing acts.", "command", ScopeAdmin, true, typeOf[ShadowTask](), typeOf[ShadowImported]()},
+	{MethodShList, "The imported tasks of the existing supervisor, by org, class and task.", "query", ScopeRead, false, typeOf[ShadowListParams](), typeOf[ShadowList]()},
 	{MethodHostOrg, "Make org the host org: the one org whose runs runners placed on the host lease, since every process on the host runs as one uid and can reach the others' sockets. The first host lease sets it; only this owner command changes it, recorded, and it is refused with host_org while any host run is live.", "command", ScopeAdmin, true, typeOf[HostOrgParams](), typeOf[HostOrgResult]()},
 }
 
@@ -799,4 +803,52 @@ type ReloadOutcome struct {
 	Reason  string `json:"reason,omitempty" doc:"Why the directory could not be read, when the reload failed."`
 	Refused int    `json:"refused,omitempty" doc:"How many resources were refused, when the reload was refused."`
 	At      string `json:"at" doc:"When the reload ran, RFC 3339 UTC."`
+}
+
+// ShadowTask is one task of the existing supervisor, as shadow.import records it
+// (docs/tech/shadow.md).
+type ShadowTask struct {
+	Org        string         `json:"org" lucy:"required,maxlen=63" doc:"The org, which must have an admitted Airspace."`
+	Task       string         `json:"task" lucy:"required,maxlen=64" doc:"The task's id in the import file: lower-case letters, digits, '.', '_' and '-'."`
+	Class      string         `json:"class" lucy:"required,maxlen=32" doc:"The task's class, which shadow mode compares by and takeover is decided by."`
+	Goal       string         `json:"goal" lucy:"required,maxlen=512" doc:"The task's goal, in at most 512 bytes. Untrusted."`
+	Repository string         `json:"repository" lucy:"required,maxlen=100" doc:"The repository's name."`
+	Posture    string         `json:"posture" lucy:"required,maxlen=16" doc:"green, owner or client: the posture the task ran under."`
+	Actions    []ShadowAction `json:"actions" lucy:"required,maxitems=40" doc:"What the existing supervisor did, in time order, from dispatched."`
+}
+
+// ShadowAction is one thing the existing supervisor did, or saw done, on a task.
+type ShadowAction struct {
+	At     time.Time `json:"at" doc:"When, UTC."`
+	Action string    `json:"action" lucy:"required,maxlen=32" doc:"dispatched, asked, answered, pr_opened, review_requested, merged, closed or handed_to_owner."`
+	Text   string    `json:"text,omitempty" lucy:"maxlen=512" doc:"An asked action's question, and nothing else's. Untrusted."`
+	By     string    `json:"by,omitempty" lucy:"maxlen=16" doc:"An answered action's answerer: supervisor or owner. The answer itself is never imported."`
+	Checks string    `json:"checks,omitempty" lucy:"maxlen=16" doc:"A pr_opened action's checks: passing, failing or pending."`
+}
+
+// ShadowImported answers shadow.import.
+type ShadowImported struct {
+	Org     string `json:"org" doc:"The task's org."`
+	Task    string `json:"task" doc:"The task."`
+	Outcome string `json:"outcome" doc:"recorded, or unchanged when the same task was imported before."`
+}
+
+// ShadowListParams asks shadow.list.
+type ShadowListParams struct {
+	Org string `json:"org,omitempty" lucy:"maxlen=63" doc:"Only this org's tasks; every org's when empty."`
+}
+
+// ShadowList answers shadow.list.
+type ShadowList struct {
+	Tasks []ShadowTaskInfo `json:"tasks" doc:"The imported tasks."`
+}
+
+// ShadowTaskInfo is one imported task.
+type ShadowTaskInfo struct {
+	Org     string `json:"org" doc:"The org."`
+	Task    string `json:"task" doc:"The task."`
+	Class   string `json:"class" doc:"Its class."`
+	Posture string `json:"posture" doc:"The posture it ran under."`
+	Actions int    `json:"actions" doc:"How many actions it has."`
+	Seq     int64  `json:"seq" doc:"The sequence number of its shadow.task_imported event."`
 }

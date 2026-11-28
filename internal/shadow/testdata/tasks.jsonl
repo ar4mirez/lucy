@@ -1,0 +1,11 @@
+{"v":1,"type":"task","org":"acme","task":"t-1","class":"bugfix","goal":"fix the login page","repository":"web","posture":"green"}
+{"v":1,"type":"action","task":"t-1","at":"2026-11-20T10:00:00Z","action":"dispatched"}
+{"v":1,"type":"action","task":"t-1","at":"2026-11-20T10:05:00Z","action":"asked","text":"which region?"}
+{"v":1,"type":"action","task":"t-1","at":"2026-11-20T10:06:00Z","action":"answered","by":"owner"}
+{"v":1,"type":"action","task":"t-1","at":"2026-11-20T10:30:00Z","action":"pr_opened","checks":"passing"}
+{"v":1,"type":"action","task":"t-1","at":"2026-11-20T10:40:00Z","action":"merged"}
+
+{"v":1,"type":"task","org":"acme","task":"t-2","class":"docs","goal":"document the config","repository":"web","posture":"owner"}
+{"v":1,"type":"action","task":"t-2","at":"2026-11-21T09:00:00Z","action":"dispatched"}
+{"v":1,"type":"action","task":"t-2","at":"2026-11-21T09:20:00Z","action":"pr_opened","checks":"failing"}
+{"v":1,"type":"action","task":"t-2","at":"2026-11-21T09:30:00Z","action":"handed_to_owner"}

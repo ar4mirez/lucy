@@ -2,7 +2,7 @@
 id: runbooks
 title: Runbooks
 status: active
-version: 7
+version: 8
 owner: ar4mirez
 requirements: []
 ---
@@ -19,6 +19,7 @@ the result.
 | [repository-settings.md](repository-settings.md) | Setting up or auditing the GitHub repository's settings |
 | [security-scans.md](security-scans.md) | A red security check, a new suppression, or a scanner bump |
 | [daemon.md](daemon.md) | Running, checking or stopping the daemon; adding an API method |
+| [shadow.md](shadow.md) | Importing the existing supervisor's tasks for shadow mode |
 | [supervisor.md](supervisor.md) | Turning on suggestions for Pilots' questions: rules, models, budgets |
 | [database.md](database.md) | Adding an event type or migration; upgrading, rolling back or inspecting the database |
 | [upgrade.md](upgrade.md) | Upgrading lucy in place while runs are live |

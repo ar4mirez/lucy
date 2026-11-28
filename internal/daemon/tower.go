@@ -117,6 +117,19 @@ func (h *hostedTower) waitSupervisor() {
 	h.async.wg.Wait()
 }
 
+// admitsOrg reports whether the config the daemon runs on admits an Airspace for org: shadow mode
+// records no other org's tasks.
+func (h *hostedTower) admitsOrg(org string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, r := range h.set.Admitted() {
+		if r.APIVersion == spec.LucyAPIVersion && r.Kind == "Airspace" && r.Metadata.Name == org {
+			return true
+		}
+	}
+	return false
+}
+
 // supervisorUsage is each opted-in org's supervisor tokens today against its daily budget, and
 // whether its models are asked: the daemon was started with --supervise and the org names them.
 func (h *hostedTower) supervisorUsage(ctx context.Context, store *eventstore.Store, armed bool) ([]api.SupervisorUsage, error) {

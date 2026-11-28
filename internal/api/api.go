@@ -68,7 +68,9 @@ const Version = 1
 // Revision 26 lists in status.get's supervisors each org that opts in, a rules-only one included,
 // with armed true only when its models are asked, and adds questions.list's and decisions.list's
 // proposal_truncated: a proposed answer the Tower cut short, which questions.answer refuses to accept.
-const SchemaRevision = 26
+// Revision 27 added shadow.import and shadow.list: the existing supervisor's tasks, imported from an
+// offline file.
+const SchemaRevision = 27
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"

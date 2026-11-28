@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 38
+version: 39
 owner: ar4mirez
 requirements: []
 ---
@@ -156,6 +156,13 @@ slice table, requirement status and exit tests stay in the plan.
   route, off the Tower's step, carrying only the question and the flight's org, project and goal;
   the gateway injects the key. Each call is `supervisor.called` with its tokens; a spent budget, a
   refusal or an error is `supervisor.declined`. Tests use a fake model server only.
+- **10, shadow mode (LUCY-RUN-012).** lucy learns what the existing supervisor did only from an
+  offline file the owner gives it ([format](../tech/shadow.md)): versioned JSON Lines read through
+  an allowlist that refuses unknown fields (transcripts, diffs, file contents, answers) and values
+  that look like credentials, the whole file at the first refused line. `lucy shadow import` records
+  each task once (`shadow.task_imported`), for orgs with an admitted Airspace only. Next: replay each
+  task through the Tower in simulation and report each class as matching, stricter, looser or
+  different; looser blocks takeover of the class. lucy builds no exporter for any other tool.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real
   work on the host before it lands, since a host Pilot shares the daemon's uid and API authority.
   Shadow mode (slice 10) runs no Pilot and is unaffected.
