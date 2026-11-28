@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 32
+version: 33
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-RUN-005, LUCY-OPS-005, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -159,7 +159,16 @@ A Pilot's question reaches you only as the Tower's record of it:
 ```sh
 lucy questions                       # every flight that is asking, oldest first
 lucy answer f1 use the staging account   # relayed to the Pilot by the Tower; the log keeps a digest
+lucy answer f1 --accept-proposal p12.0123456789abcdef   # answer with the suggestion shown, as your answer
 ```
+
+A supervisor, when one is configured, may suggest an answer: `lucy questions` and `lucy decisions`
+show it beside the question, naming the supervisor and the proposal. A suggestion never reaches the
+Pilot and never closes the question, under any posture; only your answer does, whether your own
+words or the suggestion you accept. To accept one, copy the proposal `lucy questions` prints, for
+example `p12.0123456789abcdef`: the proposal's id, then the start of the question's digest. If the
+Pilot asked something else, or the supervisor proposed again, since you looked, the accept is
+refused as stale and nothing reaches the Pilot; run `lucy questions` and accept the one shown now.
 
 The daemon hosts the Tower and steps the flights in its log whenever the log changes, and at
 least every minute while one is active, but it dispatches no Flight unless started with

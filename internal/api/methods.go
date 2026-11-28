@@ -484,12 +484,24 @@ type Question struct {
 	Project  string    `json:"project" doc:"The flight's runway."`
 	Question string    `json:"question" doc:"The Pilot's question, as the Tower recorded it. Untrusted."`
 	Since    time.Time `json:"since" doc:"When the flight started asking, UTC."`
+	// QuestionSHA256 names the question the owner saw, so accepting a proposal for a question that
+	// changed since is refused.
+	QuestionSHA256 string `json:"question_sha256" doc:"The SHA-256, in hex, of question exactly as listed; accepting a proposal names it."`
+	// A supervisor's proposal, recorded and shown, never given to the Pilot: the owner answers
+	// (LUCY-RUN-010).
+	ProposalID string `json:"proposal_id,omitempty" doc:"The proposal's id, for example p12; accepting it names it. A newer proposal has a new id."`
+	ProposedBy string `json:"proposed_by,omitempty" doc:"The supervisor that proposed an answer, for example supervisor/rules; absent when none did."`
+	Proposed   string `json:"proposed,omitempty" doc:"Its proposed answer, waiting on the owner: the owner answers, with it or not."`
 }
 
 // AnswerParams answers one flight's question.
 type AnswerParams struct {
 	Flight string `json:"flight" lucy:"required,maxlen=200" doc:"The flight that is asking."`
-	Answer string `json:"answer" lucy:"required,maxlen=4096" doc:"The owner's answer. It reaches the Pilot through the Tower; the log keeps only its digest."`
+	Answer string `json:"answer,omitempty" lucy:"maxlen=4096" doc:"The owner's answer. It reaches the Pilot through the Tower; the log keeps only its digest. Required unless accept_proposal is set, and refused with it."`
+	// AcceptProposal answers with the supervisor's proposed answer the owner saw: the owner's
+	// answer, recorded as the owner's, in one step (LUCY-RUN-010).
+	AcceptProposal string `json:"accept_proposal,omitempty" lucy:"maxlen=32" doc:"The id of the proposal to answer with, as questions.list shows it: the owner's answer, recorded as the owner's. Refused as stale when the flight's proposal or question changed since."`
+	QuestionSHA256 string `json:"question_sha256,omitempty" lucy:"maxlen=64" doc:"With accept_proposal, required: the question_sha256 questions.list showed, or its first 16 or more hex characters."`
 }
 
 // AnswerResult answers questions.answer.
@@ -712,6 +724,9 @@ type CatalogDecision struct {
 	AnsweredBy   string          `json:"answered_by,omitempty" doc:"When answered: the actor whose recorded word closed it."`
 	AnsweredAt   time.Time       `json:"answered_at,omitempty,omitzero" doc:"When answered, UTC."`
 	SupersededBy string          `json:"superseded_by,omitempty" doc:"When superseded: the decision that replaced it."`
+	ProposalID   string          `json:"proposal_id,omitempty" doc:"The id of a supervisor's suggested answer to a question, as questions.list shows it."`
+	ProposedBy   string          `json:"proposed_by,omitempty" doc:"A supervisor that suggested an answer to a question, for example supervisor/rules. A suggestion never closes the decision."`
+	Proposed     string          `json:"proposed,omitempty" doc:"Its suggested answer; the owner may accept it with lucy answer <flight> --accept-proposal <id>, the id lucy questions shows."`
 }
 
 // CatalogOption is one way to settle a decision.

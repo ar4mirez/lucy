@@ -92,3 +92,27 @@ type Forge interface {
 	PullRequest(ctx context.Context, repo string, number int) (PullRequest, error)
 	Merge(ctx context.Context, repo string, number int, head string) (mergeSHA string, err error)
 }
+
+// Supervisor proposes how to settle what the Tower's rules leave to a person (LUCY-RUN-010). It
+// proposes only and never acts: the Tower records every proposal and shows it beside the question,
+// and under every posture only the owner's words answer it and close the decision (corpus rule
+// channel-05). The owner may accept a proposal in one step, which is then the owner's answer.
+type Supervisor interface {
+	// ProposeAnswer proposes an answer to a Pilot's question, or returns false to leave it to the
+	// owner. The question is untrusted Pilot output.
+	ProposeAnswer(ctx context.Context, q Escalation) (Proposal, bool, error)
+}
+
+// Escalation is what a Supervisor is asked about: one flight's open question.
+type Escalation struct {
+	Org, Flight, Project string
+	Goal                 string         // the flight's goal
+	Posture              policy.Posture // the flight's posture
+	Question             string         // the Pilot's question, untrusted
+}
+
+// Proposal is a Supervisor's proposed answer.
+type Proposal struct {
+	By     string // who proposed it: "supervisor/" and the supervisor's name, for example supervisor/rules
+	Answer string
+}

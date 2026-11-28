@@ -302,3 +302,13 @@ func (e *Env) events(ctx context.Context, id string) ([]sim.Line, error) {
 	}
 	return out, nil
 }
+
+// Proposes is a Supervisor that proposes the same answer to every question it is asked
+// (LUCY-RUN-010): a scenario sets it as Setup.Tower.Supervisor.
+func Proposes(answer string) tower.Supervisor { return proposer(answer) }
+
+type proposer string
+
+func (p proposer) ProposeAnswer(context.Context, tower.Escalation) (tower.Proposal, bool, error) {
+	return tower.Proposal{By: "supervisor/corpus", Answer: string(p)}, true, nil
+}

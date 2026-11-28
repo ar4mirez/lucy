@@ -15,7 +15,7 @@ an agent supervisor must keep, and every class of past incident, is a scenario t
 lucy on the simulation harness (LUCY-CORP-001, LUCY-CORP-002). An airspace moves onto lucy only
 when its corpus is green. `mise run conformance` runs it, and CI runs it on every change.
 
-Corpus v1: 88 scenarios, **63 executable** (green: CI fails on any red one) and **25 pending** on
+Corpus v1: 88 scenarios, **64 executable** (green: CI fails on any red one) and **24 pending** on
 the milestone named in their row. Each executable scenario runs twice, as written and with the
 daemon restarted before every step, and both runs must leave the same event log.
 
@@ -29,7 +29,7 @@ daemon restarted before every step, and both runs must leave the same event log.
 | attribution | 4 | 0 |
 | bounded-retry | 5 | 0 |
 | liveness | 5 | 2 |
-| owner-channel | 3 | 2 |
+| owner-channel | 4 | 1 |
 | untrusted-input | 4 | 0 |
 | roles | 4 | 0 |
 | org-isolation | 1 | 1 |
@@ -87,7 +87,7 @@ requirements that make it executable.
 | channel-02 | owner-channel | incident | high | Input reaches a Pilot only while it is asking; anything else is refused, never typed into the session | executable |
 | channel-03 | owner-channel | rule | high | Only the owner's answer resumes an asking Pilot, and the log keeps its digest, not its text | executable |
 | channel-04 | owner-channel | rule | high | A Pilot has no channel to the owner: every surface shows Pilot text only as the Tower's record of it | pending: m1 (LUCY-RUN-013) |
-| channel-05 | owner-channel | rule | critical | Only the owner's words close a decision; no agent can answer one on the owner's behalf | pending: m1 (LUCY-SPEC-013) |
+| channel-05 | owner-channel | rule | critical | Only the owner's words close a decision; no agent can answer one on the owner's behalf | executable |
 | trust-01 | untrusted-input | rule | critical | Outside text alone never backs a privileged action, whoever asks and whatever the other facts | executable |
 | trust-02 | untrusted-input | rule | high | A request that rests partly on outside text is marked tainted in its record | executable |
 | trust-03 | untrusted-input | rule | high | An input from a source lucy does not know is refused | executable |

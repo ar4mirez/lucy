@@ -43,7 +43,7 @@ func (s *Server) catalog(ctx context.Context, p *api.CatalogParams) (api.Catalog
 	for _, r := range rows {
 		d := api.CatalogDecision{ID: r.ID(), Kind: r.Kind, Org: r.Org, Subject: r.Subject, Scope: r.Scope(), Lifecycle: r.Lifecycle,
 			Summary: r.Summary, Body: r.Body, Ref: r.Ref, Opened: r.Opened, Updated: r.Updated, AnsweredBy: r.AnsweredBy,
-			AnsweredAt: r.AnsweredAt}
+			AnsweredAt: r.AnsweredAt, ProposalID: r.ProposalID, ProposedBy: r.ProposedBy, Proposed: r.Proposed}
 		if r.SupersededBy > 0 {
 			d.SupersededBy = decision.Row{Seq: r.SupersededBy}.ID()
 		}

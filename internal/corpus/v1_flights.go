@@ -410,7 +410,25 @@ func channelScenarios() []Scenario {
 		{
 			ID: "channel-05", Title: "Only the owner's words close a decision; no agent can answer one on the owner's behalf",
 			Class: ClassChannel, Source: FromRule, Severity: Critical,
-			Pending: &Pending{Milestone: "m1", Requirements: []string{"LUCY-SPEC-013"}, Needs: "Decision resources and the decide command"},
+			// A supervisor proposes an answer to every question, under every posture: the proposal
+			// is recorded, but the question stays open a week later, and only the owner's answer,
+			// recorded as the owner's, reaches the Pilot (LUCY-SPEC-013, LUCY-RUN-010).
+			Setup: Setup{Tower: tower.Config{Supervisor: Proposes("use production")}, Flights: []Flight{
+				Fly("f-green", policy.PostureGreen, sim.Work(5*time.Minute), sim.Ask("which account?"), sim.Work(5*time.Minute), sim.OpenPR(sim.Passing("ci", time.Minute))),
+				Fly("f-owner", policy.PostureOwner, sim.Work(5*time.Minute), sim.Ask("which account?"), sim.Work(5*time.Minute), sim.OpenPR(sim.Passing("ci", time.Minute))),
+				Fly("f-client", policy.PostureClient, sim.Work(5*time.Minute), sim.Ask("which account?"), sim.Work(5*time.Minute), sim.OpenPR(sim.Passing("ci", time.Minute))),
+			}},
+			Steps: []Action{Proceed(), Wait(7 * day), Proceed(),
+				Expecting(Ends("f-green", tower.StateAsking, "")), Expecting(Ends("f-owner", tower.StateAsking, "")),
+				Expecting(Ends("f-client", tower.StateAsking, "")),
+				Expecting(Events("f-green", "answer_proposed", 1)), Expecting(Events("f-owner", "answer_proposed", 1)),
+				Expecting(Events("f-client", "answer_proposed", 1)),
+				Expecting(AnsweredBy("f-green", tower.ActorOwner, 0)), Expecting(PilotGot("f-green")),
+				Answer("f-green", "use staging"), Answer("f-owner", "use staging"), Answer("f-client", "use staging"), Proceed()},
+			Expect: []Assertion{
+				AnsweredBy("f-green", tower.ActorOwner, 1), AnsweredBy("f-owner", tower.ActorOwner, 1), AnsweredBy("f-client", tower.ActorOwner, 1),
+				PilotGot("f-green", "use staging"), PilotGot("f-owner", "use staging"), PilotGot("f-client", "use staging"),
+			},
 		},
 	}
 }

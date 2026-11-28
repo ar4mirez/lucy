@@ -124,6 +124,45 @@ func Events(flight, typ string, n int) Assertion {
 	}}
 }
 
+// AnsweredBy asserts the flight's questions were answered n times, every time by actor.
+func AnsweredBy(flight, actor string, n int) Assertion {
+	return Assertion{fmt.Sprintf("%s answered %d times, by %s", flight, n, actor), func(ctx context.Context, e *Env) error {
+		evs, err := e.events(ctx, flight)
+		if err != nil {
+			return err
+		}
+		c := 0
+		for _, l := range evs {
+			if l.Type == "task.pilot_answered" {
+				if l.Actor != actor {
+					return fmt.Errorf("an answer recorded as %q's", l.Actor)
+				}
+				c++
+			}
+		}
+		if c != n {
+			return fmt.Errorf("%d answers", c)
+		}
+		return nil
+	}}
+}
+
+// PilotGot asserts the answers the flight's Pilot sessions received, in order.
+func PilotGot(flight string, answers ...string) Assertion {
+	return Assertion{fmt.Sprintf("%s's Pilot got %v", flight, answers), func(_ context.Context, e *Env) error {
+		var got []string
+		for i, r := range e.World.Runtime.Started {
+			if r.Flight == flight {
+				got = append(got, e.World.Runtime.Answers[fmt.Sprintf("sim-%d", i+1)]...)
+			}
+		}
+		if strings.Join(got, "|") != strings.Join(answers, "|") {
+			return fmt.Errorf("got %v", got)
+		}
+		return nil
+	}}
+}
+
 // EventsEnd asserts the last event types (without "task.") of the flight, in order.
 func EventsEnd(flight string, types ...string) Assertion {
 	return Assertion{flight + " ends with " + strings.Join(types, " "), func(ctx context.Context, e *Env) error {
