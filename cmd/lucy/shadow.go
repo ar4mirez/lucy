@@ -59,7 +59,7 @@ func runShadow(args []string, stdout, stderr io.Writer) int {
 	}
 	var tasks []shadow.Task
 	if args[0] == "import" {
-		f, err := os.Open(fs.Arg(0))
+		f, err := os.Open(fs.Arg(0)) // #nosec G703 -- the export file the owner named on the command line; only read and parsed
 		if err != nil {
 			fmt.Fprintf(stderr, "error: %v\n", err)
 			return 1
