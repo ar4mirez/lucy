@@ -29,7 +29,10 @@ func (r Runtime) Start(ctx context.Context, req tower.PilotRequest) (string, err
 		Generation: req.Generation, Goal: req.Goal, Base: req.Base})
 	if errors.Is(err, ErrExists) {
 		ri, rerr := r.Broker.Run(ctx, run)
-		if rerr == nil && ri.Org == req.Org && ri.Flight == req.Flight && ri.Generation == req.Generation {
+		if rerr != nil {
+			return "", rerr
+		}
+		if ri.Org == req.Org && ri.Flight == req.Flight && ri.Generation == req.Generation {
 			return run, nil
 		}
 	}

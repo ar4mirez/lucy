@@ -433,8 +433,9 @@ func (t *Tower) step(ctx context.Context, f *flight) error {
 // start is retried on its own backoff (LUCY-SPEC-008).
 var ErrStartRefused = errors.New("tower: the runtime refuses to start this Pilot")
 
-// startPilot starts the flight's next Pilot generation. A start that fails is retried on the
-// flight's step backoff, and only a refusal (ErrStartRefused) grounds the flight. A generation started but not recorded,
+// startPilot starts the flight's next Pilot generation. A start that fails is recorded as
+// task.pilot_start_failed and retried on the start backoff those recorded times give
+// (startRetryAt), and only a refusal (ErrStartRefused) grounds the flight. A generation started but not recorded,
 // because the daemon stopped in between, is started again after the restart: the runner protocol
 // (runner.Runtime) returns the run it already queued, and fences any older live run of the flight
 // before it queues a new one, so a flight never has two live sessions (LUCY-RUN-004).
