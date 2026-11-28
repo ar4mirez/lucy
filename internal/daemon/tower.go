@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/eventstore"
+	"github.com/ar4mirez/lucy/internal/pipeline"
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/runner"
 	"github.com/ar4mirez/lucy/internal/spec"
@@ -47,9 +48,10 @@ func (wallClock) Now() time.Time { return time.Now() }
 // hostedTower is the Tower the daemon runs. A Tower is not safe for concurrent use: every call
 // holds mu, which the API's questions view holds too.
 type hostedTower struct {
-	tw  *tower.Tower
-	mu  sync.Mutex
-	log *slog.Logger
+	tw        *tower.Tower
+	mu        sync.Mutex
+	log       *slog.Logger
+	pipelines *pipeline.Catalog // each org's ship and research Pipelines (LUCY-SPEC-014)
 }
 
 // ErrTakeoverGate refuses to dispatch a Flight whose Runway names a real repository: until runs
@@ -71,6 +73,7 @@ const (
 	ReasonNameInUse        = "NameInUse"
 	ReasonFinished         = "Finished"
 	ReasonDispatchFailed   = "DispatchFailed"
+	ReasonPipelineInvalid  = "PipelineInvalid" // the org's Pipeline of the Flight's shape is invalid; the built-in one never stands in
 )
 
 // takeoverGate refuses remote unless it is a file:// URL or an absolute path that, with symlinks
@@ -106,14 +109,14 @@ func takeoverGate(remote string) error {
 // log. When dispatch is on, it dispatches every Ready Flight the set holds that it does not fly
 // yet and that gate lets through; either way it adds each Ready Flight's Dispatched condition to
 // set, which the daemon then records.
-func startTower(ctx context.Context, store *eventstore.Store, broker *runner.Broker, set *spec.Set, poll time.Duration, log *slog.Logger,
+func startTower(ctx context.Context, store *eventstore.Store, broker *runner.Broker, set *spec.Set, pipelines *pipeline.Catalog, poll time.Duration, log *slog.Logger,
 	dispatch bool, gate func(org, project string) error) (*hostedTower, error) {
 	tw, err := tower.New(ctx, tower.Config{Store: store, Runtime: runner.Runtime{Broker: broker}, Forge: stubForge{},
 		Clock: wallClock{}, ForgeIdentity: stubIdentity, PollInterval: poll})
 	if err != nil {
 		return nil, err
 	}
-	h := &hostedTower{tw: tw, log: log}
+	h := &hostedTower{tw: tw, log: log, pipelines: pipelines}
 	h.dispatch(ctx, set, dispatch, gate)
 	return h, nil
 }
@@ -175,6 +178,21 @@ func (h *hostedTower) dispatch(ctx context.Context, set *spec.Set, enabled bool,
 		s := tower.Spec{ID: r.Metadata.Name, Org: org, Project: project, Goal: str("goal"),
 			Base: bases[org+"/"+project], Delivery: str("delivery"),
 			Posture: policy.Posture(str("autonomy")), Acceptance: str("acceptance")}
+		shape := str("shape")
+		if shape == "" {
+			shape = pipeline.Ship
+		}
+		p, err := h.pipelines.For(org, shape)
+		if errors.Is(err, pipeline.ErrNoPipeline) {
+			mark(spec.False, ReasonDispatchFailed, fmt.Sprintf("no %s Pipeline", shape))
+			continue
+		}
+		if err != nil {
+			h.log.Warn("flight not dispatched: its Pipeline is invalid", "flight", r.ID(), "err", err)
+			mark(spec.False, ReasonPipelineInvalid, err.Error())
+			continue
+		}
+		s.Pipeline = towerPipeline(p)
 		if err := h.tw.Dispatch(ctx, s); err != nil {
 			h.log.Warn("flight not dispatched", "flight", r.ID(), "err", err)
 			mark(spec.False, ReasonDispatchFailed, err.Error())
@@ -226,4 +244,16 @@ func (h *hostedTower) step(ctx context.Context) {
 			h.log.Warn("tower step failed", "err", e)
 		}
 	}
+}
+
+// towerPipeline is what the Tower takes from a Pipeline: how many lost Pilots it replaces, whether
+// every merge needs the owner, and what an approval timeout does. None approves a merge.
+func towerPipeline(p pipeline.Policy) *tower.Pipeline {
+	out := &tower.Pipeline{Name: p.Namespace + "/" + p.Name, MaxRestarts: p.Pilot.MaxRetries,
+		ApprovalRequired: p.Merge.Required, ApprovalTimeout: p.Merge.Timeout}
+	switch p.Merge.OnTimeout {
+	case pipeline.OnTimeoutAbort:
+		out.OnTimeout = tower.OnTimeoutAbort
+	}
+	return out
 }

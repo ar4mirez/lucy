@@ -25,6 +25,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/decision"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/gateway"
+	"github.com/ar4mirez/lucy/internal/pipeline"
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/role"
 	"github.com/ar4mirez/lucy/internal/runner"
@@ -208,6 +209,15 @@ func Run(ctx context.Context, opts Options) error {
 	worktrees := &worktree.Source{Pool: &worktree.Pool{Store: store, Root: wtRoot, Git: opts.WorktreeGit}, Remote: opts.WorktreeRemote,
 		Gate: takeoverGate, Context: ctx, Timeout: opts.WorktreePrepareTimeout, Log: log}
 	worktrees.SetRunways(set.Admitted())
+	pipelines, err := pipeline.NewCatalog(set.Results)
+	if err != nil {
+		return fmt.Errorf("daemon: load the pipelines: %w", err)
+	}
+	// An org Pipeline lucy cannot fly holds that org's Flights of its shape; it never stops the
+	// daemon, and the built-in Pipeline never stands in for it (LUCY-SPEC-014).
+	for _, err := range pipelines.Invalid() {
+		log.Warn("pipeline not flown: its org's Flights of its shape are held", "err", err)
+	}
 	roles, err := role.NewCatalog(set.Admitted())
 	if err != nil {
 		return fmt.Errorf("daemon: load the roles: %w", err)
@@ -249,7 +259,7 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		return takeoverGate(remote)
 	}
-	hosted, err := startTower(ctx, store, broker, &set, poll, log, opts.Dispatch, gate)
+	hosted, err := startTower(ctx, store, broker, &set, pipelines, poll, log, opts.Dispatch, gate)
 	if err != nil {
 		return fmt.Errorf("daemon: start the tower: %w", err)
 	}

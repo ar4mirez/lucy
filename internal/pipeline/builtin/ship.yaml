@@ -1,0 +1,21 @@
+apiVersion: ai-sdlc.io/v1alpha1
+kind: Pipeline
+metadata:
+  name: ship
+  namespace: lucy
+spec:
+  triggers:
+    - event: flight.dispatched
+  providers:
+    forge:
+      type: github
+  stages:
+    - name: pilot
+      agent: worker
+      onFailure:
+        strategy: retry
+        maxRetries: 1
+    - name: merge
+      approval:
+        required: false
+        blocking: true

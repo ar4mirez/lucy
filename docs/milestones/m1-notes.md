@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 15
+version: 19
 owner: ar4mirez
 requirements: []
 ---
@@ -167,7 +167,7 @@ slice table, requirement status and exit tests stay in the plan.
   owner posture. The daemon hosts the Tower: it steps its flights on its poll interval and serves its
   Pilots' questions through `lucy questions` and `lucy answer`; only started with `--dispatch` does
   it dispatch the Ready Flights it loads (by name, once), each recorded with a `Dispatched`
-  condition (InFlight for one it flies from its log; DispatchDisabled, TakeoverGate, NameInUse, Finished, DispatchFailed when not). A Runway
+  condition (InFlight for one it flies from its log; DispatchDisabled, TakeoverGate, NameInUse, Finished, PipelineInvalid, DispatchFailed when not). A Runway
   whose remote is not a local fixture is refused, at dispatch and at every lease, until #36 and the owner's go/no-go, and the gateway
   refuses every git push; its forge is a stub that merges nothing until the validation slice. Decisions (LUCY-SPEC-013):
   `internal/decision` projects every decision waiting on the owner from the log (the
@@ -176,8 +176,15 @@ slice table, requirement status and exit tests stay in the plan.
   `lucy approve` give a holding merge the owner's word. Roles (LUCY-SPEC-015): `internal/role` bundles one AgentRole per role (builtin/, namespace
   `lucy`); an org's AgentRole of a role's name adds its blockedPaths, and the daemon gives them,
   with the run's checkout, to `runner.permit` as facts for the policy engine's `role.blocked-paths`
-  rule. Left in 7a: pipelines (LUCY-SPEC-014), the roles' other constraints and tools and their
-  session instructions (LUCY-SPEC-015), and Core conformance (LUCY-SPEC-017).
+  rule. Pipelines (LUCY-SPEC-014): `internal/pipeline` bundles the ship and research Pipelines
+  (builtin/, namespace `lucy`), reads an org's replacement, and the daemon dispatches each Flight
+  with what the Tower takes from its shape's Pipeline (`tower.Pipeline` in `task.dispatched`).
+  Parse is an allowlist: `triggers` and `providers` (required by the format, not acted on yet),
+  and the stage fields lucy flies; every other field, and an escalating approval timeout, is
+  refused with `pipeline.ErrUnsupported` naming its path. An org Pipeline lucy cannot fly (loader
+  or Parse refusal) is held in the catalog as its error: the daemon starts and holds that org's
+  Flights of its shape as `PipelineInvalid`, never on the built-in one. Left in 7a: wiring those (LUCY-SPEC-014), the
+  roles' other constraints and tools and their session instructions (LUCY-SPEC-015), and Core conformance (LUCY-SPEC-017).
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real

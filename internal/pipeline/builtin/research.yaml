@@ -1,0 +1,17 @@
+apiVersion: ai-sdlc.io/v1alpha1
+kind: Pipeline
+metadata:
+  name: research
+  namespace: lucy
+spec:
+  triggers:
+    - event: flight.dispatched
+  providers:
+    forge:
+      type: github
+  stages:
+    - name: pilot
+      agent: researcher
+      onFailure:
+        strategy: retry
+        maxRetries: 1

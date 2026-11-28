@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 31
+version: 35
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,20 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Added
+
+- Flights are flown on ai-sdlc Pipeline resources: lucy bundles a `ship` and a `research`
+  Pipeline, and an org replaces one with a `Pipeline` of that name in its namespace. The pilot
+  stage's `onFailure` (`abort`, or `retry` with `maxRetries`) sets how many lost Pilots are
+  replaced; the merge stage's `approval` can require your approval for every merge, whatever the
+  autonomy posture, and bound how long a merge holds (`timeout` with `onTimeout: abort` grounds
+  the flight). A timeout never approves a merge: a Pipeline with `onTimeout: auto-approve` is
+  refused. An org Pipeline lucy cannot fly (one the spec loader rejects, or one with a refused
+  field) never falls back to the built-in one: the daemon starts, logs a warning, and holds that
+  org's Flights of that shape with reason `PipelineInvalid`, naming the Pipeline and why. Only
+  these fields are accepted: `triggers` and `providers` (required by the format, not acted on
+  yet), and per stage `name`, `agent`, `onFailure` (`strategy`, `maxRetries`) and `approval`
+  (`required`, `blocking`, `timeout`, `onTimeout`). Every other field, and an escalating timeout,
+  is refused as not supported yet, naming its path, rather than ignored.
 
 - Roles are ai-sdlc AgentRole resources: lucy bundles one for each of its roles (supervisor,
   worker, researcher, reviewer), and an org adds to one with an `AgentRole` of that name in its
@@ -46,7 +60,8 @@ Changes since the last release. When a version is cut, its section moves to
   `TakeoverGate` (its Runway names a repository whose remote is not a local fixture under lucy's
   data directory or the system temp directory: real repositories are refused until #36 and the
   owner's go/no-go), `NameInUse` (a flight of another org or runway has its name), `Finished` (a
-  finished flight has its name) or `DispatchFailed`. The Tower's forge is a stub that reads no pull
+  finished flight has its name), `PipelineInvalid` (the org's Pipeline for the Flight's shape is
+  invalid) or `DispatchFailed`. The Tower's forge is a stub that reads no pull
   request and merges nothing until the validation slice. The gate also holds at every lease: a run
   whose Runway names a real remote gets no checkout, only the gate as its worktree error.
 - The credential gateway refuses every git push while the takeover gate is closed: a request whose
