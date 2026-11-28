@@ -668,3 +668,59 @@ func TestFinishNeedsOwner(t *testing.T) {
 		t.Fatalf("run %+v", ri)
 	}
 }
+
+// A run's steps report their tokens as usage events, summed on the run, and its finish its cost;
+// a flight's runs are summed over every generation (LUCY-RUN-011). Tokens ride only on a usage
+// event, and a usage event always carries them.
+func TestTokensAndCost(t *testing.T) {
+	ctx := context.Background()
+	f := open(t)
+	for gen := 1; gen <= 2; gen++ {
+		run := fmt.Sprintf("a#%d", gen)
+		if err := f.b.Submit(ctx, Task{Run: run, Org: "acme", Project: "web", Flight: "a", Generation: gen, Goal: "g"}); err != nil {
+			t.Fatal(err)
+		}
+		l, ok, err := f.b.Lease(ctx, "r1", PlacementHost, "acme", "", 0)
+		if err != nil || !ok {
+			t.Fatalf("lease: %v, %v", ok, err)
+		}
+		for _, bad := range [][]Event{
+			{{Seq: 1, Kind: KindUsage}},
+			{{Seq: 1, Kind: KindOutput, Text: "x", Tokens: Tokens{Input: 1}}},
+			{{Seq: 1, Kind: KindUsage, Tokens: Tokens{Input: -1}}},
+			{{Seq: 1, Kind: KindUsage, Tokens: Tokens{Output: MaxTokens + 1}}},
+		} {
+			if _, err := f.b.Heartbeat(ctx, "r1", run, l.Fence, 0, bad, ""); !errors.Is(err, ErrInvalid) {
+				t.Errorf("%+v: %v, want ErrInvalid", bad, err)
+			}
+		}
+		steps := []Event{
+			{Seq: 1, Kind: KindUsage, Text: "tokens", Tokens: Tokens{Input: 1000, Output: 40, CacheRead: 500}},
+			{Seq: 2, Kind: KindOutput, Text: "working"},
+			{Seq: 3, Kind: KindUsage, Text: "tokens", Tokens: Tokens{Input: 300, Output: 20, CacheWrite: 7}},
+		}
+		if _, err := f.b.Heartbeat(ctx, "r1", run, l.Fence, 0, steps, ""); err != nil {
+			t.Fatal(err)
+		}
+		res := Result{Outcome: OutcomeLost, CostMicros: 41200}
+		if gen == 2 {
+			res = Result{Outcome: OutcomeDone, PR: 9, CostMicros: 10000}
+		}
+		if err := f.b.Finish(ctx, "r1", run, l.Fence, res); err != nil {
+			t.Fatal(err)
+		}
+		if ri := f.run(run); ri.Tokens != (Tokens{Input: 1300, Output: 60, CacheRead: 500, CacheWrite: 7}) || ri.CostMicros != res.CostMicros {
+			t.Fatalf("run %s: tokens %+v, cost %d", run, ri.Tokens, ri.CostMicros)
+		}
+	}
+	u, err := f.b.FlightsUsage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := u["acme/a"]; got.Runs != 2 || got.Tokens != (Tokens{Input: 2600, Output: 120, CacheRead: 1000, CacheWrite: 14}) || got.CostMicros != 51200 {
+		t.Fatalf("the flight's usage %+v", got)
+	}
+	if err := f.b.Finish(ctx, "r1", "a#2", 1, Result{Outcome: OutcomeDone, CostMicros: -5}); !errors.Is(err, ErrInvalid) && !errors.Is(err, ErrFenced) {
+		t.Fatalf("a negative cost: %v", err)
+	}
+}

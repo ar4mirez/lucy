@@ -118,7 +118,8 @@ func (s *Server) runnerHeartbeat(ctx context.Context, p *api.HeartbeatParams) (a
 	}
 	evs := make([]runner.Event, 0, len(p.Events))
 	for _, e := range p.Events {
-		evs = append(evs, runner.Event{Seq: e.Seq, Kind: runner.EventKind(e.Kind), Text: e.Text, Question: e.Question, Hook: e.Hook})
+		evs = append(evs, runner.Event{Seq: e.Seq, Kind: runner.EventKind(e.Kind), Text: e.Text, Question: e.Question, Hook: e.Hook,
+			Tokens: runner.Tokens{Input: e.Tokens.Input, Output: e.Tokens.Output, CacheRead: e.Tokens.CacheRead, CacheWrite: e.Tokens.CacheWrite}})
 	}
 	beat, err := b.Heartbeat(ctx, p.Runner, p.Run, p.Fence, time.Duration(p.TTLSeconds)*time.Second, evs, p.Acked)
 	if err != nil {
@@ -193,7 +194,7 @@ func (s *Server) runnerFinish(ctx context.Context, p *api.FinishParams) (api.Fin
 	if err != nil {
 		return api.FinishResult{}, err
 	}
-	res := runner.Result{Outcome: runner.Outcome(p.Outcome), PR: p.PR, Reason: p.Reason, Need: p.Need}
+	res := runner.Result{Outcome: runner.Outcome(p.Outcome), PR: p.PR, Reason: p.Reason, Need: p.Need, CostMicros: p.CostMicros}
 	if err := b.Finish(ctx, p.Runner, p.Run, p.Fence, res); err != nil {
 		return api.FinishResult{}, runnerError(err)
 	}
@@ -236,7 +237,8 @@ func (s *Server) runs(ctx context.Context, p *api.RunsParams) (api.RunsPage, err
 			Run: r.Run, Org: r.Org, Project: r.Project, Flight: r.Flight, Generation: r.Generation,
 			State: string(r.State), Runner: r.Runner, Placement: string(r.Placement), Fence: r.Fence,
 			ExpiresAt: leasedExpiry(r), Accepted: r.Accepted, Activity: r.Activity, Asking: r.Asking,
-			Stop: r.Stop, PR: r.PR, Reason: r.Reason, Position: r.QueuedSeq,
+			Stop: r.Stop, PR: r.PR, Reason: r.Reason, Position: r.QueuedSeq, CostMicros: r.CostMicros,
+			Tokens: api.Tokens{Input: r.Tokens.Input, Output: r.Tokens.Output, CacheRead: r.Tokens.CacheRead, CacheWrite: r.Tokens.CacheWrite},
 		})
 		page.Next = r.QueuedSeq
 	}

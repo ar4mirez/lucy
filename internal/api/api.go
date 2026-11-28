@@ -58,7 +58,9 @@ const Version = 1
 // dispatch recorded, or else its Runway's from an AutonomyPolicy level, tightened by its own.
 // Revision 21 added config.reload.
 // Revision 22 added runner.finish's needs_owner outcome and its need.
-const SchemaRevision = 22
+// Revision 23 added token use and cost: runner.heartbeat's usage events and tokens, runner.finish's
+// cost_micros, runs.list's and flights.list's tokens and cost.
+const SchemaRevision = 23
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"

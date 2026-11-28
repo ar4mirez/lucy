@@ -55,6 +55,8 @@ type Streamed struct {
 	Question string `json:"question,omitempty"`
 	// Hook, on a hook event, is the harness lifecycle hook that fired.
 	Hook string `json:"hook,omitempty"`
+	// Tokens is a usage event's token use (LUCY-RUN-011).
+	Tokens Tokens `json:"tokens,omitzero"`
 }
 
 // StopRequested records that the Tower asked for the run to stop. A queued run finishes at once;
@@ -77,6 +79,8 @@ type Finished struct {
 	PR      int     `json:"pr,omitempty"`
 	Reason  string  `json:"reason,omitempty"` // untrusted text, capped
 	Need    string  `json:"need,omitempty"`   // when needs_owner: a known need (harness.NeedLogin)
+	// CostMicros is the run's cost as its harness reported it, in millionths of a US dollar.
+	CostMicros int64 `json:"cost_micros,omitempty"`
 }
 
 // Expired ends a run whose lease under Fence was not renewed by ExpiresAt. The run is lost.

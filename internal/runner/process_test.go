@@ -562,15 +562,16 @@ func TestHarnessExecutorSpeaksTheProtocol(t *testing.T) {
 		want   Result
 		events []string
 	}{
-		{"done", "harness", Result{Outcome: OutcomeDone, PR: 42}, []string{"lucy: the harness's account state was re-asserted in the org's home: " +
+		{"done", "harness", Result{Outcome: OutcomeDone, PR: 42, CostMicros: 41200}, []string{"lucy: the harness's account state was re-asserted in the org's home: " +
 			"onboarding marked complete, auto-updates turned off, user-scope MCP servers removed, the run's directory trusted, " +
 			"the run's directory onboarded, the run's directory's pre-allowed tools removed, the run's directory's MCP servers removed, " +
 			"the run's directory's project MCP servers disabled, hooks disabled, skill installed lucy-researcher/SKILL.md, " +
 			"skill installed lucy-reviewer/SKILL.md, skill installed lucy-worker/SKILL.md",
 			"session started: claude-code " + claudecode.Pinned + ", model claude-opus-5-5",
-			"I will fix the failing test.", "tool: Bash", "tool result", "Opened the pull request.\nlucy:pr=42", "session ended: success after 3 turns"}},
-		{"refused", "harness", Result{Outcome: OutcomeDone}, nil},
-		{"error", "harness", Result{Outcome: OutcomeFailed, Reason: "error_max_turns: Reached maximum number of turns (50)"}, nil},
+			"I will fix the failing test.", "tool: Bash", "tokens: 1200 input, 40 output, 0 cache read, 0 cache written", "tool result",
+			"Opened the pull request.\nlucy:pr=42", "tokens: 1300 input, 20 output, 0 cache read, 0 cache written", "session ended: success after 3 turns"}},
+		{"refused", "harness", Result{Outcome: OutcomeDone, CostMicros: 10000}, nil},
+		{"error", "harness", Result{Outcome: OutcomeFailed, Reason: "error_max_turns: Reached maximum number of turns (50)", CostMicros: 1200000}, nil},
 		// the drifted session is killed, not left to carry out the goal: drain gives up long
 		// before the harness would stop on its own
 		{"drift", "harness-on", Result{Outcome: OutcomeFailed, Reason: "claude-code reported version 2.1.400, lucy supports " + claudecode.Pinned}, nil},
@@ -648,7 +649,7 @@ func TestHarnessExecutorAnswers(t *testing.T) {
 	if err := x.(Answerer).Answer("use the staging account"); err != nil {
 		t.Fatal(err)
 	}
-	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7}) {
+	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7, CostMicros: 30000}) {
 		t.Fatalf("result %+v", res)
 	}
 }
@@ -690,7 +691,7 @@ func TestHarnessExecutorKeepsTheQuestionOpen(t *testing.T) {
 	if err := x.(Answerer).Answer("use the staging account"); err != nil {
 		t.Fatal(err)
 	}
-	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7}) {
+	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7, CostMicros: 30000}) {
 		t.Fatalf("result %+v", res)
 	}
 }
@@ -756,7 +757,7 @@ func TestHarnessExecutorTagsEveryRepeat(t *testing.T) {
 	if err := x.(Answerer).Answer("use the staging account"); err != nil {
 		t.Fatal(err)
 	}
-	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7}) {
+	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7, CostMicros: 30000}) {
 		t.Fatalf("result %+v", res)
 	}
 }
@@ -960,7 +961,7 @@ func TestHarnessExecutorStreamsHooks(t *testing.T) {
 			}
 		}
 		if u.Result != nil {
-			if *u.Result != (Result{Outcome: OutcomeDone, PR: 3}) {
+			if *u.Result != (Result{Outcome: OutcomeDone, PR: 3, CostMicros: 10000}) {
 				t.Fatalf("result %+v", *u.Result)
 			}
 			if strings.Join(hooks, " ") != "SessionStart PreToolUse Notification Stop" {
@@ -1006,7 +1007,7 @@ func TestHarnessExecutorKeepsTheQuestionAfterAHook(t *testing.T) {
 	if err := x.(Answerer).Answer("use the staging account"); err != nil {
 		t.Fatal(err)
 	}
-	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7}) {
+	if _, res := drain(t, x); res != (Result{Outcome: OutcomeDone, PR: 7, CostMicros: 30000}) {
 		t.Fatalf("result %+v", res)
 	}
 }

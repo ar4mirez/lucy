@@ -25,7 +25,20 @@ const (
 	Activity Kind = "activity" // the Pilot did something: started, called a tool, was refused one
 	Asking   Kind = "asking"   // the Pilot asks a question and waits on the owner's answer
 	Hook     Kind = "hook"     // a harness lifecycle hook fired: Event.Hook names it
+	Usage    Kind = "usage"    // one turn's token use: Event.Usage holds it (LUCY-RUN-011)
 )
+
+// Tokens is token use as the harness reports it: input, output, and the input read from and
+// written to its prompt cache.
+type Tokens struct {
+	Input      int64
+	Output     int64
+	CacheRead  int64
+	CacheWrite int64
+}
+
+// Zero reports whether no token was used.
+func (t Tokens) Zero() bool { return t == Tokens{} }
 
 // Source tags every event a harness produces: it is the harness's untrusted output, whatever the
 // event's text claims to be. The adapter sets it where the text enters lucy, never the model.
@@ -38,6 +51,7 @@ type Event struct {
 	Text     string // untrusted
 	Question string // when asking: the question's id, the same on every repeat of it; untrusted
 	Hook     string // when a hook: its event name, one of Hooks
+	Tokens   Tokens // when usage: the turn's tokens
 }
 
 // Hooks are the lifecycle hook events a harness may report, by Claude Code's names. A hook event
@@ -48,9 +62,12 @@ var Hooks = []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostTool
 
 // Exit is how a session ended, as the harness's protocol reported it.
 type Exit struct {
-	OK     bool
-	PR     int    // when OK: the pull request the Pilot reported; 0 when none
-	Reason string // when not OK: why, untrusted
+	// CostMicros is the session's cost as the harness reports it, in millionths of a US dollar;
+	// 0 when it reports none (LUCY-RUN-011).
+	CostMicros int64
+	OK         bool
+	PR         int    // when OK: the pull request the Pilot reported; 0 when none
+	Reason     string // when not OK: why, untrusted
 }
 
 // Session is what one harness session is started with.

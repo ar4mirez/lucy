@@ -386,7 +386,12 @@ func (pe *processExecution) keepAsking() {
 
 // harnessEvent is one of the harness's events as kind, capped.
 func harnessEvent(kind EventKind, e harness.Event) Event {
-	return Event{Kind: kind, Text: capText(e.Text), Question: e.Question, Hook: e.Hook}
+	out := Event{Kind: kind, Text: capText(e.Text), Question: e.Question, Hook: e.Hook}
+	if kind == KindUsage {
+		clamp := func(n int64) int64 { return max(0, min(n, MaxTokens)) }
+		out.Tokens = Tokens{Input: clamp(e.Tokens.Input), Output: clamp(e.Tokens.Output), CacheRead: clamp(e.Tokens.CacheRead), CacheWrite: clamp(e.Tokens.CacheWrite)}
+	}
+	return out
 }
 
 // Answer implements Answerer: it gives the harness the owner's answer to its question.
@@ -451,9 +456,9 @@ func (pe *processExecution) wait() {
 	case pe.stopped:
 		res = &Result{Outcome: OutcomeStopped, Reason: "stopped"}
 	case pe.conn != nil && pe.exit != nil && pe.exit.OK:
-		res = &Result{Outcome: OutcomeDone, PR: pe.exit.PR}
+		res = &Result{Outcome: OutcomeDone, PR: pe.exit.PR, CostMicros: pe.exit.CostMicros}
 	case pe.conn != nil && pe.exit != nil:
-		res = &Result{Outcome: OutcomeFailed, Reason: capText(pe.exit.Reason)}
+		res = &Result{Outcome: OutcomeFailed, Reason: capText(pe.exit.Reason), CostMicros: pe.exit.CostMicros}
 	case pe.conn != nil:
 		reason := "the harness ended without reporting a result"
 		if err != nil {

@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 34
+version: 35
 owner: ar4mirez
 requirements: []
 ---
@@ -67,6 +67,7 @@ slice table, requirement status and exit tests stay in the plan.
   Flights as `WorktreePoolInvalid` when it cannot be accepted, and `internal/backlog` writes a Flight as a `BacklogTask`
   for `lucy flights --json`. Core conformance (LUCY-SPEC-017): the suite's Core fixtures are vendored under
   `internal/spec/testdata/conformance` and `TestCoreConformance` runs them through the loader.
+- **7a, LUCY-SPEC-017 in full.** lucy passes the spec's Core conformance level. The suite's Core fixtures (every `pipeline/valid-*` and `quality-gate/valid-*`, and every `invalid-*`) are vendored at the pin and listed in PROVENANCE; `TestCoreConformance` loads each: a valid one is admitted once written as an org's config (in a namespace, without `status`), an invalid one is refused on the schema, and as shipped a valid one is refused only under lucy's two documented rules (`MissingNamespace`, LUCY-SPEC-002; `StatusInConfig`, LUCY-SPEC-003). The audit-chain fixture passes (LUCY-SPEC-009). The worktree pool and the backlog use the spec's schemas, vendored at the pin: an org declares its pool with a `WorktreePool` resource, accepted with only `layout: workspace-scoped` and `cleanup.onMerge: true` (members the loader fills with their default are accepted at it); `rootDir` and every other field are refused by name, and an org whose WorktreePool lucy cannot accept (refused by the schema or by lucy, or two of them) has its Flights held as `WorktreePoolInvalid`. `flights.list` and `lucy flights --json` write each Flight as a `BacklogTask` checked against the vendored schema. Reading backlog markdown as a source of Flights is not part of m1
 - **7b.** Converge loops (LUCY-SPEC-008): `converge.Run` runs a `Reconciler` at start, when the
   store's `Changed` channel closes (a commit that appended), at the time it asked for, and at least
   every resync; never twice within its minimum interval, and after a failure only once a doubling
@@ -131,6 +132,13 @@ slice table, requirement status and exit tests stay in the plan.
   repository's instructions: `skills.Instructions` gives the role's skill body, hash-verified, as
   `harness.Session.Role`. Every run is a ship worker's so far; the lease names the role once
   research and review runs fly.
+- **9, cost (LUCY-RUN-011).** Per step: Claude Code's adapter turns each assistant turn's `usage`
+  into a `usage` event (input, output, cache read and cache written tokens), streamed like any run
+  event (`runner.heartbeat`, `run.streamed`), and summed on the run. Per task: the session's
+  `total_cost_usd` rides on its exit and `runner.finish` as `cost_micros`, millionths of a dollar,
+  bounded and untrusted like all runner reports; `flights.list` sums a flight's runs over every
+  generation, and `lucy flights` shows them. Next: supervision (LUCY-RUN-010), a seam in the Tower
+  whose default is today's rules, then a model-backed supervisor that proposes only.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real
   work on the host before it lands, since a host Pilot shares the daemon's uid and API authority.
   Shadow mode (slice 10) runs no Pilot and is unaffected.

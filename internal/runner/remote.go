@@ -69,7 +69,8 @@ func (r Remote) Lease(ctx context.Context, runner string, placement Placement, o
 func (r Remote) Heartbeat(ctx context.Context, runner, run string, fence int64, ttl time.Duration, events []Event, acked string) (Beat, error) {
 	p := api.HeartbeatParams{Runner: runner, Run: run, Fence: fence, TTLSeconds: seconds(ttl), Acked: acked}
 	for _, e := range events {
-		p.Events = append(p.Events, api.RunEvent{Seq: e.Seq, Kind: string(e.Kind), Text: e.Text, Question: e.Question, Hook: e.Hook})
+		p.Events = append(p.Events, api.RunEvent{Seq: e.Seq, Kind: string(e.Kind), Text: e.Text, Question: e.Question, Hook: e.Hook,
+			Tokens: api.Tokens{Input: e.Tokens.Input, Output: e.Tokens.Output, CacheRead: e.Tokens.CacheRead, CacheWrite: e.Tokens.CacheWrite}})
 	}
 	res, err := r.Client.RunnerHeartbeat(ctx, p)
 	if err != nil {
@@ -91,7 +92,7 @@ func (r Remote) Slot(ctx context.Context, runner, run string, fence int64) (stat
 // Finish implements Protocol.
 func (r Remote) Finish(ctx context.Context, runner, run string, fence int64, res Result) error {
 	_, err := r.Client.RunnerFinish(ctx, api.FinishParams{Runner: runner, Run: run, Fence: fence,
-		Outcome: string(res.Outcome), PR: res.PR, Reason: capText(res.Reason), Need: res.Need})
+		Outcome: string(res.Outcome), PR: res.PR, Reason: capText(res.Reason), Need: res.Need, CostMicros: res.CostMicros})
 	return remoteError(err)
 }
 

@@ -95,11 +95,33 @@ const (
 	KindActivity EventKind = "activity" // the work did something: a tool call, a step
 	KindAsking   EventKind = "asking"   // the work asks a question and waits on an answer
 	KindHook     EventKind = "hook"     // a harness lifecycle hook fired; Event.Hook names it
+	KindUsage    EventKind = "usage"    // one step's token use; Event.Tokens holds it (LUCY-RUN-011)
 )
 
 // Valid reports whether k is a known kind.
 func (k EventKind) Valid() bool {
-	return k == KindOutput || k == KindActivity || k == KindAsking || k == KindHook
+	return k == KindOutput || k == KindActivity || k == KindAsking || k == KindHook || k == KindUsage
+}
+
+// MaxTokens bounds each kind of a step's reported tokens.
+const MaxTokens = 1 << 30
+
+// Tokens is a step's token use: input, output, and input read from and written to the prompt cache.
+type Tokens struct {
+	Input      int64 `json:"input,omitempty"`
+	Output     int64 `json:"output,omitempty"`
+	CacheRead  int64 `json:"cache_read,omitempty"`
+	CacheWrite int64 `json:"cache_write,omitempty"`
+}
+
+// valid reports whether every count is from 0 to MaxTokens.
+func (t Tokens) valid() bool {
+	for _, n := range []int64{t.Input, t.Output, t.CacheRead, t.CacheWrite} {
+		if n < 0 || n > MaxTokens {
+			return false
+		}
+	}
+	return true
 }
 
 // Limits of the protocol.
@@ -224,6 +246,8 @@ type Event struct {
 	// Hook is the hook event's name, one of harness.Hooks: required on a hook event and refused
 	// on any other.
 	Hook string `json:"hook,omitempty"`
+	// Tokens is a usage event's token use: required on one, refused on any other.
+	Tokens Tokens `json:"tokens,omitzero"`
 }
 
 // Result is how a run ended, as its runner reports it.
@@ -232,6 +256,9 @@ type Result struct {
 	PR      int     `json:"pr,omitempty"`     // when done: the pull request the work opened
 	Reason  string  `json:"reason,omitempty"` // when not done: why; untrusted text
 	Need    string  `json:"need,omitempty"`   // when needs_owner: what the harness needs (harness.NeedLogin)
+	// CostMicros is the run's cost as its harness reports it, in millionths of a US dollar; 0
+	// when unreported (LUCY-RUN-011). Untrusted, like everything a runner reports.
+	CostMicros int64 `json:"cost_micros,omitempty"`
 }
 
 // Beat answers a heartbeat.

@@ -58,6 +58,7 @@ type hostedTower struct {
 	mu        sync.Mutex
 	log       *slog.Logger
 	pipelines *pipeline.Catalog // each org's ship and research Pipelines (LUCY-SPEC-014)
+	broker    *runner.Broker    // the runs, for their token use and cost
 
 	// set is the config the daemon runs on: the last load with no refused resource (or the
 	// start's), guarded by mu. Reloads replace it (reload, under reloadMu).
@@ -136,7 +137,7 @@ func startTower(ctx context.Context, store *eventstore.Store, broker *runner.Bro
 	if err != nil {
 		return nil, err
 	}
-	h := &hostedTower{tw: tw, log: log, pipelines: pipelines, set: set}
+	h := &hostedTower{tw: tw, log: log, pipelines: pipelines, set: set, broker: broker}
 	h.dispatch(ctx, set, dispatch, gate)
 	h.tighten(ctx, set)
 	return h, nil
@@ -316,6 +317,13 @@ func towerPipeline(p pipeline.Policy) *tower.Pipeline {
 // Dispatched conditions and the Tower's state of each flight it flies under the Flight's name and
 // org (LUCY-SPEC-017).
 func (h *hostedTower) flights() []api.FlightInfo {
+	var usage map[string]runner.FlightUsage
+	if h.broker != nil {
+		var err error
+		if usage, err = h.broker.FlightsUsage(context.Background()); err != nil {
+			h.log.Warn("could not read the flights' token use", "err", err)
+		}
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	set := h.set
@@ -342,6 +350,10 @@ func (h *hostedTower) flights() []api.FlightInfo {
 			f.Autonomy, f.State, f.Reason, f.StepError, f.RetryAt = string(st.Posture), string(st.State), st.Reason, st.StepError, st.RetryAt.UTC()
 		} else if p, err := flightPosture(set, *r); err == nil {
 			f.Autonomy = string(p)
+		}
+		if u, ok := usage[f.Org+"/"+f.Name]; ok {
+			f.Runs, f.CostMicros = u.Runs, u.CostMicros
+			f.Tokens = api.Tokens{Input: u.Tokens.Input, Output: u.Tokens.Output, CacheRead: u.Tokens.CacheRead, CacheWrite: u.Tokens.CacheWrite}
 		}
 		out = append(out, f)
 	}

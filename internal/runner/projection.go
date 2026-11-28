@@ -34,6 +34,8 @@ type RunInfo struct {
 	Stop       bool   // a stop was requested
 	PR         int    // when done
 	Reason     string // when failed, stopped or lost
+	Tokens     Tokens // the tokens its usage events reported, summed (LUCY-RUN-011)
+	CostMicros int64  // its cost as its harness reported it, in millionths of a US dollar
 	Version    int64  // the run stream's version
 	QueuedSeq  int64  // the queued event's sequence number: the queue's order
 }
@@ -47,7 +49,7 @@ type Projector struct{}
 func (Projector) Name() string { return "runner_runs" }
 
 // Version implements eventstore.Projector.
-func (Projector) Version() int { return 9 }
+func (Projector) Version() int { return 10 }
 
 // Reset implements eventstore.Projector.
 func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
@@ -79,7 +81,12 @@ func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
 			stop        INTEGER NOT NULL DEFAULT 0,
 			pr          INTEGER NOT NULL DEFAULT 0,
 			reason      TEXT NOT NULL DEFAULT '',
-			ended_ns    INTEGER NOT NULL DEFAULT 0
+			ended_ns    INTEGER NOT NULL DEFAULT 0,
+			input_tokens       INTEGER NOT NULL DEFAULT 0,
+			output_tokens      INTEGER NOT NULL DEFAULT 0,
+			cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+			cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+			cost_micros        INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX runner_runs_state ON runner_runs (state, queued_seq)`,
 		`CREATE INDEX runner_runs_flight ON runner_runs (org, flight, generation)`,
@@ -189,8 +196,10 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 		if p.Kind == KindAsking {
 			asking, question, id = 1, p.Text, p.Question
 		}
-		q = `UPDATE runner_runs SET version = ?, accepted = ?, activity_ns = ?, asking = ?, question = ?, question_id = ? WHERE run = ?`
-		args = []any{e.StreamVersion, p.Seq, at, asking, question, id, run}
+		q = `UPDATE runner_runs SET version = ?, accepted = ?, activity_ns = ?, asking = ?, question = ?, question_id = ?,
+			input_tokens = input_tokens + ?, output_tokens = output_tokens + ?, cache_read_tokens = cache_read_tokens + ?,
+			cache_write_tokens = cache_write_tokens + ? WHERE run = ?`
+		args = []any{e.StreamVersion, p.Seq, at, asking, question, id, p.Tokens.Input, p.Tokens.Output, p.Tokens.CacheRead, p.Tokens.CacheWrite, run}
 	case Answered{}.EventType():
 		var p Answered
 		if err := decode(&p); err != nil {
@@ -206,12 +215,12 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 		if err := decode(&p); err != nil {
 			return err
 		}
-		q = `UPDATE runner_runs SET version = ?, state = ?, pr = ?, reason = ?, asking = 0, question = '', ended_ns = ? WHERE run = ?`
+		q = `UPDATE runner_runs SET version = ?, state = ?, pr = ?, reason = ?, asking = 0, question = '', ended_ns = ?, cost_micros = ? WHERE run = ?`
 		reason := p.Reason
 		if p.Outcome == OutcomeNeedsOwner {
 			reason = p.Need // the run's reason is the need: a known value, never runner text
 		}
-		args = []any{e.StreamVersion, string(finalState(p.Outcome)), p.PR, reason, at, run}
+		args = []any{e.StreamVersion, string(finalState(p.Outcome)), p.PR, reason, at, p.CostMicros, run}
 	case Expired{}.EventType():
 		q = `UPDATE runner_runs SET version = ?, state = ?, reason = ?, asking = 0, question = '', ended_ns = ? WHERE run = ?`
 		args = []any{e.StreamVersion, string(StateLost), "the lease expired", at, run}
@@ -245,7 +254,8 @@ func finalState(o Outcome) State {
 }
 
 const runColumns = `run, version, queued_seq, org, project, flight, generation, goal, base, state, runner, placement,
-	fence, expires_ns, earned_ns, accepted, activity_ns, asking, question, question_id, given, answered, stop, pr, reason`
+	fence, expires_ns, earned_ns, accepted, activity_ns, asking, question, question_id, given, answered, stop, pr, reason,
+	input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_micros`
 
 type rowScanner interface{ Scan(dest ...any) error }
 
@@ -256,7 +266,8 @@ func scanRun(r rowScanner) (RunInfo, error) {
 	var asking, stop int
 	err := r.Scan(&ri.Run, &ri.Version, &ri.QueuedSeq, &ri.Org, &ri.Project, &ri.Flight, &ri.Generation, &ri.Goal,
 		&ri.Base, &state, &ri.Runner, &placement, &ri.Fence, &expires, &earned, &ri.Accepted, &activity, &asking,
-		&ri.Question, &ri.QuestionID, &ri.Given, &ri.Answered, &stop, &ri.PR, &ri.Reason)
+		&ri.Question, &ri.QuestionID, &ri.Given, &ri.Answered, &stop, &ri.PR, &ri.Reason,
+		&ri.Tokens.Input, &ri.Tokens.Output, &ri.Tokens.CacheRead, &ri.Tokens.CacheWrite, &ri.CostMicros)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RunInfo{}, ErrNoRun
 	}
