@@ -22,9 +22,12 @@ only from a file you give it: it fetches nothing and reads no live state.
 
   import   reads <file>, a versioned JSON Lines record of the existing supervisor's tasks and their
            actions (docs/tech/shadow.md), and records each task. The whole file is checked first and
-           refused, naming the line, if any line is refused: an unknown field, a value out of bounds,
-           anything that looks like a credential, or an org with no admitted Airspace. A task
-           imported before is unchanged; one imported before with other contents is refused.
+           refused, naming the line, if any line is refused (an unknown field, a value out of
+           bounds, anything that looks like a credential); then nothing is imported. The daemon
+           then records the tasks one by one, and refuses a task of an org with no admitted
+           Airspace or a task id imported before with other contents: the import stops there, and
+           the tasks recorded before it stay recorded. A task imported before is unchanged, so
+           importing the fixed file again records only what is new.
   ls       lists the imported tasks by org, class and task.
 `
 
@@ -101,7 +104,9 @@ func runShadow(args []string, stdout, stderr io.Writer) int {
 		cancel()
 		if err != nil {
 			fmt.Fprintf(stdout, "imported: %d\nunchanged: %d\nstopped_at: task %s (%d of %d)\n", counts["recorded"], counts["unchanged"], csv(t.ID), i+1, len(tasks))
-			return callFailed(err, c, stderr)
+			code := callFailed(err, c, stderr)
+			fmt.Fprintf(stderr, "help: the %d tasks before it stay recorded; fix the file and import it again, which leaves them unchanged\n", i)
+			return code
 		}
 		counts[res.Outcome]++
 	}

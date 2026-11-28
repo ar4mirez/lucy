@@ -63,7 +63,19 @@ func TestShadowImport(t *testing.T) {
 	if code, _, errOut := lucy("shadow", "import", "--socket", sock, changed); code != 1 || !strings.Contains(errOut, "imported before with other contents") {
 		t.Fatalf("changed: %d %q", code, errOut)
 	}
-	if code, out, _ := lucy("shadow", "ls", "--socket", sock); code != 0 || !strings.HasPrefix(out, "tasks[2]") {
+	// A daemon refusal mid-file stops the import there: the tasks before it stay recorded, and the
+	// error says so.
+	mixed := write("mixed.jsonl", strings.ReplaceAll(strings.ReplaceAll(string(data), `"t-1"`, `"t-5"`), `"t-2"`, `"t-6"`)+
+		strings.ReplaceAll(strings.ReplaceAll(string(data), `"acme"`, `"beta"`), `"t-1"`, `"t-7"`))
+	code, out, errOut := lucy("shadow", "import", "--socket", sock, mixed)
+	if code != 1 || !strings.Contains(out, "imported: 2\n") || !strings.Contains(out, "stopped_at: task t-7 (3 of 4)") ||
+		!strings.Contains(errOut, "no admitted Airspace") || !strings.Contains(errOut, "the 2 tasks before it stay recorded") {
+		t.Fatalf("a refusal mid-file: %d %q %q", code, out, errOut)
+	}
+	if code, out, _ := lucy("shadow", "ls", "--socket", sock); code != 0 || !strings.HasPrefix(out, "tasks[4]") {
+		t.Fatalf("ls after a refusal mid-file: %d %q", code, out)
+	}
+	if code, out, _ := lucy("shadow", "ls", "--socket", sock, "--org", "beta"); code != 0 || out != "tasks[0]: none\n" {
 		t.Fatalf("ls after: %d %q", code, out)
 	}
 }
