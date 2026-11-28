@@ -549,7 +549,11 @@ func TestHarnessExecutorSpeaksTheProtocol(t *testing.T) {
 		want   Result
 		events []string
 	}{
-		{"done", "harness", Result{Outcome: OutcomeDone, PR: 42}, []string{"session started: claude-code " + claudecode.Pinned + ", model claude-opus-5-5",
+		{"done", "harness", Result{Outcome: OutcomeDone, PR: 42}, []string{"lucy: the harness's account state was re-asserted in the org's home: " +
+			"onboarding marked complete, auto-updates turned off, user-scope MCP servers removed, the run's directory trusted, " +
+			"the run's directory onboarded, the run's directory's pre-allowed tools removed, the run's directory's MCP servers removed, " +
+			"the run's directory's project MCP servers disabled, hooks disabled",
+			"session started: claude-code " + claudecode.Pinned + ", model claude-opus-5-5",
 			"I will fix the failing test.", "tool: Bash", "tool result", "Opened the pull request.\nlucy:pr=42", "session ended: success after 3 turns"}},
 		{"refused", "harness", Result{Outcome: OutcomeDone}, nil},
 		{"error", "harness", Result{Outcome: OutcomeFailed, Reason: "error_max_turns: Reached maximum number of turns (50)"}, nil},
@@ -1028,5 +1032,30 @@ func TestNoCredentialReachesThePilot(t *testing.T) {
 		if strings.Contains(out, v) {
 			t.Errorf("%s's value reached the Pilot", name)
 		}
+	}
+}
+
+// A harness whose account state cannot be re-asserted in the org's home is not spawned
+// (LUCY-RUN-008): a state file there that is a symlink refuses the run, and what it points to,
+// outside the home, is untouched.
+func TestAFailedConvergeRefusesTheSpawn(t *testing.T) {
+	pf := newProc(t)
+	pf.ex.Harness = claudecode.Adapter{}
+	orgHome := filepath.Join(pf.root, "home")
+	if err := os.MkdirAll(orgHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(pf.home, "real.claude.json")
+	if err := os.WriteFile(outside, []byte(`{"kept":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(orgHome, ".claude.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pf.ex.Start(context.Background(), procLease("work")); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("start: %v, want a refusal naming the symlink", err)
+	}
+	if data, _ := os.ReadFile(outside); string(data) != `{"kept":true}` {
+		t.Fatalf("the file outside the org's home changed: %s", data)
 	}
 }

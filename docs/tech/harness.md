@@ -2,9 +2,9 @@
 id: tech-harness
 title: Harness adapters
 status: active
-version: 1
+version: 2
 owner: ar4mirez
-requirements: [LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-013]
+requirements: [LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-008, LUCY-RUN-013]
 ---
 
 # Harness adapters
@@ -38,3 +38,15 @@ Claude Code adapter is `internal/harness/claudecode`; `lucy runner --harness cla
   `harnesstest`, which plays the harness's side and follows its documented settings rules;
   `harness-check.yml` checks the newest release nightly and reports it ready or held. Transcripts
   captured from real sessions wait on a real model login (D3c).
+
+## Account state, before every spawn
+
+An adapter that is a `harness.Converger` re-asserts its harness's account state before each spawn
+(LUCY-RUN-008), in the org's synthetic home only, through an `os.Root` on that home, so nothing
+it writes lands outside it, and the owner's real home is never read. For Claude Code that is
+`.claude.json` (onboarding complete, auto-updates off, no user-scope MCP servers; the run's
+directory trusted and onboarded with no tools pre-allowed and no MCP servers) and
+`.claude/settings.json` (no hooks, hooks disabled); every other key, the login above all, is
+kept. A state file, settings file or settings directory that is a symlink, or a state or settings
+file that is not a JSON object, is refused rather than overwritten, and so is the spawn. On state that already holds nothing changes; what changed is logged and recorded as
+the run's first event.
