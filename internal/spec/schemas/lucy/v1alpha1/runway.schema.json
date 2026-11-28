@@ -4,20 +4,66 @@
   "title": "lucy Runway",
   "description": "A project (a repository) inside an airspace. Stub: later slices add fields.",
   "type": "object",
-  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
   "properties": {
-    "apiVersion": { "$ref": "common.schema.json#/$defs/apiVersion" },
-    "kind": { "type": "string", "const": "Runway" },
-    "metadata": { "$ref": "common.schema.json#/$defs/metadata" },
+    "apiVersion": {
+      "$ref": "common.schema.json#/$defs/apiVersion"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Runway"
+    },
+    "metadata": {
+      "$ref": "common.schema.json#/$defs/metadata"
+    },
     "spec": {
       "type": "object",
       "properties": {
-        "repository": { "type": "string", "maxLength": 512, "description": "The repository, for example owner/name on the forge." },
-        "defaultBranch": { "type": "string", "maxLength": 255, "default": "main", "description": "The branch changes land on." }
+        "repository": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "The repository, for example owner/name on the forge."
+        },
+        "defaultBranch": {
+          "type": "string",
+          "maxLength": 255,
+          "default": "main",
+          "description": "The branch changes land on."
+        },
+        "autonomyPolicy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253,
+          "description": "The AutonomyPolicy, in the Runway's namespace, whose level sets the project's merge posture. With autonomyLevel; a Flight's autonomy may then only tighten it."
+        },
+        "autonomyLevel": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The level of autonomyPolicy the project is at. Only that level's guardrails.requireApproval is read: all is the owner posture, security-critical-only the green posture. The owner changes it by hand: lucy promotes and demotes nothing."
+        },
+        "clientConfirms": {
+          "type": "boolean",
+          "description": "Merges need the client's confirmation, relayed by the owner (the client posture), on top of the owner's word. lucy's own: the spec has no such concept."
+        }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "dependentRequired": {
+        "autonomyPolicy": [
+          "autonomyLevel"
+        ],
+        "autonomyLevel": [
+          "autonomyPolicy"
+        ]
+      }
     },
-    "status": { "$ref": "common.schema.json#/$defs/status" }
+    "status": {
+      "$ref": "common.schema.json#/$defs/status"
+    }
   },
   "additionalProperties": false
 }

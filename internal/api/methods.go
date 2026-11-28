@@ -727,7 +727,7 @@ type FlightInfo struct {
 	Goal       string        `json:"goal,omitempty" doc:"What the Flight is for, as its config says. Owner-written."`
 	Shape      string        `json:"shape" doc:"ship or research."`
 	Runway     string        `json:"runway,omitempty" doc:"The project it lands on."`
-	Autonomy   string        `json:"autonomy,omitempty" doc:"Its autonomy posture: owner, green or client."`
+	Autonomy   string        `json:"autonomy,omitempty" doc:"The posture it is flown under: owner, green or client. Its Runway's, from the AutonomyPolicy level the Runway names, tightened by its own autonomy; or its own."`
 	State      string        `json:"state,omitempty" doc:"The Tower's state of the flight; empty when the Tower does not fly it."`
 	Reason     string        `json:"reason,omitempty" doc:"Why the flight is in its state, when the Tower says: a grounding reason, for example."`
 	StepError  string        `json:"step_error,omitempty" doc:"Why the Tower's last step of the flight failed; empty after a clean step."`

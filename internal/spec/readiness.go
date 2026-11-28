@@ -23,8 +23,13 @@ const (
 // ready: a goal; a delivery path, that is a runway that is an admitted Runway of the same
 // namespace (runways holds them, by namespace/name) and a delivery that fits its shape
 // (pull-request for ship, report for research); an autonomy posture, stated; and an acceptance
-// test.
+// test. A Flight whose Runway sets a posture (it names an autonomyPolicy, or clientConfirms) needs
+// no autonomy of its own: the Runway's applies, and the Flight's may only tighten it.
 func FlightReadiness(r Resource, runways map[string]bool) []string {
+	return flightReadiness(r, runways, nil)
+}
+
+func flightReadiness(r Resource, runways map[string]bool, postured map[string]bool) []string {
 	str := func(k string) string { s, _ := r.Spec[k].(string); return strings.TrimSpace(s) }
 	var missing []string
 	if str("goal") == "" {
@@ -47,7 +52,7 @@ func FlightReadiness(r Resource, runways map[string]bool) []string {
 	case d != want:
 		missing = append(missing, fmt.Sprintf("a delivery path that fits a %s Flight (%s, not %s)", shape, want, d))
 	}
-	if str("autonomy") == "" {
+	if str("autonomy") == "" && !postured[r.Metadata.Namespace+"/"+str("runway")] {
 		missing = append(missing, "an autonomy posture (owner, green or client)")
 	}
 	if str("acceptance") == "" {
@@ -58,10 +63,14 @@ func FlightReadiness(r Resource, runways map[string]bool) []string {
 
 // markReadiness adds a Ready condition to every admitted Flight in results.
 func markReadiness(results []Result) {
-	runways := map[string]bool{}
+	runways, postured := map[string]bool{}, map[string]bool{}
 	for _, r := range results {
 		if r.Resource != nil && r.Resource.APIVersion == LucyAPIVersion && r.Resource.Kind == "Runway" {
-			runways[r.Resource.Metadata.Namespace+"/"+r.Resource.Metadata.Name] = true
+			id := r.Resource.Metadata.Namespace + "/" + r.Resource.Metadata.Name
+			runways[id] = true
+			ap, _ := r.Resource.Spec["autonomyPolicy"].(string)
+			cc, _ := r.Resource.Spec["clientConfirms"].(bool)
+			postured[id] = ap != "" || cc
 		}
 	}
 	for i := range results {
@@ -70,7 +79,7 @@ func markReadiness(results []Result) {
 			continue
 		}
 		c := Condition{Type: ConditionReady, Status: True, Reason: ReasonReady, Message: "it has a goal, a delivery path, an autonomy posture and an acceptance test"}
-		if missing := FlightReadiness(*r, runways); len(missing) > 0 {
+		if missing := flightReadiness(*r, runways, postured); len(missing) > 0 {
 			c = Condition{Type: ConditionReady, Status: False, Reason: ReasonNotReady, Message: clip("not dispatched until it has " + strings.Join(missing, ", "))}
 		} else if shape, _ := r.Spec["shape"].(string); shape == "research" {
 			// TODO(LUCY-SPEC-012): fly research Flights; the Tower's readiness and this one move together.

@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.19.0"
+    "version": "1.20.0"
   },
   "servers": [
     {
@@ -1647,7 +1647,7 @@
               "items": {
                 "properties": {
                   "autonomy": {
-                    "description": "Its autonomy posture: owner, green or client.",
+                    "description": "The posture it is flown under: owner, green or client. Its Runway's, from the AutonomyPolicy level the Runway names, tightened by its own autonomy; or its own.",
                     "type": "string"
                   },
                   "dispatched": {
