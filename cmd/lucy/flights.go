@@ -60,9 +60,11 @@ func runFlights(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, "flights[0]: no Flight is loaded\n")
 		return 0
 	}
-	fmt.Fprintf(stdout, "flights[%d]{flight,shape,ready,dispatched,state,goal}:\n", len(list.Flights))
+	fmt.Fprintf(stdout, "flights[%d]{flight,shape,ready,dispatched,state,tokens,cost,goal}:\n", len(list.Flights))
 	for _, f := range list.Flights {
-		fmt.Fprintf(stdout, "  %s/%s,%s,%s,%s,%s,%s\n", f.Org, f.Name, f.Shape, condText(f.Ready), condText(f.Dispatched), f.State, untrusted(f.Goal))
+		tokens := f.Tokens.Input + f.Tokens.Output + f.Tokens.CacheRead + f.Tokens.CacheWrite
+		fmt.Fprintf(stdout, "  %s/%s,%s,%s,%s,%s,%d,%s,%s\n", f.Org, f.Name, f.Shape, condText(f.Ready), condText(f.Dispatched), f.State,
+			tokens, dollars(f.CostMicros), untrusted(f.Goal))
 	}
 	return 0
 }
@@ -76,4 +78,9 @@ func condText(c api.ConditionInfo) string {
 		return c.Status
 	}
 	return c.Status + " (" + c.Reason + ")"
+}
+
+// dollars shows a cost in millionths of a US dollar as dollars, to the cent's hundredth: $0.0412.
+func dollars(micros int64) string {
+	return fmt.Sprintf("$%d.%04d", micros/1_000_000, micros%1_000_000/100)
 }

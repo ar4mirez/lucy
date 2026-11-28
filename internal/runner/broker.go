@@ -449,6 +449,9 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 		if (ev.Kind == KindHook) != (ev.Hook != "") || (ev.Hook != "" && !slices.Contains(harness.Hooks, ev.Hook)) {
 			return Beat{}, fmt.Errorf("%w: event %d: a hook event, and only a hook event, names a known hook, not %q", ErrInvalid, ev.Seq, ev.Hook)
 		}
+		if (ev.Kind == KindUsage) != (ev.Tokens != Tokens{}) || !ev.Tokens.valid() {
+			return Beat{}, fmt.Errorf("%w: event %d: a usage event, and only a usage event, carries tokens, each from 0 to %d", ErrInvalid, ev.Seq, MaxTokens)
+		}
 		if !ev.Kind.Valid() || ev.Seq < 1 || len(ev.Question) > maxIDBytes || (ev.Kind == KindAsking) != (ev.Question != "") {
 			return Beat{}, fmt.Errorf("%w: event %d of kind %q with question id %q; a question, and only a question, names its id", ErrInvalid, ev.Seq, ev.Kind, ev.Question)
 		}
@@ -479,7 +482,7 @@ func (b *Broker) Heartbeat(ctx context.Context, runner, run string, fence int64,
 			if ev.Kind == KindAsking && (ev.Question == ri.Answered || ev.Question == given.question || ev.Question == acked) {
 				ev.Kind, ev.Text, ev.Question = KindActivity, repeatedQuestion, ""
 			}
-			payloads = append(payloads, Streamed{Fence: fence, Seq: ev.Seq, Kind: ev.Kind, Text: capText(ev.Text), Question: ev.Question, Hook: ev.Hook})
+			payloads = append(payloads, Streamed{Fence: fence, Seq: ev.Seq, Kind: ev.Kind, Text: capText(ev.Text), Question: ev.Question, Hook: ev.Hook, Tokens: ev.Tokens})
 		}
 		exp := b.now().Add(ttl).UTC()
 		payloads = append(payloads, Renewed{Fence: fence, ExpiresAt: exp, Answered: acked})
@@ -572,12 +575,15 @@ func (b *Broker) Finish(ctx context.Context, runner, run string, fence int64, re
 	if res.PR < 0 || (res.PR != 0 && res.Outcome != OutcomeDone) {
 		return fmt.Errorf("%w: only a done run reports a pull request", ErrInvalid)
 	}
+	if res.CostMicros < 0 || res.CostMicros > maxCostMicros {
+		return fmt.Errorf("%w: a cost of %d millionths of a dollar", ErrInvalid, res.CostMicros)
+	}
 	if (res.Outcome == OutcomeNeedsOwner) != (res.Need != "") || (res.Need != "" && res.Need != harness.NeedLogin) {
 		return fmt.Errorf("%w: a needs_owner run, and only one, names a known need (%s), not %q", ErrInvalid, harness.NeedLogin, res.Need)
 	}
 	err := b.held(ctx, runner, run, fence, func(tx *eventstore.Tx, ri RunInfo) error {
 		_, err := tx.Append(ctx, Stream(ri.Org, ri.Run), ri.Version, runnerActor(runner),
-			Finished{Fence: fence, Outcome: res.Outcome, PR: res.PR, Reason: capText(res.Reason), Need: res.Need})
+			Finished{Fence: fence, Outcome: res.Outcome, PR: res.PR, Reason: capText(res.Reason), Need: res.Need, CostMicros: res.CostMicros})
 		return err
 	})
 	if err == nil {
@@ -752,3 +758,33 @@ func (b *Broker) Permit(ctx context.Context, runner, run string, fence int64, p 
 
 // permitKinds are the actions a Pilot's prompted tool may be asked about.
 var permitKinds = map[policy.Kind]bool{policy.KindRead: true, policy.KindWrite: true, policy.KindDelete: true, policy.KindExec: true, policy.KindFetch: true}
+
+// maxCostMicros bounds a run's reported cost: a million dollars.
+const maxCostMicros = 1_000_000 * 1_000_000
+
+// FlightUsage is one flight's token use and cost over all its runs (LUCY-RUN-011).
+type FlightUsage struct {
+	Runs       int
+	Tokens     Tokens
+	CostMicros int64
+}
+
+// FlightsUsage sums every flight's runs, every generation, by org and flight ("org/flight").
+func (b *Broker) FlightsUsage(ctx context.Context) (map[string]FlightUsage, error) {
+	rows, err := b.store.QueryContext(ctx, `SELECT org, flight, count(*), sum(input_tokens), sum(output_tokens),
+		sum(cache_read_tokens), sum(cache_write_tokens), sum(cost_micros) FROM runner_runs GROUP BY org, flight`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck // read-only
+	out := map[string]FlightUsage{}
+	for rows.Next() {
+		var org, flight string
+		var u FlightUsage
+		if err := rows.Scan(&org, &flight, &u.Runs, &u.Tokens.Input, &u.Tokens.Output, &u.Tokens.CacheRead, &u.Tokens.CacheWrite, &u.CostMicros); err != nil {
+			return nil, err
+		}
+		out[org+"/"+flight] = u
+	}
+	return out, rows.Err()
+}

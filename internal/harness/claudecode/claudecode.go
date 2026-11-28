@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"path"
 	"regexp"
 	"slices"
@@ -269,6 +270,7 @@ type message struct {
 	// assistant, user
 	Message struct {
 		Content json.RawMessage `json:"content"`
+		Usage   *usage          `json:"usage"`
 	} `json:"message"`
 
 	// control_request, control_cancel_request
@@ -281,10 +283,45 @@ type message struct {
 	} `json:"request"`
 
 	// result
-	IsError  bool     `json:"is_error"`
-	Result   string   `json:"result"`
-	NumTurns int      `json:"num_turns"`
-	Errors   []string `json:"errors"`
+	TotalCostUSD float64  `json:"total_cost_usd"`
+	IsError      bool     `json:"is_error"`
+	Result       string   `json:"result"`
+	NumTurns     int      `json:"num_turns"`
+	Errors       []string `json:"errors"`
+}
+
+// usage is a turn's token use, as Claude Code reports it on an assistant message.
+type usage struct {
+	Input      int64 `json:"input_tokens"`
+	Output     int64 `json:"output_tokens"`
+	CacheRead  int64 `json:"cache_read_input_tokens"`
+	CacheWrite int64 `json:"cache_creation_input_tokens"`
+}
+
+// maxTokens bounds one turn's reported tokens of each kind; more is not believed.
+const maxTokens = 1 << 30
+
+// usageEvent is the usage event of an assistant turn, or false when it reports none.
+func usageEvent(u *usage) (harness.Event, bool) {
+	if u == nil {
+		return harness.Event{}, false
+	}
+	clamp := func(n int64) int64 { return max(0, min(n, maxTokens)) }
+	t := harness.Tokens{Input: clamp(u.Input), Output: clamp(u.Output), CacheRead: clamp(u.CacheRead), CacheWrite: clamp(u.CacheWrite)}
+	if t.Zero() {
+		return harness.Event{}, false
+	}
+	e := ev(harness.Usage, fmt.Sprintf("tokens: %d input, %d output, %d cache read, %d cache written", t.Input, t.Output, t.CacheRead, t.CacheWrite))
+	e.Tokens = t
+	return e, true
+}
+
+// costMicros is a reported cost in US dollars as millionths, 0 when none or not believable.
+func costMicros(usd float64) int64 {
+	if !(usd > 0) || usd > 1e6 {
+		return 0
+	}
+	return int64(math.Round(usd * 1e6))
 }
 
 type block struct {
@@ -438,7 +475,11 @@ func (c *conn) decode(line []byte) ([]harness.Event, *harness.Exit) {
 		}
 		return []harness.Event{ev(harness.Activity, fmt.Sprintf("session started: claude-code %s, model %s", capped(m.Version, 32), capped(m.Model, 64)))}, nil
 	case "assistant", "user":
-		return contentEvents(m.Type, m.Message.Content), nil
+		evs := contentEvents(m.Type, m.Message.Content)
+		if u, ok := usageEvent(m.Message.Usage); ok && m.Type == "assistant" {
+			evs = append(evs, u)
+		}
+		return evs, nil
 	case "control_request":
 		return c.control(m), nil
 	case "control_cancel_request":
@@ -594,8 +635,9 @@ func (c *conn) result(m message) ([]harness.Event, *harness.Exit) {
 	c.pending = nil
 	c.qmu.Unlock()
 	evs := []harness.Event{ev(harness.Activity, fmt.Sprintf("session ended: %s after %d turns", capped(m.Subtype, 64), m.NumTurns))}
+	cost := costMicros(m.TotalCostUSD)
 	if m.Subtype == "success" && !m.IsError {
-		return evs, &harness.Exit{OK: true, PR: prFrom(m.Result)}
+		return evs, &harness.Exit{OK: true, PR: prFrom(m.Result), CostMicros: cost}
 	}
 	reason := capped(m.Subtype, 64)
 	var detail []string
@@ -607,7 +649,7 @@ func (c *conn) result(m message) ([]harness.Event, *harness.Exit) {
 	if len(detail) > 0 {
 		reason += ": " + strings.Join(detail, "; ")
 	}
-	return evs, &harness.Exit{Reason: reason}
+	return evs, &harness.Exit{Reason: reason, CostMicros: cost}
 }
 
 // prFrom reads the pull request a session reported, from the last directive line in its result.

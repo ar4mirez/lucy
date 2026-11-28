@@ -2,7 +2,7 @@
 id: tech-harness
 title: Harness adapters
 status: active
-version: 5
+version: 6
 owner: ar4mirez
 requirements: [LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-008, LUCY-RUN-013]
 ---
@@ -65,3 +65,7 @@ run with skills off (`--disable-slash-commands`) until a live check shows that n
 `allowed-tools` skips the permission prompt and that no repository skill loads. The Pilot role's
 instructions, the body of its bundled skill, reach the session in lucy's appended system prompt
 instead (`harness.Session.Role`), before the repository's instructions.
+
+Token use and cost (LUCY-RUN-011): the adapter reports each turn's tokens as a `usage` event and the
+session's reported cost on its exit; the runner streams the first with the run's events and sends
+the second, in millionths of a US dollar, with the run's finish.

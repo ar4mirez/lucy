@@ -113,6 +113,11 @@ func TestPilotReachesTheOwnerOnlyThroughTheTower(t *testing.T) {
 	if ri := w.runs()[0]; ri.Asking {
 		t.Fatalf("the run ended asking: %+v", ri)
 	}
+	// The session's cost reached the run (LUCY-RUN-011): its result reported $0.03, and its turns
+	// reported no tokens, so none are counted.
+	if ri := w.runs()[0]; ri.CostMicros != 30000 || ri.Tokens != (runner.Tokens{}) {
+		t.Fatalf("the run's tokens %+v and cost %d, want none and 30000 millionths", ri.Tokens, ri.CostMicros)
+	}
 	evs, err := w.store.ReadAfter(ctx, 0, 10000)
 	if err != nil {
 		t.Fatal(err)

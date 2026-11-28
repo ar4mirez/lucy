@@ -360,10 +360,19 @@ type HeartbeatParams struct {
 // RunEvent is one event a runner streams.
 type RunEvent struct {
 	Seq      int64  `json:"seq" lucy:"min=1" doc:"The event's number in its run, from 1."`
-	Kind     string `json:"kind" lucy:"required,maxlen=16" doc:"output, activity, asking or hook."`
+	Kind     string `json:"kind" lucy:"required,maxlen=16" doc:"output, activity, asking, hook or usage."`
 	Text     string `json:"text,omitempty" lucy:"maxlen=1024" doc:"The event's text: a line of output, a summary, or the question. Untrusted."`
 	Question string `json:"question,omitempty" lucy:"maxlen=200" doc:"The question's id: required on an asking event and the same on every repeat of the question, refused on any other. An asking event for an answered question is recorded as activity."`
 	Hook     string `json:"hook,omitempty" lucy:"maxlen=32" doc:"The harness lifecycle hook that fired: required on a hook event, refused on any other. SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Notification, Stop, SubagentStop, PreCompact or SessionEnd."`
+	Tokens   Tokens `json:"tokens,omitzero" doc:"A usage event's token use, one step of the work: required on a usage event, refused on any other."`
+}
+
+// Tokens is token use: input, output, and input read from and written to the prompt cache.
+type Tokens struct {
+	Input      int64 `json:"input,omitempty" lucy:"min=0" doc:"Input tokens."`
+	Output     int64 `json:"output,omitempty" lucy:"min=0" doc:"Output tokens."`
+	CacheRead  int64 `json:"cache_read,omitempty" lucy:"min=0" doc:"Input tokens read from the prompt cache."`
+	CacheWrite int64 `json:"cache_write,omitempty" lucy:"min=0" doc:"Input tokens written to the prompt cache."`
 }
 
 // HeartbeatResult answers runner.heartbeat.
@@ -394,13 +403,14 @@ type SlotResult struct {
 
 // FinishParams ends a run.
 type FinishParams struct {
-	Runner  string `json:"runner" lucy:"required,maxlen=63" doc:"The runner holding the lease."`
-	Run     string `json:"run" lucy:"required,maxlen=256" doc:"The leased run."`
-	Fence   int64  `json:"fence" lucy:"min=1" doc:"The lease's fencing token."`
-	Outcome string `json:"outcome" lucy:"required,maxlen=16" doc:"done, failed, stopped, lost or needs_owner (the work did not start: its harness needs the owner first)."`
-	PR      int    `json:"pr,omitempty" lucy:"min=0" doc:"When done: the pull request the work opened."`
-	Reason  string `json:"reason,omitempty" lucy:"maxlen=1024" doc:"When not done: why. Untrusted."`
-	Need    string `json:"need,omitempty" lucy:"maxlen=32" doc:"When needs_owner, and only then: what the harness needs the owner for: harness_login."`
+	Runner     string `json:"runner" lucy:"required,maxlen=63" doc:"The runner holding the lease."`
+	Run        string `json:"run" lucy:"required,maxlen=256" doc:"The leased run."`
+	Fence      int64  `json:"fence" lucy:"min=1" doc:"The lease's fencing token."`
+	Outcome    string `json:"outcome" lucy:"required,maxlen=16" doc:"done, failed, stopped, lost or needs_owner (the work did not start: its harness needs the owner first)."`
+	PR         int    `json:"pr,omitempty" lucy:"min=0" doc:"When done: the pull request the work opened."`
+	Reason     string `json:"reason,omitempty" lucy:"maxlen=1024" doc:"When not done: why. Untrusted."`
+	Need       string `json:"need,omitempty" lucy:"maxlen=32" doc:"When needs_owner, and only then: what the harness needs the owner for: harness_login."`
+	CostMicros int64  `json:"cost_micros,omitempty" lucy:"min=0" doc:"The run's cost as its harness reports it, in millionths of a US dollar; absent when unreported. Untrusted."`
 }
 
 // FinishResult answers runner.finish.
@@ -457,6 +467,8 @@ type RunInfo struct {
 	Stop       bool      `json:"stop,omitempty" doc:"A stop was requested."`
 	PR         int       `json:"pr,omitempty" doc:"When done: the pull request."`
 	Reason     string    `json:"reason,omitempty" doc:"When failed, stopped or lost: why. Untrusted."`
+	Tokens     Tokens    `json:"tokens,omitzero" doc:"The tokens the run's steps reported, summed."`
+	CostMicros int64     `json:"cost_micros,omitempty" doc:"The run's cost as its harness reported it, in millionths of a US dollar. Untrusted."`
 	Position   int64     `json:"position" doc:"The run's place in the queue; pass as after to page."`
 }
 
@@ -738,6 +750,9 @@ type FlightInfo struct {
 	RetryAt    time.Time     `json:"retry_at,omitempty,omitzero" doc:"When the Tower steps the flight again after a failed step, UTC; absent after a clean one."`
 	Ready      ConditionInfo `json:"ready" doc:"Its Ready condition: whether it has what dispatch needs."`
 	Dispatched ConditionInfo `json:"dispatched" doc:"Its Dispatched condition: whether the Tower flies it, and why not; empty (no type) when the Flight is not Ready."`
+	Runs       int           `json:"runs,omitempty" doc:"How many runs, one per Pilot generation, the flight has had."`
+	Tokens     Tokens        `json:"tokens,omitzero" doc:"The tokens its runs' steps reported, summed over every generation (LUCY-RUN-011)."`
+	CostMicros int64         `json:"cost_micros,omitempty" doc:"Its runs' cost as their harness reported it, summed, in millionths of a US dollar. Untrusted."`
 }
 
 // ReloadResult answers config.reload.

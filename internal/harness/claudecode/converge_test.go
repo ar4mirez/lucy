@@ -237,3 +237,26 @@ func TestArgsCarryTheRoleBeforeTheRepository(t *testing.T) {
 		t.Fatal("the session runs with skills on")
 	}
 }
+
+// A turn's usage becomes a usage event, cache tokens included, and a session's reported cost
+// rides on its exit in millionths of a dollar; a cost that is negative or past belief is dropped
+// (LUCY-RUN-011).
+func TestUsageAndCost(t *testing.T) {
+	c := &conn{in: nopCloser{}}
+	evs, _ := c.decode([]byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}],` +
+		`"usage":{"input_tokens":10,"output_tokens":2,"cache_read_input_tokens":300,"cache_creation_input_tokens":40}}}`))
+	if len(evs) != 2 || evs[1].Kind != harness.Usage || evs[1].Tokens != (harness.Tokens{Input: 10, Output: 2, CacheRead: 300, CacheWrite: 40}) {
+		t.Fatalf("events %+v", evs)
+	}
+	for usd, want := range map[string]int64{"0.0412": 41200, "-1": 0, "1e9": 0, "0": 0} {
+		_, exit := (&conn{in: nopCloser{}}).decode([]byte(`{"type":"result","subtype":"success","num_turns":1,"total_cost_usd":` + usd + `}`))
+		if exit == nil || exit.CostMicros != want {
+			t.Errorf("cost %s: exit %+v, want %d millionths", usd, exit, want)
+		}
+	}
+}
+
+type nopCloser struct{}
+
+func (nopCloser) Write(p []byte) (int, error) { return len(p), nil }
+func (nopCloser) Close() error                { return nil }
