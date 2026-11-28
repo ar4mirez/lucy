@@ -90,8 +90,9 @@ type Supervisor struct {
 	Transport func(org string) http.RoundTripper
 	Now       func() time.Time
 
-	mu   sync.Mutex
-	orgs map[string]Config
+	mu    sync.Mutex
+	orgs  map[string]Config
+	locks map[string]*sync.Mutex
 }
 
 var _ tower.Supervisor = (*Supervisor)(nil)
@@ -108,6 +109,20 @@ func (s *Supervisor) config(org string) (Config, bool) {
 	defer s.mu.Unlock()
 	c, ok := s.orgs[org]
 	return c, ok
+}
+
+func (s *Supervisor) lock(org string) *sync.Mutex {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.locks == nil {
+		s.locks = map[string]*sync.Mutex{}
+	}
+	l, ok := s.locks[org]
+	if !ok {
+		l = &sync.Mutex{}
+		s.locks[org] = l
+	}
+	return l
 }
 
 func (s *Supervisor) now() time.Time {
@@ -128,6 +143,9 @@ func (s *Supervisor) ProposeAnswer(ctx context.Context, q tower.Escalation) (tow
 	if !ok {
 		return tower.Proposal{}, false, nil
 	}
+	l := s.lock(q.Org)
+	l.Lock()
+	defer l.Unlock()
 	for _, tier := range []struct{ name, model string }{{"small", cfg.Small}, {"large", cfg.Large}} {
 		used, err := Used(ctx, s.Store, q.Org, Day(s.now()))
 		if err != nil {

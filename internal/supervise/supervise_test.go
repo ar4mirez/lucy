@@ -3,6 +3,7 @@ package supervise_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -219,6 +220,56 @@ func TestASpentBudgetCallsNoModel(t *testing.T) {
 	f.model.replies["small-1"] = `{"answer": "staging", "confident": true}`
 	if _, ok, err := f.sup.ProposeAnswer(ctx, question); err != nil || !ok {
 		t.Fatalf("the next day: %v, %v", ok, err)
+	}
+}
+
+func TestConcurrentQuestionsShareOneBudget(t *testing.T) {
+	f := open(t, 20)
+	f.model.replies["small-1"] = `{"answer": "staging", "confident": true}`
+	const n = 5
+	var wg sync.WaitGroup
+	proposed := make(chan bool, n)
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			q := question
+			q.Flight = fmt.Sprintf("f%d", i)
+			_, ok, err := f.sup.ProposeAnswer(ctx, q)
+			if err != nil {
+				t.Error(err)
+			}
+			proposed <- ok
+		}()
+	}
+	wg.Wait()
+	close(proposed)
+	var count int
+	for ok := range proposed {
+		if ok {
+			count++
+		}
+	}
+	f.model.mu.Lock()
+	calls := len(f.model.requests)
+	f.model.mu.Unlock()
+	if calls != 1 || count != 1 {
+		t.Fatalf("%d calls and %d proposals, want one of each within a budget for one call", calls, count)
+	}
+	evs, _ := f.store.ReadAfter(ctx, 0, 1000)
+	var declined int
+	for _, e := range evs {
+		if e.Type == "supervisor.declined" {
+			var d supervise.Declined
+			_ = json.Unmarshal(e.Payload, &d)
+			if !strings.Contains(d.Reason, "budget") {
+				t.Errorf("declined for %q, want the budget", d.Reason)
+			}
+			declined++
+		}
+	}
+	if declined != n-1 {
+		t.Fatalf("declined %d, want %d", declined, n-1)
 	}
 }
 
