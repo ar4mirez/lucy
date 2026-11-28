@@ -54,7 +54,9 @@ const Version = 1
 // Revision 17 added the delete action kind to runner.permit.
 // Revision 18 added flights.list.
 // Revision 19 added flights.list's step_error and retry_at.
-const SchemaRevision = 19
+// Revision 20: flights.list's autonomy is the posture a Flight is flown under: the one its
+// dispatch recorded, or else its Runway's from an AutonomyPolicy level, tightened by its own.
+const SchemaRevision = 20
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"

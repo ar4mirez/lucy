@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ar4mirez/lucy/internal/autonomy"
 	"github.com/ar4mirez/lucy/internal/converge"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/pipeline"
@@ -79,6 +80,9 @@ const (
 	ReasonFinished         = "Finished"
 	ReasonDispatchFailed   = "DispatchFailed"
 	ReasonPipelineInvalid  = "PipelineInvalid" // the org's Pipeline of the Flight's shape is invalid; the built-in one never stands in
+	// ReasonAutonomyInvalid: the Flight's posture cannot be set: its Runway names an AutonomyPolicy or
+	// level lucy cannot fly, or the Flight's autonomy would loosen its Runway's (LUCY-POL-005).
+	ReasonAutonomyInvalid = "AutonomyInvalid"
 	// ReasonWorktreePoolInvalid: the org's WorktreePool cannot be accepted (LUCY-SPEC-017); lucy's
 	// own pool defaults never stand in for it.
 	ReasonWorktreePoolInvalid = "WorktreePoolInvalid"
@@ -192,6 +196,13 @@ func (h *hostedTower) dispatch(ctx context.Context, set *spec.Set, enabled bool,
 		if shape == "" {
 			shape = pipeline.Ship
 		}
+		posture, err := flightPosture(set, *r)
+		if err != nil {
+			h.log.Warn("flight not dispatched: its posture cannot be set", "flight", r.ID(), "err", err)
+			mark(spec.False, ReasonAutonomyInvalid, err.Error())
+			continue
+		}
+		s.Posture = posture
 		if err := pools[org]; err != nil {
 			h.log.Warn("flight not dispatched: its org's WorktreePool is invalid", "flight", r.ID(), "err", err)
 			mark(spec.False, ReasonWorktreePoolInvalid, err.Error())
@@ -314,15 +325,43 @@ func (h *hostedTower) flights(set *spec.Set) []api.FlightInfo {
 		}
 		str := func(k string) string { s, _ := r.Spec[k].(string); return s }
 		f := api.FlightInfo{Org: r.Metadata.Namespace, Name: r.Metadata.Name, Goal: str("goal"), Shape: str("shape"),
-			Runway: str("runway"), Autonomy: str("autonomy"), Ready: cond(res, spec.ConditionReady), Dispatched: cond(res, ConditionDispatched)}
+			Runway: str("runway"), Ready: cond(res, spec.ConditionReady), Dispatched: cond(res, ConditionDispatched)}
 		if f.Shape == "" {
 			f.Shape = pipeline.Ship
 		}
 		if st, ok := h.tw.Flight(r.Metadata.Name); ok && st.Org == f.Org && st.Project == f.Runway {
-			f.State, f.Reason, f.StepError, f.RetryAt = string(st.State), st.Reason, st.StepError, st.RetryAt.UTC()
+			f.Autonomy, f.State, f.Reason, f.StepError, f.RetryAt = string(st.Posture), string(st.State), st.Reason, st.StepError, st.RetryAt.UTC()
+		} else if p, err := flightPosture(set, *r); err == nil {
+			f.Autonomy = string(p)
 		}
 		out = append(out, f)
 	}
 	slices.SortFunc(out, func(a, b api.FlightInfo) int { return cmp.Or(cmp.Compare(a.Org, b.Org), cmp.Compare(a.Name, b.Name)) })
 	return out
+}
+
+// flightPosture is the posture Flight f is flown under: its Runway's, from the AutonomyPolicy level
+// the Runway names (or clientConfirms), tightened by the Flight's own autonomy, which may never
+// loosen it; or the Flight's own when its Runway sets none (LUCY-POL-005).
+func flightPosture(set *spec.Set, f spec.Resource) (policy.Posture, error) {
+	runwayName, _ := f.Spec["runway"].(string)
+	own, _ := f.Spec["autonomy"].(string)
+	policies := map[string]spec.Resource{}
+	var runway *spec.Resource
+	for _, r := range set.Admitted() {
+		switch {
+		case r.APIVersion == spec.CoreAPIVersion && r.Kind == "AutonomyPolicy":
+			policies[r.Metadata.Namespace+"/"+r.Metadata.Name] = r
+		case r.APIVersion == spec.LucyAPIVersion && r.Kind == "Runway" && r.Metadata.Namespace == f.Metadata.Namespace && r.Metadata.Name == runwayName:
+			runway = &r
+		}
+	}
+	if runway == nil {
+		return policy.Posture(own), nil // readiness refuses a Flight without its Runway
+	}
+	rp, sets, err := autonomy.RunwayPosture(*runway, policies)
+	if err != nil {
+		return "", err
+	}
+	return autonomy.Effective(rp, sets, policy.Posture(own))
 }

@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 24
+version: 25
 owner: ar4mirez
 requirements: []
 ---
@@ -204,6 +204,19 @@ slice table, requirement status and exit tests stay in the plan.
   run id another flight holds, a stale generation) grounds the flight (retry-05).
   Postures from AutonomyPolicy follow, as decided: a Runway names a policy and a level, and only
   `guardrails.requireApproval` maps (`all` to owner, `security-critical-only` to green).
+- **7a, LUCY-SPEC-014 in full.** lucy bundles an ai-sdlc Pipeline for each Flight shape (`ship`, `research`), and an org replaces one with a Pipeline of that name in its namespace. Parse accepts only these fields: `triggers` and `providers` (required by the format, not acted on yet), and `stages`, each with `name` (pilot, and for ship merge), `agent` (pilot only), `onFailure` (pilot only: `strategy` abort or retry, `maxRetries` for retry), and `approval` (merge only: `required`, `blocking` true, `timeout` with `onTimeout` abort). The members the spec loader fills with their schema default are accepted only at that default. Every other field is refused as not supported yet, naming its path. The pilot stage's FailurePolicy sets how many lost Pilots the Tower replaces; the merge stage's ApprovalPolicy can require the owner for every merge whatever the posture (never waive one) and bound a held merge, grounding the flight on the timeout; an escalating timeout, or one with no onTimeout, is refused, since the Tower acts only on abort; onTimeout auto-approve is refused at load, on any stage, so a timeout never approves a merge. An org Pipeline lucy cannot fly (rejected by the spec loader, or refused by Parse) never falls back to the built-in one: the daemon starts, warns, and holds that org's Flights of that shape with Dispatched False / PipelineInvalid, naming the Pipeline and why; other orgs are unaffected, and only a broken built-in Pipeline stops the daemon. TODO(LUCY-SPEC-014): wire the refused fields as lucy comes to act on them (a stage's credentials through the gateway, the PullRequest config to the Pilot, retryDelay in the Tower); policies move to the spec's Workflow document once it is vendored
+- **7b, postures (LUCY-POL-005, LUCY-SPEC-010).** A Runway names an AutonomyPolicy in its namespace
+  and a level (`autonomyPolicy`, `autonomyLevel`, both or neither); `internal/autonomy` reads only
+  that level's `guardrails.requireApproval`: `all` is the owner posture, `security-critical-only`
+  the green posture (the fixed list still needs the owner); `none` and `architecture-changes-only`
+  are refused. The fields the format requires (`levels`, `promotionCriteria`, `demotionTriggers`;
+  per level `level`, `name`, `permissions`, `guardrails`, `monitoring`) and a level's
+  `description` are accepted and not acted on; every other field of a policy a Runway names is
+  refused by its path (TODO(LUCY-SPEC-018), m2). `clientConfirms: true` on a Runway is the client
+  posture, on top of the owner's word. A Flight needs no `autonomy` when its Runway sets one, and
+  its own may only tighten it (green, owner, client, in that order); one that would loosen it, or
+  whose Runway names a policy lucy cannot fly, is held with `Dispatched` reason `AutonomyInvalid`.
+  The dispatch records the effective posture. Promotion and demotion are the owner's, by hand.
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real

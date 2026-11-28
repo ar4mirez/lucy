@@ -57,7 +57,7 @@
             "green",
             "client"
           ],
-          "description": "How much the Flight may do on its own: owner (merges only on the owner's word), green (green pull requests merge, except the fixed list) or client (after the client confirms and the owner relays it). Never assumed."
+          "description": "How much the Flight may do on its own: owner (merges only on the owner's word), green (green pull requests merge, except the fixed list) or client (after the client confirms and the owner relays it). Never assumed: required unless the Flight's Runway sets a posture (an autonomyPolicy level, or clientConfirms), which it may only tighten (green, owner, client, in that order)."
         },
         "acceptance": {
           "type": "string",

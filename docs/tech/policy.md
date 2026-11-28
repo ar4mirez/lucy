@@ -2,7 +2,7 @@
 id: tech-policy
 title: "lucy: the policy engine"
 status: active
-version: 5
+version: 6
 owner: ar4mirez
 requirements: [LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-006, LUCY-POL-007, LUCY-SBX-003]
 ---
@@ -24,7 +24,9 @@ LUCY-SPEC-010) feed them data, not code.
   target (org, project, resource) and inputs, each with its source (`owner`, `config`, `daemon`,
   `task` are trusted; `agent`, `tool_output`, `repo_content`, `issue`, `pr_body`, `pr_comment`,
   `web`, `email` are not). The requester never sets trust (LUCY-POL-004).
-- **Facts.** What the daemon knows from trusted sources: posture (owner by default), check state,
+- **Facts.** What the daemon knows from trusted sources: posture (owner by default; the
+  project's, from the AutonomyPolicy level its Runway names, tightened by the Flight's: see
+  `internal/autonomy`, LUCY-POL-005), check state,
   unreported required checks, fixed-list categories, a PR's head SHA, base ref and base SHA, the
   credential's scope, default branch, home, declared roots, the symlink-resolved delete target, the
   sessions live in an org's container (listed, sorted, and whether the daemon could list them) and
