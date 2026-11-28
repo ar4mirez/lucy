@@ -2,15 +2,17 @@
 // owner, projected from the event log into the spec's Decision resource (RFC-0035,
 // decision.v1.schema.json). A decision opens when the log records something only the owner may
 // settle, and it closes only on the owner's own recorded word: an answer, an approval or a
-// confirmation. Nothing expires it into an answer, and no agent can close it; a newer request or
-// the flight's end supersedes or archives it.
+// confirmation. Nothing expires it into an answer, and no agent can close it; new facts that end
+// the wait (a newer request, a new head, a clearance that no longer holds) supersede it, and the
+// flight's end archives it.
 //
 // The kinds:
 //
 //   - question: a Pilot asked the owner (task.pilot_asked); the owner answers it with lucy answer
 //     (task.pilot_answered).
-//   - merge: a merge holds for the owner's approval (task.clearance with outcome holding); the owner
-//     approves it with lucy approve (task.approved).
+//   - merge: a merge holds for the owner's approval (task.clearance with outcome holding, or
+//     tower.MaxMergeErrors consecutive errored merges); the owner approves it with lucy approve
+//     (task.approved).
 //   - container: an operation on an org's container holds until the owner confirms the sessions it
 //     stops (sandbox.requested, needing the owner); lucy sandbox confirm (sandbox.confirmed).
 package decision

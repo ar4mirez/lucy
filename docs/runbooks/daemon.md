@@ -194,8 +194,10 @@ lucy approve fix-login         # approve, as you, the merge a flight holds for
 
 A Pilot's question is settled with `lucy answer`, a merge that holds for your approval with
 `lucy approve`, and a container operation that holds for your confirmation with
-`lucy sandbox confirm`. Nothing expires a decision into an answer and no agent can settle one: a
-newer question or request supersedes it, and a flight that ends archives its open decisions.
+`lucy sandbox confirm`; a merge whose retries kept failing holds for your approval too. Nothing
+expires a decision into an answer and no agent can settle one: new facts that end the wait (a newer
+question or request, a new head, a clearance that no longer holds) supersede it, and a flight that
+ends archives its open decisions.
 
 ## Container operations
 
