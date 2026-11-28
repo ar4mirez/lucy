@@ -38,7 +38,7 @@ or `error`); every mutating call as `api.command`, appended before the call runs
 
 ## Config and its status
 
-At start the daemon loads the spec resources in `$XDG_CONFIG_HOME/lucy/resources` (or
+At start, and on each reload, the daemon loads the spec resources in `$XDG_CONFIG_HOME/lucy/resources` (or
 `--resources <dir>`; a missing directory means none) exactly as `lucy config validate` does, then
 records the outcome in the `config` stream: a `resource.status` event for each resource whose status
 changed, `resource.removed` for one no longer in config, and a `config.loaded` summary. It never
@@ -163,7 +163,7 @@ lucy answer f1 use the staging account   # relayed to the Pilot by the Tower; th
 
 The daemon hosts the Tower and steps the flights in its log whenever the log changes, and at
 least every minute while one is active, but it dispatches no Flight unless started with
-`lucy daemon --dispatch`. With it, at start it dispatches every Flight in the config directory
+`lucy daemon --dispatch`. With it, at start and on each applied reload it dispatches every Flight in the config directory
 whose `Ready` condition is True and that it does not fly yet, by the Flight's name, starting its
 Pilot through the runner protocol. A Flight that is not Ready is never dispatched.
 
