@@ -59,6 +59,9 @@ const (
 	StateFailed  State = "failed"  // the work gave up or could not start
 	StateStopped State = "stopped" // stopped on request
 	StateLost    State = "lost"    // its lease expired, or its runner lost it
+	// StateNeedsOwner: the work did not start; its harness needs the owner first. The run's reason is
+	// the need, one of the harness package's known needs.
+	StateNeedsOwner State = "needs_owner"
 )
 
 // Final reports whether no event can follow in this state.
@@ -73,11 +76,14 @@ const (
 	OutcomeFailed  Outcome = "failed"
 	OutcomeStopped Outcome = "stopped"
 	OutcomeLost    Outcome = "lost" // the runner lost the work: its process crashed, or the runner is shutting down
+	// OutcomeNeedsOwner: the work did not start because its harness needs the owner first (a login
+	// in the org's home); Result.Need says what (LUCY-RUN-008).
+	OutcomeNeedsOwner Outcome = "needs_owner"
 )
 
 // Valid reports whether o is a known outcome.
 func (o Outcome) Valid() bool {
-	return o == OutcomeDone || o == OutcomeFailed || o == OutcomeStopped || o == OutcomeLost
+	return o == OutcomeDone || o == OutcomeFailed || o == OutcomeStopped || o == OutcomeLost || o == OutcomeNeedsOwner
 }
 
 // EventKind is what a streamed event is.
@@ -225,6 +231,7 @@ type Result struct {
 	Outcome Outcome `json:"outcome"`
 	PR      int     `json:"pr,omitempty"`     // when done: the pull request the work opened
 	Reason  string  `json:"reason,omitempty"` // when not done: why; untrusted text
+	Need    string  `json:"need,omitempty"`   // when needs_owner: what the harness needs (harness.NeedLogin)
 }
 
 // Beat answers a heartbeat.

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ar4mirez/lucy/internal/harness"
 )
 
 func openHome(t *testing.T) (string, *os.Root) {
@@ -178,5 +180,39 @@ func TestConvergeKeepsNumbers(t *testing.T) {
 		if string(m["big"]) != "9007199254740993" || string(m["one"]) != "1.0" {
 			t.Errorf("%s after converge: big %s, one %s", name, m["big"], m["one"])
 		}
+	}
+}
+
+// Needs tells, before a spawn, that the org's home has no login for Claude Code, and only whether
+// one is there: an unreadable credentials file still counts, since Needs never opens it
+// (LUCY-RUN-008).
+func TestNeeds(t *testing.T) {
+	_, empty := openHome(t)
+	if got := (Adapter{}).Needs(empty); got != harness.NeedLogin {
+		t.Fatalf("an empty home: %q, want %q", got, harness.NeedLogin)
+	}
+	dir, creds := openHome(t)
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".claude", ".credentials.json"), []byte("{}"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if got := (Adapter{}).Needs(creds); got != "" {
+		t.Fatalf("a home with a credentials file: %q", got)
+	}
+	dir2, acct := openHome(t)
+	if err := os.WriteFile(filepath.Join(dir2, ".claude.json"), []byte(`{"oauthAccount": {"emailAddress": "pilot@example.test"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := (Adapter{}).Needs(acct); got != "" {
+		t.Fatalf("a home with an account: %q", got)
+	}
+	dir3, link := openHome(t)
+	if err := os.Symlink(filepath.Join(t.TempDir(), "elsewhere.json"), filepath.Join(dir3, ".claude.json")); err != nil {
+		t.Fatal(err)
+	}
+	if got := (Adapter{}).Needs(link); got != harness.NeedLogin {
+		t.Fatalf("a home whose state file is a link: %q, want a need", got)
 	}
 }

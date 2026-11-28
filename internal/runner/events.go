@@ -76,6 +76,7 @@ type Finished struct {
 	Outcome Outcome `json:"outcome"`
 	PR      int     `json:"pr,omitempty"`
 	Reason  string  `json:"reason,omitempty"` // untrusted text, capped
+	Need    string  `json:"need,omitempty"`   // when needs_owner: a known need (harness.NeedLogin)
 }
 
 // Expired ends a run whose lease under Fence was not renewed by ExpiresAt. The run is lost.

@@ -2,7 +2,7 @@
 id: tech-harness
 title: Harness adapters
 status: active
-version: 2
+version: 3
 owner: ar4mirez
 requirements: [LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-008, LUCY-RUN-013]
 ---
@@ -50,3 +50,9 @@ directory trusted and onboarded with no tools pre-allowed and no MCP servers) an
 kept. A state file, settings file or settings directory that is a symlink, or a state or settings
 file that is not a JSON object, is refused rather than overwritten, and so is the spawn. On state that already holds nothing changes; what changed is logged and recorded as
 the run's first event.
+
+A `harness.Prerequisite` adapter tells, before a spawn, that its harness cannot run on its own:
+Claude Code's needs a login in the org's home, and checks only that `.claude/.credentials.json` is
+there or `.claude.json` names an `oauthAccount`, never what they hold. The runner then does not
+spawn: it finishes the run `needs_owner` with the need (`harness_login`), and the Tower holds the
+flight with a question to the owner (LUCY-RUN-008).

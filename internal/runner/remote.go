@@ -91,7 +91,7 @@ func (r Remote) Slot(ctx context.Context, runner, run string, fence int64) (stat
 // Finish implements Protocol.
 func (r Remote) Finish(ctx context.Context, runner, run string, fence int64, res Result) error {
 	_, err := r.Client.RunnerFinish(ctx, api.FinishParams{Runner: runner, Run: run, Fence: fence,
-		Outcome: string(res.Outcome), PR: res.PR, Reason: capText(res.Reason)})
+		Outcome: string(res.Outcome), PR: res.PR, Reason: capText(res.Reason), Need: res.Need})
 	return remoteError(err)
 }
 

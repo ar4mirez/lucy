@@ -47,6 +47,13 @@ func TestPilotReachesTheOwnerOnlyThroughTheTower(t *testing.T) {
 	}
 	home := t.TempDir()
 	runnerRoot := filepath.Join(t.TempDir(), "runner")
+	// The org's home holds a test login (an account named, no credential), so the harness starts.
+	if err := os.MkdirAll(filepath.Join(runnerRoot, "home"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runnerRoot, "home", ".claude.json"), []byte(`{"oauthAccount": {"emailAddress": "pilot@example.test"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	p := &loseOneAnswer{socket: socket{w}}
 	r, err := runner.New(runner.Config{ID: "local", Org: "acme", Protocol: p, Now: w.sim.Clock.Now, TTL: 3 * time.Minute,
 		Executor: &runner.ProcessExecutor{Root: runnerRoot, Home: home, Command: []string{exe},

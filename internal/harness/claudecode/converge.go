@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ar4mirez/lucy/internal/harness"
 	"io"
 	"io/fs"
 	"os"
@@ -162,4 +163,20 @@ func sameJSON(a, b any) bool {
 	x, err1 := json.Marshal(a)
 	y, err2 := json.Marshal(b)
 	return err1 == nil && err2 == nil && bytes.Equal(x, y)
+}
+
+// Needs implements harness.Prerequisite: a session needs a login in the org's home, which Claude
+// Code keeps as .claude/.credentials.json, or, on macOS, in the keychain, with the account named in
+// .claude.json's oauthAccount. Needs checks only that one of them is there: it never opens the
+// credentials file, and of .claude.json it looks at no more than whether oauthAccount is set.
+func (Adapter) Needs(home *os.Root) string {
+	if fi, err := home.Lstat(".claude/.credentials.json"); err == nil && fi.Mode().IsRegular() && fi.Size() > 0 {
+		return ""
+	}
+	if state, err := readJSON(home, stateFile); err == nil {
+		if acct, ok := state["oauthAccount"].(map[string]any); ok && len(acct) > 0 {
+			return ""
+		}
+	}
+	return harness.NeedLogin
 }

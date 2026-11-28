@@ -12,3 +12,15 @@ import "os"
 type Converger interface {
 	Converge(home *os.Root, runDir string) (changed []string, err error)
 }
+
+// NeedLogin is what a harness needs the owner for when the org's home holds no login for it: the
+// owner logs in once as that home. It is the only need there is so far.
+const NeedLogin = "harness_login"
+
+// Prerequisite is an Adapter that can tell, before a spawn, that its harness cannot run on its own
+// (LUCY-RUN-008): rather than start a session that would wait on a login prompt for ever, the run
+// is held for the owner. Needs looks only at whether something is there, never at what it holds: it
+// reads no login and copies none. It returns a need (NeedLogin), or "" when the harness can run.
+type Prerequisite interface {
+	Needs(home *os.Root) string
+}

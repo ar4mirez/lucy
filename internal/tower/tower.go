@@ -198,6 +198,7 @@ type flight struct {
 	generation int
 	lost       int // sessions lost so far
 	question   string
+	need       string    // set while the Tower, not the Pilot, asks: what the harness needs the owner for
 	progress   time.Time // the Pilot's last progress: started or answered
 	since      time.Time
 	pr         int
@@ -447,6 +448,9 @@ func (t *Tower) step(ctx context.Context, f *flight) error {
 	case StateDispatched:
 		return t.startPilot(ctx, f)
 	case StateFlying, StateAsking:
+		if f.need != "" {
+			return nil // the Tower's own question: no session to watch until the owner answers
+		}
 		return t.watchPilot(ctx, f)
 	case StateReview, StateHolding:
 		return t.watchPR(ctx, f)
@@ -515,6 +519,9 @@ func (t *Tower) watchPilot(ctx context.Context, f *flight) error {
 		return t.record(ctx, f, ActorDaemon, exited(ExitDone, rep.PR, ""))
 	case PilotFailed:
 		return t.record(ctx, f, ActorDaemon, exited(ExitFailed, 0, rep.Reason), Grounded{Reason: GroundPilotFailed})
+	case PilotNeedsOwner:
+		return t.record(ctx, f, ActorDaemon, exited(ExitNeedsOwner, 0, rep.Need),
+			PilotAsked{Session: f.session, Question: ownerNeedQuestion(f.spec.Org, rep.Runner, rep.Need), Need: rep.Need})
 	case PilotLost:
 		if f.lost < t.maxRestarts(f) {
 			return t.record(ctx, f, ActorDaemon, exited(ExitLost, 0, ""))
@@ -673,8 +680,10 @@ func (t *Tower) Answer(ctx context.Context, id, answer string) error {
 	if f.state != StateAsking {
 		return fmt.Errorf("tower: flight %s is %s, not asking", id, f.state)
 	}
-	if err := t.cfg.Runtime.Answer(ctx, f.session, answer); err != nil {
-		return err
+	if f.need == "" { // a question the Tower asks has no session to relay the answer to
+		if err := t.cfg.Runtime.Answer(ctx, f.session, answer); err != nil {
+			return err
+		}
 	}
 	sum := sha256.Sum256([]byte(answer))
 	return t.record(ctx, f, ActorOwner, PilotAnswered{Session: f.session, AnswerSHA256: hex.EncodeToString(sum[:])})
@@ -752,10 +761,15 @@ func (f *flight) apply(e eventstore.Event, p eventstore.Payload) {
 		f.session, f.generation, f.progress, f.question = p.Session, p.Generation, e.Time, ""
 		enter(StateFlying)
 	case PilotAsked:
-		f.question = p.Question
+		f.question, f.need = p.Question, p.Need
 		enter(StateAsking)
 	case PilotAnswered:
 		f.question, f.progress = "", e.Time
+		if f.need != "" { // the owner did what the harness needed: start the next generation
+			f.need = ""
+			enter(StateDispatched)
+			break
+		}
 		enter(StateFlying)
 	case PilotExited:
 		switch p.Exit {
@@ -823,4 +837,23 @@ func capText(s string) string {
 		cut--
 	}
 	return s[:cut]
+}
+
+// ownerNeedQuestion is the Tower's question to the owner when a Pilot could not start because its
+// harness needs the owner first. It says what to do and where, in lucy's own words (the need is a
+// known code, never agent text), and it never asks for a secret: lucy reads no login, and copies
+// none from the owner's own home.
+func ownerNeedQuestion(org, runner, need string) string {
+	switch need {
+	case "harness_login":
+		where := "on the machine of the runner that took the run"
+		if runner != "" {
+			where = "on the machine of runner " + runner
+		}
+		return fmt.Sprintf("The Pilot could not start: org %s's home has no login for its harness. %s, log in once as that home: "+
+			"for Claude Code, run claude there with HOME set to the runner's --root followed by /home, and complete its login. "+
+			"Then answer here (for example: done) and lucy starts the Pilot again. "+
+			"Do not paste a password, token or key into this answer: lucy never needs one here.", org, where)
+	}
+	return fmt.Sprintf("The Pilot could not start: its harness needs you first (%s). Answer here once it is done.", need)
 }
