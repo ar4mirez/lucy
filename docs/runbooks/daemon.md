@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 34
+version: 35
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-RUN-005, LUCY-OPS-005, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -170,21 +170,7 @@ example `p12.0123456789abcdef`: the proposal's id, then the start of the questio
 Pilot asked something else, or the supervisor proposed again, since you looked, the accept is
 refused as stale and nothing reaches the Pilot; run `lucy questions` and accept the one shown now.
 
-A model supervisor takes two steps, both yours: the org's Airspace opts in, and the daemon is
-started with `lucy daemon --supervise` (off by default).
-
-```yaml
-spec:
-  supervisor: { route: models, smallModel: <model>, largeModel: <model>, dailyTokens: 200000 }
-```
-
-`route` names a route of the org's gateway binding whose upstream is the model API, allowing
-`POST /v1/messages`; the key stays in the org's vault and the gateway injects it, so the daemon
-holds none. Run the org's gateway (`lucy gateway --org <org>`). Each question is sent with the
-flight's org, project and goal, and nothing else; the small model is asked first, the large one
-when it is not confident. `lucy status` lists each org's tokens today (UTC) against its budget.
-Once the budget is spent, or a call is refused or fails, `supervisor.declined` records why and the
-question waits for you as before.
+An org's supervisor, its rules and its models are in the [supervisor runbook](supervisor.md).
 
 The daemon hosts the Tower and steps the flights in its log whenever the log changes, and at
 least every minute while one is active, but it dispatches no Flight unless started with

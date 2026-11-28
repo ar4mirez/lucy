@@ -31,13 +31,7 @@
         },
         "supervisor": {
           "type": "object",
-          "description": "Opts the org into a model-backed supervisor (LUCY-RUN-010), which only proposes answers to its Pilots' questions; the daemon arms it only when started with --supervise. Absent: rules-only supervision.",
-          "required": [
-            "route",
-            "smallModel",
-            "largeModel",
-            "dailyTokens"
-          ],
+          "description": "Opts the org into supervision of its Pilots' questions (LUCY-RUN-010), which only proposes answers; only the owner answers. Built-in safety rules and the org's rules apply with this alone; the models (route, smallModel, largeModel, dailyTokens, all or none) are asked only when the daemon is also started with --supervise.",
           "properties": {
             "route": {
               "type": "string",
@@ -62,9 +56,74 @@
               "minimum": 1,
               "maximum": 100000000,
               "description": "The most tokens the supervisor may spend for the org in a UTC day; once spent, questions go straight to the owner."
+            },
+            "rules": {
+              "type": "array",
+              "maxItems": 64,
+              "description": "Ordered rules asked before any model: the first whose match finds the question either proposes its fixed answer (as supervisor/rules) or sends the question to the owner with no model call. They can only add to the built-in safety rules, which always send questions about secrets, credentials, payments and irreversible or production changes to the owner.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "match"
+                ],
+                "properties": {
+                  "match": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "description": "An RE2 regular expression, matched case-insensitively anywhere in the question."
+                  },
+                  "propose": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "description": "The answer to propose; the owner still answers."
+                  },
+                  "owner": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "Send the question to the owner, with no model call."
+                  }
+                },
+                "oneOf": [
+                  {
+                    "required": [
+                      "propose"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "owner"
+                    ]
+                  }
+                ],
+                "additionalProperties": false
+              }
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "dependentRequired": {
+            "route": [
+              "smallModel",
+              "largeModel",
+              "dailyTokens"
+            ],
+            "smallModel": [
+              "route",
+              "largeModel",
+              "dailyTokens"
+            ],
+            "largeModel": [
+              "route",
+              "smallModel",
+              "dailyTokens"
+            ],
+            "dailyTokens": [
+              "route",
+              "smallModel",
+              "largeModel"
+            ]
+          }
         }
       },
       "additionalProperties": false

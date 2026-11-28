@@ -1,11 +1,17 @@
-// Package supervise is lucy's model-backed supervisor (LUCY-RUN-010): a small model, then a large
-// one, then the owner; TODO(LUCY-RUN-010): rules before the models. It is a tower.Supervisor, so it only proposes: a
+// Package supervise is lucy's supervisor of Pilots' questions (LUCY-RUN-010): rules, then a small
+// model, then a large one, then the owner. It is a tower.Supervisor, so it only proposes: a
 // proposal is recorded and shown beside a Pilot's question, never reaches the Pilot and never
 // closes the question; the owner answers (corpus rule channel-05).
 //
-// Two keys turn it on, both required: the org opts in through its Airspace's spec.supervisor (the
-// gateway route its model calls go through, the small and the large model, a daily token budget),
-// and the daemon arms it with --supervise, off by default. Every model call goes through the org's
+// The rules come first and are deterministic: they call nothing and spend nothing (rules.go). The
+// built-in safety rules send a question about a secret, a credential, a payment or an irreversible
+// or production change to the owner, never to a model; then the org's own ordered rules either
+// propose a fixed answer or send the question to the owner. They apply once the org opts in
+// through its Airspace's spec.supervisor.
+//
+// The models take two keys, both required: the org's spec.supervisor names the gateway route its
+// model calls go through, the small and the large model and a daily token budget, and the daemon
+// arms them with --supervise, off by default. Every model call goes through the org's
 // credential gateway, with a short-lived supervisor capability bound to that one route; the daemon
 // holds no key. A call sends only the question and the flight context it needs (org, project, goal),
 // never a secret or anything from the vault. Each call is recorded with its tokens
@@ -33,17 +39,26 @@ import (
 	"github.com/ar4mirez/lucy/internal/tower"
 )
 
-// By names this supervisor on the proposals it makes.
-const By = "supervisor/model"
+// By names this supervisor on the proposals its models make; ByRules on the ones its rules make.
+const (
+	By      = "supervisor/model"
+	ByRules = "supervisor/rules"
+)
 
 // Config is one org's opt-in, from its Airspace.
 type Config struct {
 	Org         string
-	Route       string // the org's gateway route for model calls
+	Route       string // the org's gateway route for model calls; empty: rules only
 	Small       string // the model asked first
 	Large       string // the model asked when the small one is not confident
 	DailyTokens int64  // the most tokens it may spend for the org in a UTC day
+	Rules       []Rule // the org's own rules, in order, after the built-in safety rules
+	// Invalid says why the org's rules could not be read; every question then goes to the owner.
+	Invalid string
 }
+
+// UsesModels reports whether the org's config names the models.
+func (c Config) UsesModels() bool { return c.Route != "" }
 
 // Configs reads the orgs' opt-ins from their admitted Airspaces.
 func Configs(rs []spec.Resource) map[string]Config {
@@ -61,7 +76,9 @@ func Configs(rs []spec.Resource) map[string]Config {
 		if num, ok := s["dailyTokens"].(json.Number); ok {
 			n, _ = num.Int64()
 		}
-		out[r.Metadata.Namespace] = Config{Org: r.Metadata.Namespace, Route: str("route"), Small: str("smallModel"), Large: str("largeModel"), DailyTokens: n}
+		c := Config{Org: r.Metadata.Namespace, Route: str("route"), Small: str("smallModel"), Large: str("largeModel"), DailyTokens: n}
+		c.Rules, c.Invalid = parseRules(s["rules"])
+		out[r.Metadata.Namespace] = c
 	}
 	return out
 }
@@ -89,6 +106,8 @@ type Supervisor struct {
 	// reaches a fake model server; no test calls a real model.
 	Transport func(org string) http.RoundTripper
 	Now       func() time.Time
+	// Models arms the model tier: lucy daemon --supervise. Off, only the rules are asked.
+	Models bool
 
 	mu   sync.Mutex
 	orgs map[string]Config
@@ -138,14 +157,31 @@ func (s *Supervisor) now() time.Time {
 // Day is the UTC day a budget is counted in.
 func Day(t time.Time) string { return t.UTC().Format("2006-01-02") }
 
-// ProposeAnswer implements tower.Supervisor: the small model first, the large one when the small is
-// not confident, and the owner when neither is, or when the budget is spent, a call is refused or
-// fails. An org that did not opt in is left to the owner without a call or a record.
+// ProposeAnswer implements tower.Supervisor: the rules first, then, when none matched and the models
+// are armed, the models. An org that did not opt in is left to the owner without a call or a record.
 func (s *Supervisor) ProposeAnswer(ctx context.Context, q tower.Escalation) (tower.Proposal, bool, error) {
-	cfg, ok := s.config(q.Org)
-	if !ok {
+	p, out, err := s.Rules(ctx, q)
+	if err != nil || out != Unmatched {
+		return p, out == Proposed, err
+	}
+	return s.AskModels(ctx, q)
+}
+
+// ModelsFor reports whether a question of org that no rule matched goes to the models: the
+// daemon armed them and the org's config names them.
+func (s *Supervisor) ModelsFor(org string) bool {
+	cfg, ok := s.config(org)
+	return ok && s.Models && cfg.UsesModels() && cfg.Invalid == ""
+}
+
+// AskModels asks the small model first, the large one when the small is not confident, and leaves
+// it to the owner when neither is, or when the budget is spent, a call is refused or fails. It asks
+// nothing unless ModelsFor(q.Org).
+func (s *Supervisor) AskModels(ctx context.Context, q tower.Escalation) (tower.Proposal, bool, error) {
+	if !s.ModelsFor(q.Org) {
 		return tower.Proposal{}, false, nil
 	}
+	cfg, _ := s.config(q.Org)
 	l := s.lock(q.Org)
 	l.Lock()
 	defer l.Unlock()

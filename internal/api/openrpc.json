@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.25.0"
+    "version": "1.26.0"
   },
   "servers": [
     {
@@ -208,7 +208,7 @@
               "items": {
                 "properties": {
                   "armed": {
-                    "description": "Whether the daemon was started with --supervise; without it the org's questions go to the owner with no model call.",
+                    "description": "Whether the org's models are asked: the daemon was started with --supervise and the org names them. Its rules apply either way.",
                     "type": "boolean"
                   },
                   "daily_tokens": {

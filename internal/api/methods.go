@@ -163,7 +163,7 @@ type Status struct {
 // SupervisorUsage is one org's model supervisor (LUCY-RUN-010), which only proposes answers.
 type SupervisorUsage struct {
 	Org         string `json:"org" doc:"The org."`
-	Armed       bool   `json:"armed" doc:"Whether the daemon was started with --supervise; without it the org's questions go to the owner with no model call."`
+	Armed       bool   `json:"armed" doc:"Whether the org's models are asked: the daemon was started with --supervise and the org names them. Its rules apply either way."`
 	Day         string `json:"day" doc:"The UTC day the tokens are counted in, YYYY-MM-DD."`
 	Tokens      int64  `json:"tokens" doc:"Tokens the supervisor spent for the org on that day, input and output."`
 	DailyTokens int64  `json:"daily_tokens" doc:"The org's daily budget; once spent, questions go straight to the owner."`

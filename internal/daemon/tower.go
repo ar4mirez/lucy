@@ -73,7 +73,7 @@ type hostedTower struct {
 	async       *asyncSupervisor // nil unless the daemon was started with --supervise
 }
 
-// asyncSupervisor asks the model supervisor off the Tower's step: the Tower steps under mu, and a
+// asyncSupervisor asks the supervisor's rules in the Tower's step and its models off it: the Tower steps under mu, and a
 // model call takes seconds. The Tower asks it once per question; it answers at once with no
 // proposal, calls the model in the background, and hands what it proposes to Tower.Propose, which
 // records it only while that same question is still open (LUCY-RUN-010).
@@ -85,9 +85,17 @@ type asyncSupervisor struct {
 }
 
 // ProposeAnswer implements tower.Supervisor.
-func (a *asyncSupervisor) ProposeAnswer(_ context.Context, e tower.Escalation) (tower.Proposal, bool, error) {
+func (a *asyncSupervisor) ProposeAnswer(ctx context.Context, e tower.Escalation) (tower.Proposal, bool, error) {
+	// The rules are deterministic and call nothing: they decide in the step.
+	p, out, err := a.sup.Rules(ctx, e)
+	if err != nil || out != supervise.Unmatched {
+		return p, out == supervise.Proposed, err
+	}
+	if !a.sup.ModelsFor(e.Org) {
+		return tower.Proposal{}, false, nil
+	}
 	a.wg.Go(func() {
-		p, ok, err := a.sup.ProposeAnswer(a.ctx, e)
+		p, ok, err := a.sup.AskModels(a.ctx, e)
 		if err != nil {
 			a.h.log.Warn("the supervisor could not propose an answer", "flight", e.Flight, "err", err)
 		}
@@ -128,7 +136,7 @@ func (h *hostedTower) supervisorUsage(ctx context.Context, store *eventstore.Sto
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, api.SupervisorUsage{Org: c.Org, Armed: armed, Day: day, Tokens: used, DailyTokens: c.DailyTokens,
+		out = append(out, api.SupervisorUsage{Org: c.Org, Armed: armed && c.UsesModels(), Day: day, Tokens: used, DailyTokens: c.DailyTokens,
 			Route: c.Route})
 	}
 	return out, nil
