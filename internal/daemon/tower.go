@@ -369,8 +369,9 @@ func flightPosture(set *spec.Set, f spec.Resource) (policy.Posture, error) {
 
 // tighten moves every flight in flight to a stricter posture when the config now asks for one
 // (LUCY-POL-005): its Runway's AutonomyPolicy level was demoted, or its Flight's own autonomy
-// tightened; a Runway whose AutonomyPolicy can no longer be read moves its flights to owner. A
-// flight is never loosened in flight: a promotion applies only to flights dispatched after it.
+// tightened. A flight whose posture can no longer be resolved from the config moves to owner: its
+// Runway is gone or refused, its Runway's AutonomyPolicy can no longer be read, or neither its
+// Runway nor its Flight states a posture any more. A flight is never loosened in flight: a promotion applies only to flights dispatched after it.
 func (h *hostedTower) tighten(ctx context.Context, set *spec.Set) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -392,20 +393,27 @@ func (h *hostedTower) tighten(ctx context.Context, set *spec.Set) {
 		if st.State.Final() {
 			continue
 		}
+		var own policy.Posture
+		if f, ok := flights[st.Org+"/"+st.ID]; ok {
+			s, _ := f.Spec["autonomy"].(string)
+			own = policy.Posture(s)
+		}
 		to, why := policy.Posture(""), ""
-		if rw, ok := runways[st.Org+"/"+st.Project]; ok {
+		if rw, ok := runways[st.Org+"/"+st.Project]; !ok {
+			to, why = policy.PostureOwner, fmt.Sprintf("its Runway %s/%s can no longer be read", st.Org, st.Project)
+		} else {
 			rp, sets, err := autonomy.RunwayPosture(rw, policies)
 			switch {
 			case err != nil:
 				to, why = policy.PostureOwner, "its Runway's autonomy can no longer be read: "+err.Error()
 			case sets:
 				to, why = rp, fmt.Sprintf("its Runway %s/%s now sets %s", st.Org, st.Project, rp)
+			case own == "":
+				to, why = policy.PostureOwner, fmt.Sprintf("nothing states its posture any more: its Runway %s/%s sets none and its Flight none", st.Org, st.Project)
 			}
 		}
-		if f, ok := flights[st.Org+"/"+st.ID]; ok {
-			if own, _ := f.Spec["autonomy"].(string); tower.Stricter(policy.Posture(own), to) {
-				to, why = policy.Posture(own), "its Flight's autonomy is now "+own
-			}
+		if tower.Stricter(own, to) {
+			to, why = own, "its Flight's autonomy is now "+string(own)
 		}
 		if to == "" {
 			continue

@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 29
+version: 30
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-RUN-005, LUCY-OPS-005, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -194,7 +194,9 @@ The gateway refuses every git push (see [gateway](../tech/gateway.md)).
 A Runway's posture change takes effect at the daemon's next start. Demoting a Runway (for example
 `autonomyLevel` 1, green, to 0, owner) tightens its flights already in flight, recorded as
 `task.posture_tightened`, so their next merge waits for you; promoting it applies only to Flights
-dispatched afterwards. A flight whose Runway's AutonomyPolicy can no longer be read moves to owner.
+dispatched afterwards. A flight whose posture can no longer be resolved from the config moves to
+owner (a client flight stays client): its Runway is removed or refused by the schema, its Runway's
+AutonomyPolicy can no longer be read, or neither its Runway nor its Flight states a posture.
 
 `lucy flights` lists every Flight the daemon loaded with its readiness, its `Dispatched` condition
 and the Tower's state of it (the API's `flights.list` adds a failing flight's step error);

@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 26
+version: 27
 owner: ar4mirez
 requirements: []
 ---
@@ -218,10 +218,13 @@ slice table, requirement status and exit tests stay in the plan.
   whose Runway names a policy lucy cannot fly, is held with `Dispatched` reason `AutonomyInvalid`.
   The dispatch records the effective posture. Promotion and demotion are the owner's, by hand.
   At each start the daemon tightens every flight in flight whose config now asks for a stricter
-  posture (its Runway demoted, its Flight's autonomy tightened), and moves a flight whose Runway's
-  AutonomyPolicy can no longer be read to owner (a client flight stays client); each is recorded
-  as `task.posture_tightened` (from, to, why), and the flight's next merge is decided again. A
-  promotion is never applied in flight: it holds for flights dispatched after it.
+  posture (its Runway demoted, its Flight's autonomy tightened), and moves a flight whose posture
+  can no longer be resolved from the config to owner (a client flight stays client): its Runway is
+  removed or refused, its Runway's AutonomyPolicy can no longer be read, or neither its Runway nor
+  its Flight states a posture any more. When the Runway states none but the Flight does, the
+  Flight's own applies, tightening only. Each is recorded as `task.posture_tightened` (from, to,
+  why), and the flight's next merge is decided again. A promotion is never applied in flight: it
+  holds for flights dispatched after it.
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real

@@ -145,27 +145,29 @@ func TestFlightsListReportsTheRecordedPosture(t *testing.T) {
 
 // A Runway's posture change applies to its flights in flight when the daemon next loads its config
 // (LUCY-POL-005): a demotion tightens them, recorded as task.posture_tightened; a promotion leaves
-// them as they are; an AutonomyPolicy that can no longer be read moves them to owner.
+// them as they are; a posture that can no longer be resolved from the config (an AutonomyPolicy
+// refused, the Runway removed or refused, or nothing stating a posture) moves them to owner.
 func TestARunwaysPostureChangeTightensFlightsInFlight(t *testing.T) {
+	level := func(l string) string { return "spec: { autonomyPolicy: standard, autonomyLevel: " + l + " }" }
 	for name, c := range map[string]struct {
-		level  string
+		start  string
+		runway string // the Runway's spec at the second start; "" removes the Runway file
 		policy string
 		want   []string // "from>to" of each task.posture_tightened
 	}{
-		"a demotion tightens":         {"0", standardPolicy, []string{"green>owner"}},
-		"a promotion does not loosen": {"1", standardPolicy, nil},
-		"an invalid policy is owner":  {"1", strings.Replace(standardPolicy, "requireApproval: security-critical-only }", "requireApproval: security-critical-only, maxLinesPerPR: 500 }", 1), []string{"green>owner"}},
+		"a demotion tightens":                  {level("1"), level("0"), standardPolicy, []string{"green>owner"}},
+		"a promotion does not loosen":          {level("0"), level("1"), standardPolicy, nil},
+		"an invalid policy is owner":           {level("1"), level("1"), strings.Replace(standardPolicy, "requireApproval: security-critical-only }", "requireApproval: security-critical-only, maxLinesPerPR: 500 }", 1), []string{"green>owner"}},
+		"a removed Runway is owner":            {level("1"), "", standardPolicy, []string{"green>owner"}},
+		"a refused Runway is owner":            {level("1"), level("-1"), standardPolicy, []string{"green>owner"}},
+		"a Runway stating no posture is owner": {level("1"), "spec: {}", standardPolicy, []string{"green>owner"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := shortTempDir(t)
 			o := opts(dir)
 			o.TowerPollInterval = 20 * time.Millisecond
 			o.Dispatch = true
-			start := "1"
-			if name == "a promotion does not loosen" {
-				start = "0"
-			}
-			writeFlights(t, o, "spec: { autonomyPolicy: standard, autonomyLevel: "+start+" }")
+			writeFlights(t, o, c.start)
 			if err := os.WriteFile(filepath.Join(o.ResourcesDir, "policy.yaml"), []byte(standardPolicy), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -184,7 +186,12 @@ func TestARunwaysPostureChangeTightensFlightsInFlight(t *testing.T) {
 			if err := r.wait(t); err != nil {
 				t.Fatal(err)
 			}
-			writeFlights(t, o, "spec: { autonomyPolicy: standard, autonomyLevel: "+c.level+" }")
+			writeFlights(t, o, c.runway)
+			if c.runway == "" {
+				if err := os.Remove(filepath.Join(o.ResourcesDir, "runway.yaml")); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := os.WriteFile(filepath.Join(o.ResourcesDir, "policy.yaml"), []byte(c.policy), 0o600); err != nil {
 				t.Fatal(err)
 			}
