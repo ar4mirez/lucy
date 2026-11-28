@@ -50,7 +50,8 @@ const Version = 1
 // worktree_error, runner.heartbeat's worktree_state and worktree_error, worktree.list and
 // worktree.discard.
 // Revision 15 added runner.slot: a read-only query of a held run's worktree state.
-const SchemaRevision = 15
+// Revision 16 added decisions.list (the decision catalog) and flights.approve.
+const SchemaRevision = 16
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"

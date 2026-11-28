@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 13
+version: 14
 owner: ar4mirez
 requirements: []
 ---
@@ -169,8 +169,11 @@ slice table, requirement status and exit tests stay in the plan.
   it dispatch the Ready Flights it loads (by name, once), each recorded with a `Dispatched`
   condition (InFlight for one it flies from its log; DispatchDisabled, TakeoverGate, NameInUse, Finished, DispatchFailed when not). A Runway
   whose remote is not a local fixture is refused, at dispatch and at every lease, until #36 and the owner's go/no-go, and the gateway
-  refuses every git push; its forge is a stub that merges nothing until the validation slice. Left in 7a: decisions
-  as Decision resources (LUCY-SPEC-013), pipelines (LUCY-SPEC-014), roles (LUCY-SPEC-015) and Core
+  refuses every git push; its forge is a stub that merges nothing until the validation slice. Decisions (LUCY-SPEC-013):
+  `internal/decision` projects every decision waiting on the owner from the log (the
+  `decision_catalog` projection) into the spec's Decision resource, vendored with the regexp shim
+  the schema needs; `decisions.list` and `lucy decisions` list them, `flights.approve` and
+  `lucy approve` give a holding merge the owner's word. Left in 7a: pipelines (LUCY-SPEC-014), roles (LUCY-SPEC-015) and Core
   conformance (LUCY-SPEC-017).
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.

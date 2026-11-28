@@ -22,6 +22,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/audit"
 	"github.com/ar4mirez/lucy/internal/capability"
 	"github.com/ar4mirez/lucy/internal/config"
+	"github.com/ar4mirez/lucy/internal/decision"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/gateway"
 	"github.com/ar4mirez/lucy/internal/policy"
@@ -76,7 +77,8 @@ func Registry() (*eventstore.Registry, error) {
 // the worktree pool's slots, and the audit hash chain, which every event extends in its own append
 // transaction.
 func Projectors() []eventstore.Projector {
-	return []eventstore.Projector{spec.StatusProjector{}, runner.Projector{}, sandbox.Projector{}, capability.Projector{}, worktree.Projector{}, audit.Projector{}}
+	return []eventstore.Projector{spec.StatusProjector{}, runner.Projector{}, sandbox.Projector{}, capability.Projector{}, worktree.Projector{},
+		decision.Projector{}, audit.Projector{}}
 }
 
 // ExpiryInterval is how often the daemon expires runner leases that were not renewed in time.
@@ -252,6 +254,7 @@ func Run(ctx context.Context, opts Options) error {
 		Worktrees:    worktrees,
 		CallTimeout:  opts.CallTimeout,
 		Questions:    server.TowerQuestions{Tower: hosted.tw, Lock: &hosted.mu},
+		Approvals:    server.TowerQuestions{Tower: hosted.tw, Lock: &hosted.mu},
 	})
 	if err != nil {
 		return err

@@ -82,6 +82,11 @@ var kinds = []Kind{
 	{LucyAPIVersion, "Pilot", lucySchemaBase + "pilot.schema.json", false},
 }
 
+// DecisionSchema is the vendored schema of the spec's Decision resource (RFC-0035): the view of a
+// decision projected from the event log. lucy never admits a Decision from config; it projects
+// the decisions waiting on the owner into this shape (LUCY-SPEC-013).
+const DecisionSchema = coreSchemaBase + "decision.v1.schema.json"
+
 // Kinds returns the kinds lucy admits, in a stable order.
 func Kinds() []Kind { return slices.Clone(kinds) }
 
@@ -124,6 +129,7 @@ func compileSchemas() (*compiled, error) {
 	c.DefaultDraft(jsonschema.Draft2020)
 	c.AssertFormat()
 	c.UseLoader(noFetch{})
+	c.UseRegexpEngine(ecmaRegexp)
 	var urls []string
 	for _, group := range []struct{ dir, base string }{
 		{"schemas/ai-sdlc/v1alpha1", coreSchemaBase},

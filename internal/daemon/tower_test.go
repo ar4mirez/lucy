@@ -67,8 +67,30 @@ func TestTheDaemonFliesReadyFlights(t *testing.T) {
 		q, err := c.Questions(ctx)
 		return err == nil && len(q.Questions) == 1 && q.Questions[0].Flight == "fix-login" && q.Questions[0].Question == "which account?"
 	})
+	// The question is an open decision of the catalog, and only the owner's answer closes it.
+	catalog := func(all bool) []api.CatalogDecision {
+		var l api.CatalogList
+		if err := c.Call(ctx, api.MethodDecList, api.CatalogParams{All: all}, &l); err != nil {
+			t.Fatal(err)
+		}
+		return l.Decisions
+	}
+	if open := catalog(false); len(open) != 1 || open[0].Kind != "question" || open[0].Lifecycle != "open" ||
+		open[0].Scope != "flight:acme/fix-login" || open[0].Body != "which account?" {
+		t.Fatalf("open decisions %+v", open)
+	}
+	var ae *api.Error
+	if err := c.Call(ctx, api.MethodApprove, api.ApproveParams{Flight: "fix-login"}, &api.ApproveResult{}); !errors.As(err, &ae) || ae.Code != api.CodeInvalidParams {
+		t.Fatalf("approving a flight that holds for no merge: %v", err)
+	}
 	if _, err := c.Answer(ctx, api.AnswerParams{Flight: "fix-login", Answer: "use the staging account"}); err != nil {
 		t.Fatal(err)
+	}
+	if open := catalog(false); len(open) != 0 {
+		t.Fatalf("open after the answer: %+v", open)
+	}
+	if all := catalog(true); len(all) != 1 || all[0].Lifecycle != "answered" || all[0].AnsweredBy == "" || all[0].AnsweredBy == "daemon" {
+		t.Fatalf("the answered decision %+v", all)
 	}
 	beat, err := c.RunnerHeartbeat(ctx, api.HeartbeatParams{Runner: "acme-host-1", Run: l.Run.Run, Fence: l.Run.Fence})
 	if err != nil || beat.Answer != "use the staging account" || beat.Question != "q-1" {

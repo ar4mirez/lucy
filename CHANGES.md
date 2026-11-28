@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 29
+version: 30
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,16 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Added
+
+- Decisions waiting on you are a catalog: a Pilot's question, a merge holding for your approval and
+  a container operation holding for your confirmation are each projected from the event log into
+  the spec's Decision resource (RFC-0035). One is open exactly while the Tower or the sandbox waits
+  on you (a merge whose retries failed holds too): your recorded answer, approval or confirmation
+  answers it, and new facts that end the wait supersede it; nothing expires it and no agent can
+  settle it. `lucy decisions` lists them
+  (`--all` for the closed ones, `--json` for the spec resources), and the new `lucy approve
+  <flight>` approves a merge a flight holds for. The API gains `decisions.list` and
+  `flights.approve`.
 
 - The daemon hosts the Tower: `lucy questions` lists its Pilots' open questions and `lucy answer`
   relays the owner's answer. It dispatches nothing unless started with `lucy daemon --dispatch`;
