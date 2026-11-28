@@ -53,7 +53,8 @@ const Version = 1
 // Revision 16 added decisions.list (the decision catalog) and flights.approve.
 // Revision 17 added the delete action kind to runner.permit.
 // Revision 18 added flights.list.
-const SchemaRevision = 18
+// Revision 19 added flights.list's step_error and retry_at.
+const SchemaRevision = 19
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"

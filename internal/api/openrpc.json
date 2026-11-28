@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.18.0"
+    "version": "1.19.0"
   },
   "servers": [
     {
@@ -1726,6 +1726,11 @@
                     "description": "Why the flight is in its state, when the Tower says: a grounding reason, for example.",
                     "type": "string"
                   },
+                  "retry_at": {
+                    "description": "When the Tower steps the flight again after a failed step, UTC; absent after a clean one.",
+                    "format": "date-time",
+                    "type": "string"
+                  },
                   "runway": {
                     "description": "The project it lands on.",
                     "type": "string"
@@ -1736,6 +1741,10 @@
                   },
                   "state": {
                     "description": "The Tower's state of the flight; empty when the Tower does not fly it.",
+                    "type": "string"
+                  },
+                  "step_error": {
+                    "description": "Why the Tower's last step of the flight failed; empty after a clean step.",
                     "type": "string"
                   }
                 },

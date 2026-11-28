@@ -120,7 +120,8 @@ func takeoverGate(remote string) error {
 func startTower(ctx context.Context, store *eventstore.Store, broker *runner.Broker, set *spec.Set, pipelines *pipeline.Catalog, poll time.Duration, log *slog.Logger,
 	dispatch bool, gate func(org, project string) error) (*hostedTower, error) {
 	tw, err := tower.New(ctx, tower.Config{Store: store, Runtime: runner.Runtime{Broker: broker}, Forge: stubForge{},
-		Clock: wallClock{}, ForgeIdentity: stubIdentity, PollInterval: poll})
+		Clock: wallClock{}, ForgeIdentity: stubIdentity, PollInterval: poll,
+		Refusal: func(err error) bool { return errors.Is(err, errNoForge) }})
 	if err != nil {
 		return nil, err
 	}
@@ -228,8 +229,9 @@ func ready(res spec.Result) bool {
 
 // run runs the Tower's converge loop until ctx ends (LUCY-SPEC-008): it steps every flight when the
 // log changes (a Pilot's heartbeat, an answer, an approval), at least every poll interval while a
-// flight is active (to watch what the log does not carry: the forge, a Pilot's silence), and
-// backs off after a step fails.
+// flight is active (to watch what the log does not carry: the forge, a Pilot's silence). A flight
+// whose step fails backs off on its own (tower.FlightError), so it never delays the others; only a
+// failure of the loop itself backs off the whole Tower.
 func (h *hostedTower) run(ctx context.Context, store *eventstore.Store, poll time.Duration) {
 	converge.Run(ctx, towerLoop{h}, store, converge.Options{Resync: max(poll, converge.DefaultResync),
 		MinInterval: min(poll, converge.DefaultMinInterval), Log: h.log})
@@ -253,8 +255,9 @@ func (l towerLoop) Reconcile(ctx context.Context) (time.Time, error) {
 	return next, err
 }
 
-// step steps the Tower once. It returns the flights' step errors but the stub forge's refusal,
-// which every flight in review meets on every step and which no backoff would change.
+// step steps the Tower once. It logs each flight's failed step, which backs off that flight alone,
+// and returns only errors that are not one flight's. The stub forge's refusal, which every flight
+// in review meets on every step and which no backoff would change, is no failure (Config.Refusal).
 func (h *hostedTower) step(ctx context.Context) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -268,9 +271,12 @@ func (h *hostedTower) step(ctx context.Context) error {
 	}
 	var kept []error
 	for _, e := range errs {
-		if !errors.Is(e, errNoForge) {
-			kept = append(kept, e)
+		var fe *tower.FlightError
+		if errors.As(e, &fe) {
+			h.log.Warn("flight step failed; retrying it after a backoff", "flight", fe.Flight, "err", fe.Err, "failures", fe.Failures, "backoff", fe.Backoff)
+			continue
 		}
+		kept = append(kept, e)
 	}
 	return errors.Join(kept...)
 }
@@ -313,7 +319,7 @@ func (h *hostedTower) flights(set *spec.Set) []api.FlightInfo {
 			f.Shape = pipeline.Ship
 		}
 		if st, ok := h.tw.Flight(r.Metadata.Name); ok && st.Org == f.Org && st.Project == f.Runway {
-			f.State, f.Reason = string(st.State), st.Reason
+			f.State, f.Reason, f.StepError, f.RetryAt = string(st.State), st.Reason, st.StepError, st.RetryAt.UTC()
 		}
 		out = append(out, f)
 	}

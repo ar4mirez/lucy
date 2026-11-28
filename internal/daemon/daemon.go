@@ -346,11 +346,13 @@ func Run(ctx context.Context, opts Options) error {
 // run no longer leased under them (LUCY-CRED-003). A change to the log wakes it too, so a finished
 // run's token is revoked when its end is recorded, not on the next sweep.
 func expireLeases(ctx context.Context, store *eventstore.Store, b *runner.Broker, caps *capability.Issuer, log *slog.Logger) {
-	converge.Run(ctx, leaseLoop{b: b, caps: caps, log: log}, store, converge.Options{Resync: ExpiryInterval, MinInterval: time.Second, Log: log})
+	converge.Run(ctx, leaseLoop{b: b, caps: caps, log: log}, store, converge.Options{Resync: ExpiryInterval, MinInterval: time.Second,
+		MaxBackoff: ExpiryInterval, Log: log})
 }
 
 // leaseLoop is the lease converge loop's body: idempotent, since an expired lease or a revoked token
-// is not expired or revoked again.
+// is not expired or revoked again. Its two sweeps are independent: a failed expiry still revokes
+// ended runs' tokens, and a failure never pushes the next sweep past ExpiryInterval.
 type leaseLoop struct {
 	b    *runner.Broker
 	caps *capability.Issuer
@@ -360,21 +362,18 @@ type leaseLoop struct {
 func (leaseLoop) Name() string { return "leases" }
 
 func (l leaseLoop) Reconcile(ctx context.Context) (time.Time, error) {
-	n, err := l.b.Expire(ctx)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("expire runner leases: %w", err)
-	}
-	if n > 0 {
+	var errs []error
+	if n, err := l.b.Expire(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("expire runner leases: %w", err))
+	} else if n > 0 {
 		l.log.Info("runner leases expired", "runs", n)
 	}
-	n, err = l.caps.RevokeEnded(ctx)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("revoke ended runs' capabilities: %w", err)
-	}
-	if n > 0 {
+	if n, err := l.caps.RevokeEnded(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("revoke ended runs' capabilities: %w", err))
+	} else if n > 0 {
 		l.log.Info("capabilities of ended runs revoked", "capabilities", n)
 	}
-	return time.Now().Add(ExpiryInterval), nil
+	return time.Now().Add(ExpiryInterval), errors.Join(errs...)
 }
 
 // lastEvent returns the time of the newest event in the log, before this start appends any: when

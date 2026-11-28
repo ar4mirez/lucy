@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 22
+version: 23
 owner: ar4mirez
 requirements: []
 ---
@@ -193,7 +193,11 @@ slice table, requirement status and exit tests stay in the plan.
   store's `Changed` channel closes (a commit that appended), at the time it asked for, and at least
   every resync; never twice within its minimum interval, and after a failure only once a doubling
   backoff has passed, which events do not cut short. The hosted Tower and the lease expiry are its
-  first loops; the Tower is woken by a heartbeat's commit instead of waiting out its poll. Next:
+  first loops; the Tower is woken by a heartbeat's commit instead of waiting out its poll. A
+  flight's failed step backs off that flight alone, on the Tower's clock and in memory (a restart
+  retries every flight at once), shown as its status's step error and retry time; only a failure
+  outside a flight's step backs off the whole Tower. Lease expiry and token revocation run in the
+  same pass whichever fails, and back off at most `ExpiryInterval`. Next:
   a Pilot start that fails is retried with backoff instead of grounding the flight (retry-05).
   Postures from AutonomyPolicy follow, as decided: a Runway names a policy and a level, and only
   `guardrails.requireApproval` maps (`all` to owner, `security-critical-only` to green).

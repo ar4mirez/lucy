@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ar4mirez/lucy/internal/converge"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/policy"
 )
@@ -79,6 +80,13 @@ type Config struct {
 	PilotTimeout time.Duration // a Pilot with no activity for this long is stopped and the flight grounded
 	Patience     time.Duration // a pull request with no change toward a clearance for this long grounds the flight
 	MaxRestarts  int           // lost Pilot sessions the Tower replaces before grounding; 0 means DefaultMaxRestarts, -1 none
+
+	// Backoff times a flight's retries after its step fails (converge's Backoff rule); zero values
+	// take converge's defaults.
+	Backoff converge.Options
+	// Refusal, when set, reports a step error that no backoff would change (the daemon's stub
+	// forge): the step does not count as failed, and Step does not return it.
+	Refusal func(error) bool
 }
 
 // Spec is what a flight is dispatched with.
@@ -148,6 +156,9 @@ type Status struct {
 	Observed   PullRequest // the pull request's last recorded facts
 	Reason     string      // when grounded; when holding after its merges failed, the last merge error; when outside, the attribution
 	Since      time.Time   // when the flight entered its state
+	StepError  string      // why its last step failed; empty after a clean step
+	Failures   int         // its consecutive failed steps
+	RetryAt    time.Time   // when it is stepped again after a failed step; zero after a clean one
 }
 
 type flight struct {
@@ -172,6 +183,11 @@ type flight struct {
 	mergeErrs  int       // consecutive errored merges since the last clearance or observation
 	mergeAt    time.Time // when the last errored merge was recorded
 	reason     string
+
+	// The flight's step backoff, kept in memory only: a restarted Tower retries every flight at once.
+	stepErr  error
+	failures int
+	stepAt   time.Time
 }
 
 // Tower flies flights.
@@ -311,33 +327,71 @@ func (t *Tower) Flights() []Status {
 }
 
 func (f *flight) status() Status {
-	return Status{ID: f.spec.ID, Org: f.spec.Org, Project: f.spec.Project, State: f.state, Session: f.session, Generation: f.generation, Question: f.question,
-		PR: f.pr, Observed: f.observed, Reason: f.reason, Since: f.since}
+	s := Status{ID: f.spec.ID, Org: f.spec.Org, Project: f.spec.Project, State: f.state, Session: f.session, Generation: f.generation, Question: f.question,
+		PR: f.pr, Observed: f.observed, Reason: f.reason, Since: f.since, Failures: f.failures, RetryAt: f.stepAt}
+	if f.stepErr != nil {
+		s.StepError = f.stepErr.Error()
+	}
+	return s
 }
 
 // NextWake returns when a driver should Step again: one poll interval from now while any flight
-// is active, and false when every flight is final.
+// is active, or sooner when a flight's backoff ends first, and false when every flight is final.
 func (t *Tower) NextWake() (time.Time, bool) {
-	for _, id := range t.order {
-		if !t.flights[id].state.Final() {
-			return t.cfg.Clock.Now().Add(t.cfg.PollInterval), true
-		}
-	}
-	return time.Time{}, false
-}
-
-// Step advances every active flight once, in id order. It returns the first error that stopped a
-// flight's step; the other flights still step.
-func (t *Tower) Step(ctx context.Context) error {
-	var errs []error
+	now := t.cfg.Clock.Now()
+	next, active := now.Add(t.cfg.PollInterval), false
 	for _, id := range t.order {
 		f := t.flights[id]
 		if f.state.Final() {
 			continue
 		}
-		if err := t.step(ctx, f); err != nil {
-			errs = append(errs, fmt.Errorf("tower: flight %s: %w", id, err))
+		active = true
+		if f.stepAt.After(now) && f.stepAt.Before(next) {
+			next = f.stepAt
 		}
+	}
+	if !active {
+		return time.Time{}, false
+	}
+	return next, true
+}
+
+// FlightError is a flight's failed step. The flight is not stepped again until RetryAt, whatever
+// wakes the Tower: its backoff doubles with each consecutive failure, and a clean step resets it.
+type FlightError struct {
+	Flight   string
+	Err      error
+	Failures int           // consecutive failed steps, this one included
+	Backoff  time.Duration // how long until it is stepped again
+	RetryAt  time.Time
+}
+
+func (e *FlightError) Error() string { return fmt.Sprintf("tower: flight %s: %v", e.Flight, e.Err) }
+
+func (e *FlightError) Unwrap() error { return e.Err }
+
+// Step advances every active flight once, in id order, but a flight still in its backoff after a
+// failed step. It returns a *FlightError for each flight whose step failed (joined); the other
+// flights still step, on their own schedule.
+func (t *Tower) Step(ctx context.Context) error {
+	var errs []error
+	for _, id := range t.order {
+		f := t.flights[id]
+		if f.state.Final() || t.cfg.Clock.Now().Before(f.stepAt) {
+			continue
+		}
+		err := t.step(ctx, f)
+		if err != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err == nil || (t.cfg.Refusal != nil && t.cfg.Refusal(err)) {
+			f.stepErr, f.failures, f.stepAt = nil, 0, time.Time{}
+			continue
+		}
+		f.failures++
+		backoff := t.cfg.Backoff.Backoff(f.failures)
+		f.stepErr, f.stepAt = err, t.cfg.Clock.Now().Add(backoff)
+		errs = append(errs, &FlightError{Flight: id, Err: err, Failures: f.failures, Backoff: backoff, RetryAt: f.stepAt})
 	}
 	return errors.Join(errs...)
 }

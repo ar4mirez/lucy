@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 26
+version: 27
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-RUN-005, LUCY-OPS-005, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -160,8 +160,12 @@ lucy questions                       # every flight that is asking, oldest first
 lucy answer f1 use the staging account   # relayed to the Pilot by the Tower; the log keeps a digest
 ```
 
-The daemon hosts the Tower and steps the flights in its log every minute, but it dispatches no
-Flight unless started with `lucy daemon --dispatch`. With it, at start it dispatches every Flight
+The daemon hosts the Tower and steps the flights in its log whenever the log changes, and at
+least every minute while one is active, but it dispatches no Flight unless started with
+`lucy daemon --dispatch`. A flight whose step fails backs off on its own, 1 s doubling to at most
+5 minutes, and is not stepped again before then; the other flights keep stepping. The daemon logs
+each failure (`flight step failed`), and `flights.list` shows the flight's `step_error` and
+`retry_at`. The backoff is kept in memory only: a restarted daemon retries every flight at once. With it, at start it dispatches every Flight
 in the config directory whose `Ready` condition is True and that it does not fly yet, by the
 Flight's name, starting its Pilot through the runner protocol. A Flight that is not Ready is never
 dispatched. `lucy config status` shows each Ready Flight's `Dispatched` condition:
@@ -184,7 +188,7 @@ gets the gate as its `worktree_error`, with nothing reserved or cloned, and fail
 The gateway refuses every git push (see [gateway](../tech/gateway.md)).
 
 `lucy flights` lists every Flight the daemon loaded with its readiness, its `Dispatched` condition
-and the Tower's state of it; `lucy flights --json` writes each as the spec's `BacklogTask`
+and the Tower's state of it (the API's `flights.list` adds a failing flight's step error); `lucy flights --json` writes each as the spec's `BacklogTask`
 document, one per line, for a tool that reads the spec's backlog.
 
 ## Decisions
