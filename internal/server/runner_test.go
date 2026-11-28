@@ -219,7 +219,7 @@ func TestRunnerPermitOverTheSocket(t *testing.T) {
 	if !errors.Is(err, runner.ErrFenced) {
 		t.Fatalf("stale permit: %v", err)
 	}
-	_, err = f.client.RunnerPermit(ctx, api.PermitParams{Runner: "local", Run: "f1#1", Fence: l.Run.Fence, Tool: "Bash", Kind: "delete"})
+	_, err = f.client.RunnerPermit(ctx, api.PermitParams{Runner: "local", Run: "f1#1", Fence: l.Run.Fence, Tool: "Bash", Kind: "merge"})
 	wantCode(t, err, api.CodeInvalidParams)
 }
 

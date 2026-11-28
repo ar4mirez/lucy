@@ -2,6 +2,8 @@ package worktree
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -130,5 +132,37 @@ func TestSourceRecoversAfterARestart(t *testing.T) {
 		if s := f.slot(n); s.State != want {
 			t.Fatalf("slot %d: %+v, want %s", n, s, want)
 		}
+	}
+}
+
+// A run's checkout is reported with every symlink resolved, as the runner resolves a Pilot's tool
+// paths, so blocked paths relative to it match even when the pool's root is reached through a
+// symlink (LUCY-SPEC-015).
+func TestSourceCheckoutResolvesSymlinks(t *testing.T) {
+	f := open(t)
+	real := filepath.Join(f.dir, "real")
+	if err := os.Mkdir(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(f.dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	f.pool.Root = filepath.Join(f.dir, "link", "pool")
+	src := &Source{Pool: f.pool, Remote: func(string) string { return f.repo.Remote }}
+	src.SetRunways([]spec.Resource{runwayRes("acme", "web", "acme/web")})
+	l, ok, err := src.Acquire(ctx, "acme", "web", "f1#1", "")
+	if err != nil || !ok {
+		t.Fatalf("acquire: %v, %v", ok, err)
+	}
+	src.Wait()
+	want, err := filepath.EvalSymlinks(l.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := src.Checkout(ctx, "acme", "web", "f1#1"); !ok || got != want || got == l.Path {
+		t.Fatalf("checkout %q, %v; want %q, not the symlinked %q", got, ok, want, l.Path)
+	}
+	if got, ok := src.Checkout(ctx, "acme", "web", "f9#1"); ok {
+		t.Fatalf("a run that holds no slot has checkout %q", got)
 	}
 }

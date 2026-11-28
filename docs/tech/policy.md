@@ -2,7 +2,7 @@
 id: tech-policy
 title: "lucy: the policy engine"
 status: active
-version: 4
+version: 5
 owner: ar4mirez
 requirements: [LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-006, LUCY-POL-007, LUCY-SBX-003]
 ---
@@ -36,10 +36,14 @@ LUCY-SPEC-010) feed them data, not code.
   operation), so an approval lapses when those
   change: a matching approval made under other facts is a deny, not an escalation (LUCY-POL-002,
   rule set version 2; version 3 renamed the outcomes, roles and postures to the glossary's terms;
-  version 4 only annotated two names for the static analyser; version 5 added `exec` and `fetch`; version 6 added `container`).
+  version 4 only annotated two names for the static analyser; version 5 added `exec` and `fetch`; version 6 added `container`; version 7 added `role.blocked-paths`).
 - **Rules, in order; the first with an opinion decides:** `request.valid`, `facts.valid`,
   `org.isolation` (an org-bound role acts only in its org), `taint.trusted-basis` (a privileged
-  request needs a trusted input), `read.in-org`, `write.worker-only`, `credential.gateway-only`,
+  request needs a trusted input), `role.blocked-paths` (a Pilot's file write or delete of a path
+  the actor role's AgentRole blocks is denied: the facts' `blocked_paths` globs, relative to
+  `work_root`, the run's checkout, matched ignoring case by `pathguard.MatchGlob`; `**` matches any
+  number of segments; a shell command is an exec request, refused by default, and is not checked
+  against them), `read.in-org`, `write.worker-only`, `credential.gateway-only`,
   `merge.role`, `merge.head-known` (deny when the PR's head SHA is unknown), `merge.checks-green` (never red, pending, unknown or with a required check
   unreported), `merge.closing-refs`, `merge.fixed-list` (needs the owner's approval, then lets
   the posture decide, so a client-posture fixed-list merge needs both the owner's approval and

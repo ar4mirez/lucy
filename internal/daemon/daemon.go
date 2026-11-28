@@ -26,6 +26,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/gateway"
 	"github.com/ar4mirez/lucy/internal/policy"
+	"github.com/ar4mirez/lucy/internal/role"
 	"github.com/ar4mirez/lucy/internal/runner"
 	"github.com/ar4mirez/lucy/internal/sandbox"
 	"github.com/ar4mirez/lucy/internal/server"
@@ -207,6 +208,19 @@ func Run(ctx context.Context, opts Options) error {
 	worktrees := &worktree.Source{Pool: &worktree.Pool{Store: store, Root: wtRoot, Git: opts.WorktreeGit}, Remote: opts.WorktreeRemote,
 		Gate: takeoverGate, Context: ctx, Timeout: opts.WorktreePrepareTimeout, Log: log}
 	worktrees.SetRunways(set.Admitted())
+	roles, err := role.NewCatalog(set.Admitted())
+	if err != nil {
+		return fmt.Errorf("daemon: load the roles: %w", err)
+	}
+	// A Pilot's prompted tool is decided with its role's blocked paths, relative to its checkout
+	// (LUCY-SPEC-015).
+	broker.PermitFactsWith(func(ctx context.Context, ri runner.RunInfo) policy.Facts {
+		f := policy.Facts{BlockedPaths: roles.BlockedPaths(ri.Org, string(policy.RoleWorker))}
+		if p, ok := worktrees.Checkout(ctx, ri.Org, ri.Project, ri.Run); ok {
+			f.WorkRoot = p
+		}
+		return f
+	})
 	defer func() { stop(nil); worktrees.Wait() }()
 	// A preparation or release a stop cut short is settled before anything is leased: a slot left
 	// preparing is recorded as stopped, so its run fails and a retry gets a fresh one, and a

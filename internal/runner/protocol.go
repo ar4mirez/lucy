@@ -312,7 +312,7 @@ func clampTTL(ttl time.Duration) time.Duration {
 // Pilot wrote them: untrusted text, decided on as written and recorded redacted (policy.RecordedResource).
 type PermitRequest struct {
 	Tool     string
-	Kind     policy.Kind // read, write, exec or fetch
+	Kind     policy.Kind // read, write, delete, exec or fetch
 	Resource string
 }
 

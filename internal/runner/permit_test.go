@@ -49,7 +49,7 @@ func TestPermit(t *testing.T) {
 	}{
 		{"r9", l.Fence, PermitRequest{Tool: "Edit", Kind: policy.KindWrite}, ErrFenced},
 		{"r1", l.Fence + 1, PermitRequest{Tool: "Edit", Kind: policy.KindWrite}, ErrFenced},
-		{"r1", l.Fence, PermitRequest{Tool: "Bash", Kind: policy.KindDelete}, ErrInvalid},
+		{"r1", l.Fence, PermitRequest{Tool: "Bash", Kind: policy.KindMerge}, ErrInvalid},
 		{"r1", l.Fence, PermitRequest{Kind: policy.KindWrite}, ErrInvalid},
 	} {
 		if _, err := f.b.Permit(ctx, c.runner, "f1#1", c.fence, c.req); !errors.Is(err, c.want) {

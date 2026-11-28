@@ -154,6 +154,15 @@ var rules = []Rule{
 		}
 		return deny("every input behind this privileged request comes from an untrusted source")
 	}},
+	{"role.blocked-paths", "A write or delete of a path the actor role's AgentRole blocks (constraints.blockedPaths, globs relative to the checkout) is denied, whatever else allows it.", func(c *evalCtx) (verdict, bool) {
+		if !c.kindIs(KindWrite, KindDelete) || len(c.facts.BlockedPaths) == 0 {
+			return pass()
+		}
+		if g, ok := pathguard.BlockedBy(c.facts.WorkRoot, c.req.Target.Resource, c.facts.BlockedPaths); ok {
+			return deny(fmt.Sprintf("the path matches %q, which the %s role's AgentRole blocks", g, c.req.Actor.Role))
+		}
+		return pass()
+	}},
 	{"read.in-org", "Reading inside the actor's own org is allowed.", func(c *evalCtx) (verdict, bool) {
 		if c.kindIs(KindRead) {
 			return allow("a read inside the actor's org")
@@ -395,6 +404,17 @@ func validFacts(f Facts) string {
 		len(f.LiveSessions) > MaxFactItems {
 		return fmt.Sprintf("more than %d exceptions, roots, approvals or live sessions", MaxFactItems)
 	}
+	if len(f.BlockedPaths) > MaxFactItems {
+		return fmt.Sprintf("more than %d blocked paths", MaxFactItems)
+	}
+	for _, g := range f.BlockedPaths {
+		if !ValidBlockedPath(g) {
+			return fmt.Sprintf("blocked path %q is not a glob of at most %d bytes", g, MaxResourceBytes)
+		}
+	}
+	if f.WorkRoot != "" && (!filepath.IsAbs(f.WorkRoot) || len(f.WorkRoot) > MaxResourceBytes) {
+		return "the work root is not an absolute path"
+	}
 	if !f.SessionsKnown && len(f.LiveSessions) > 0 {
 		return "live sessions listed but not known"
 	}
@@ -501,4 +521,10 @@ func sessions(n int) string {
 		return "1 session"
 	}
 	return fmt.Sprintf("%d sessions", n)
+}
+
+// ValidBlockedPath reports whether g is a blocked-path glob the engine decides on: at most
+// MaxResourceBytes and a glob pathguard.MatchGlob reads.
+func ValidBlockedPath(g string) bool {
+	return len(g) <= MaxResourceBytes && pathguard.ValidGlob(g)
 }

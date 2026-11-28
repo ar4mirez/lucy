@@ -409,8 +409,8 @@ type PermitParams struct {
 	Run      string `json:"run" lucy:"required,maxlen=256" doc:"The leased run."`
 	Fence    int64  `json:"fence" lucy:"min=1" doc:"The lease's fencing token."`
 	Tool     string `json:"tool" lucy:"required,maxlen=64" doc:"The prompted tool's name, as the harness gave it. Untrusted."`
-	Kind     string `json:"kind" lucy:"required,maxlen=16" doc:"read, write, exec or fetch."`
-	Resource string `json:"resource,omitempty" lucy:"maxlen=4096" doc:"For a read or write, the absolute path inside the run's directory, empty when the tool names none; for an exec, the shell command; for a fetch, the URL or search. Untrusted text: the engine decides on it as written, and an exec or fetch is recorded redacted, with its SHA-256."`
+	Kind     string `json:"kind" lucy:"required,maxlen=16" doc:"read, write, delete, exec or fetch."`
+	Resource string `json:"resource,omitempty" lucy:"maxlen=4096" doc:"For a read, write or delete, the absolute path inside the run's directory, empty when the tool names none; for an exec, the shell command; for a fetch, the URL or search. Untrusted text: the engine decides on it as written, and an exec or fetch is recorded redacted, with its SHA-256."`
 }
 
 // PermitResult answers runner.permit.

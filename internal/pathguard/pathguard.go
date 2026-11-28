@@ -20,13 +20,16 @@
 // resolves only the path's parent, never the entry itself, and deletes through an os.Root opened
 // on the root that holds it, so a symlink, requested or met inside, is removed and never followed,
 // and nothing, not even a symlink swapped in between the check and the delete, takes the delete
-// out of that root.
+// out of that root. A guard may also carry a role's blocked paths (WithBlocked): RemoveAll then
+// refuses a target that matches one, or that holds an entry that does, and deletes nothing.
 package pathguard
 
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -35,13 +38,14 @@ import (
 
 // Version identifies the guard's rules. The policy engine folds it into its rule-set hash, so a
 // change here is a new rule set.
-const Version = 1
+const Version = 2
 
 // Errors. Every refusal wraps ErrRefused; the wrapped detail says why.
 var (
 	ErrRefused   = errors.New("pathguard: path refused")
 	ErrBadRoot   = errors.New("pathguard: invalid root")
 	ErrBadHome   = errors.New("pathguard: invalid home")
+	ErrBlocked   = fmt.Errorf("%w: blocked by the role", ErrRefused)
 	errNotInRoot = errors.New("not strictly inside a declared root")
 )
 
@@ -65,6 +69,9 @@ type Root struct {
 type Guard struct {
 	home  string
 	roots []Root // Path resolved
+
+	blockedBase string   // resolved; the directory blocked globs are relative to
+	blocked     []string // globs, as MatchGlob reads them
 }
 
 // New validates home and roots and resolves their symlinks. Every root must exist, be absolute
@@ -93,6 +100,25 @@ func New(home string, roots ...Root) (*Guard, error) {
 		g.roots = append(g.roots, Root{Kind: r.Kind, Path: p})
 	}
 	return g, nil
+}
+
+// WithBlocked returns a copy of g whose RemoveAll also refuses a path that matches one of globs,
+// relative to base, or a directory holding an entry that does (LUCY-SPEC-015). base must be an
+// existing directory; every glob must be ValidGlob.
+func (g *Guard) WithBlocked(base string, globs []string) (*Guard, error) {
+	b, err := resolveDir(base)
+	if err != nil {
+		return nil, fmt.Errorf("%w: blocked paths base: %v", ErrBadRoot, err)
+	}
+	for _, gl := range globs {
+		if !ValidGlob(gl) {
+			return nil, fmt.Errorf("pathguard: blocked path %q is not a glob", gl)
+		}
+	}
+	c := *g
+	c.roots = g.Roots()
+	c.blockedBase, c.blocked = b, append([]string(nil), globs...)
+	return &c, nil
 }
 
 // Home returns the resolved home directory.
@@ -299,5 +325,97 @@ func (g *Guard) RemoveAll(path string) error {
 		return fmt.Errorf("%w: %s: open root: %v", ErrRefused, path, err)
 	}
 	defer r.Close() //nolint:errcheck // nothing was written through it that a close could lose
+	if len(g.blocked) > 0 {
+		if err := g.checkBlocked(r, root.Path, rel); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	}
 	return r.RemoveAll(rel)
+}
+
+// checkBlocked refuses rel, inside the os.Root r on rootPath, if it or, for a directory, any
+// entry under it matches a blocked glob. It never follows a symlink.
+func (g *Guard) checkBlocked(r *os.Root, rootPath, rel string) error {
+	fi, err := r.Lstat(rel)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrRefused, err)
+	}
+	if !fi.IsDir() {
+		if gl, ok := BlockedBy(g.blockedBase, filepath.Join(rootPath, rel), g.blocked); ok {
+			return fmt.Errorf("%w: it matches %q", ErrBlocked, gl)
+		}
+		return nil
+	}
+	return fs.WalkDir(r.FS(), filepath.ToSlash(rel), func(p string, _ fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("%w: %s: %v", ErrRefused, p, err)
+		}
+		if gl, ok := BlockedBy(g.blockedBase, filepath.Join(rootPath, filepath.FromSlash(p)), g.blocked); ok {
+			return fmt.Errorf("%w: %s matches %q", ErrBlocked, p, gl)
+		}
+		return nil
+	})
+}
+
+// BlockedBy returns the first of globs that p matches, relative to base when p is inside base,
+// else p without its leading separator, so a glob that starts with ** still matches anywhere.
+func BlockedBy(base, p string, globs []string) (string, bool) {
+	rel := strings.TrimPrefix(filepath.ToSlash(p), "/")
+	if base != "" {
+		if r, err := filepath.Rel(base, p); err == nil && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+			rel = filepath.ToSlash(r)
+		}
+	}
+	for _, gl := range globs {
+		if MatchGlob(gl, rel) {
+			return gl, true
+		}
+	}
+	return "", false
+}
+
+// MatchGlob reports whether the slash-separated path p matches glob g, ignoring case: "**" matches
+// any number of whole segments, none included, and every other segment matches one segment as
+// path.Match does. Case is folded on every platform, because a blocked path is a deny list and a
+// case-insensitive filesystem would otherwise let another spelling through.
+func MatchGlob(g, p string) bool {
+	return matchSegments(strings.Split(strings.ToLower(strings.Trim(g, "/")), "/"), strings.Split(strings.ToLower(p), "/"))
+}
+
+func matchSegments(gs, ps []string) bool {
+	for len(gs) > 0 {
+		if gs[0] == "**" {
+			for i := 0; i <= len(ps); i++ {
+				if matchSegments(gs[1:], ps[i:]) {
+					return true
+				}
+			}
+			return false
+		}
+		if len(ps) == 0 {
+			return false
+		}
+		if ok, err := path.Match(gs[0], ps[0]); err != nil || !ok {
+			return false
+		}
+		gs, ps = gs[1:], ps[1:]
+	}
+	return len(ps) == 0
+}
+
+// ValidGlob reports whether g is a non-empty glob every segment of which is "**" or a pattern
+// path.Match reads.
+func ValidGlob(g string) bool {
+	for _, seg := range strings.Split(strings.Trim(g, "/"), "/") {
+		if seg == "" {
+			return false
+		}
+		if seg == "**" {
+			continue
+		}
+		if _, err := path.Match(seg, ""); err != nil {
+			return false
+		}
+	}
+	return true
 }
