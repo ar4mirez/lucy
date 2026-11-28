@@ -63,9 +63,9 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		st.RefusedConnections, c.Socket(), w.Caller.Actor)
 	fmt.Fprintf(stdout, "you: %s\n", cfg.You.Label())
 	if len(st.Supervisors) > 0 {
-		fmt.Fprintf(stdout, "supervisors[%d]{org,armed,day,tokens,daily_tokens,small_model,large_model}:\n", len(st.Supervisors))
+		fmt.Fprintf(stdout, "supervisors[%d]{org,armed,day,tokens,daily_tokens,route}:\n", len(st.Supervisors))
 		for _, s := range st.Supervisors {
-			fmt.Fprintf(stdout, "  %s,%t,%s,%d,%d,%s,%s\n", csv(s.Org), s.Armed, s.Day, s.Tokens, s.DailyTokens, csv(s.SmallModel), csv(s.LargeModel))
+			fmt.Fprintf(stdout, "  %s,%t,%s,%d,%d,%s\n", csv(s.Org), s.Armed, s.Day, s.Tokens, s.DailyTokens, csv(s.Route))
 		}
 	}
 	return 0

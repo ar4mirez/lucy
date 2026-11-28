@@ -129,7 +129,7 @@ func (h *hostedTower) supervisorUsage(ctx context.Context, store *eventstore.Sto
 			return nil, err
 		}
 		out = append(out, api.SupervisorUsage{Org: c.Org, Armed: armed, Day: day, Tokens: used, DailyTokens: c.DailyTokens,
-			SmallModel: c.Small, LargeModel: c.Large, Route: c.Route})
+			Route: c.Route})
 	}
 	return out, nil
 }

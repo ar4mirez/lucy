@@ -14,7 +14,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -136,9 +135,6 @@ type Options struct {
 	// GatewayDir holds each org's credential gateway socket, <org>.sock, which the supervisor's
 	// model calls go through; gateway/ in lucy's runtime directory when empty.
 	GatewayDir string
-	// SupervisorTransport replaces the transport to an org's gateway. Only tests set it, pointing it
-	// at a fake model server; the daemon never calls a model except through the gateway.
-	SupervisorTransport func(org string) http.RoundTripper
 	// TowerPollInterval is the longest the hosted Tower goes between steps while a flight is active
 	// (a change to the log steps it sooner); tower.DefaultPollInterval when zero.
 	TowerPollInterval time.Duration
@@ -293,19 +289,15 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	var sup *supervise.Supervisor
 	if opts.Supervise {
-		transport := opts.SupervisorTransport
-		if transport == nil {
-			dir := opts.GatewayDir
-			if dir == "" {
-				rt, err := RuntimeDir()
-				if err != nil {
-					return err
-				}
-				dir = filepath.Join(rt, "gateway")
+		dir := opts.GatewayDir
+		if dir == "" {
+			rt, err := RuntimeDir()
+			if err != nil {
+				return err
 			}
-			transport = supervise.GatewayTransport(dir)
+			dir = filepath.Join(rt, "gateway")
 		}
-		sup = &supervise.Supervisor{Store: store, Issuer: caps, Transport: transport}
+		sup = &supervise.Supervisor{Store: store, Issuer: caps, Transport: supervise.GatewayTransport(dir)}
 		sup.SetOrgs(supervise.Configs(set.Admitted()))
 	}
 	hosted, err := startTower(ctx, store, broker, &set, pipelines, poll, log, opts.Dispatch, gate, sup)

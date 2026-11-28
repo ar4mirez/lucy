@@ -219,20 +219,12 @@
                     "description": "The UTC day the tokens are counted in, YYYY-MM-DD.",
                     "type": "string"
                   },
-                  "large_model": {
-                    "description": "The model asked when the small one is not confident.",
-                    "type": "string"
-                  },
                   "org": {
                     "description": "The org.",
                     "type": "string"
                   },
                   "route": {
                     "description": "The org's gateway route its model calls go through.",
-                    "type": "string"
-                  },
-                  "small_model": {
-                    "description": "The model asked first.",
                     "type": "string"
                   },
                   "tokens": {
@@ -246,8 +238,6 @@
                   "day",
                   "tokens",
                   "daily_tokens",
-                  "small_model",
-                  "large_model",
                   "route"
                 ],
                 "type": "object"

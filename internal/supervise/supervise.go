@@ -263,9 +263,7 @@ func (s *Supervisor) call(ctx context.Context, cfg Config, model string, q tower
 		Answer    string `json:"answer"`
 		Confident bool   `json:"confident"`
 	}
-	t := strings.TrimSpace(text.String())
-	t = strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(t, "```json"), "```"), "```")
-	if err := json.Unmarshal([]byte(strings.TrimSpace(t)), &a); err != nil {
+	if err := json.Unmarshal([]byte(strings.TrimSpace(text.String())), &a); err != nil {
 		return r, nil // not the JSON asked for: not confident
 	}
 	r.answer, r.confident = a.Answer, a.Confident

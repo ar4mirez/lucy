@@ -161,7 +161,7 @@ func TestTheSmallModelProposesWhenConfident(t *testing.T) {
 func TestTheLargeModelIsAskedWhenTheSmallIsNotConfident(t *testing.T) {
 	f := open(t, 1000)
 	f.model.replies["small-1"] = `{"answer": "maybe staging", "confident": false}`
-	f.model.replies["large-1"] = "```json\n{\"answer\": \"production\", \"confident\": true}\n```"
+	f.model.replies["large-1"] = `{"answer": "production", "confident": true}`
 	p, ok, err := f.sup.ProposeAnswer(ctx, question)
 	if err != nil || !ok || p.Answer != "production" {
 		t.Fatalf("proposal %+v, %v, %v", p, ok, err)
@@ -171,6 +171,22 @@ func TestTheLargeModelIsAskedWhenTheSmallIsNotConfident(t *testing.T) {
 	}
 	if used, _ := supervise.Used(ctx, f.store, "acme", "2026-11-28"); used != 40 {
 		t.Fatalf("tokens used %d, want 40", used)
+	}
+}
+
+func TestAFencedReplyIsNotConfident(t *testing.T) {
+	f := open(t, 1000)
+	fenced := "```json\n{\"answer\": \"staging\", \"confident\": true}\n```"
+	f.model.replies["small-1"] = fenced
+	f.model.replies["large-1"] = fenced
+	if p, ok, err := f.sup.ProposeAnswer(ctx, question); err != nil || ok {
+		t.Fatalf("proposal %+v, %v, %v", p, ok, err)
+	}
+	if len(f.model.requests) != 2 || f.model.requests[1].Model != "large-1" {
+		t.Fatalf("calls %+v: a fenced reply from the small model asks the large one", f.model.requests)
+	}
+	if got := strings.Join(f.types(t), ","); got != "supervisor.called,supervisor.called,supervisor.declined" {
+		t.Fatalf("events %s", got)
 	}
 }
 

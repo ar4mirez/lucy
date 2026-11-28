@@ -167,8 +167,6 @@ type SupervisorUsage struct {
 	Day         string `json:"day" doc:"The UTC day the tokens are counted in, YYYY-MM-DD."`
 	Tokens      int64  `json:"tokens" doc:"Tokens the supervisor spent for the org on that day, input and output."`
 	DailyTokens int64  `json:"daily_tokens" doc:"The org's daily budget; once spent, questions go straight to the owner."`
-	SmallModel  string `json:"small_model" doc:"The model asked first."`
-	LargeModel  string `json:"large_model" doc:"The model asked when the small one is not confident."`
 	Route       string `json:"route" doc:"The org's gateway route its model calls go through."`
 }
 

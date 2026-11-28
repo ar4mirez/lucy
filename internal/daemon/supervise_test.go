@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/api"
+	"github.com/ar4mirez/lucy/internal/capability"
 	"github.com/ar4mirez/lucy/internal/gateway"
 )
 
@@ -192,10 +193,6 @@ func TestTheSupervisorIsOffByDefault(t *testing.T) {
 	o := opts(dir)
 	o.TowerPollInterval = 20 * time.Millisecond
 	o.Dispatch = true
-	called := false
-	o.SupervisorTransport = func(string) http.RoundTripper {
-		return roundTripFunc(func(*http.Request) (*http.Response, error) { called = true; return nil, errors.New("no") })
-	}
 	writeFlights(t, o, "spec: {}")
 	if err := os.WriteFile(filepath.Join(o.ResourcesDir, "airspace.yaml"), []byte("apiVersion: lucy/v1alpha1\nkind: Airspace\n"+
 		"metadata: { name: acme, namespace: acme }\nspec: { supervisor: { route: models, smallModel: s, largeModel: l, dailyTokens: 100 } }\n"), 0o600); err != nil {
@@ -219,15 +216,27 @@ func TestTheSupervisorIsOffByDefault(t *testing.T) {
 	}
 	time.Sleep(200 * time.Millisecond)
 	q, err := c.Questions(ctx)
-	if err != nil || len(q.Questions) != 1 || q.Questions[0].Proposed != "" || called {
-		t.Fatalf("questions %+v, %v; a model called %v", q, err, called)
+	if err != nil || len(q.Questions) != 1 || q.Questions[0].Proposed != "" {
+		t.Fatalf("questions %+v, %v", q, err)
+	}
+	page, err := c.Events(ctx, api.EventsParams{Limit: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range page.Events {
+		if strings.HasPrefix(e.Type, "supervisor.") {
+			t.Fatalf("a supervisor event %s without --supervise", e.Type)
+		}
+		if e.Type == "capability.issued" {
+			var p capability.Issued
+			_ = json.Unmarshal(e.Payload, &p)
+			if p.Run == "supervisor/acme" {
+				t.Fatal("a supervisor capability issued without --supervise")
+			}
+		}
 	}
 	st, err := c.Status(ctx)
 	if err != nil || len(st.Supervisors) != 1 || st.Supervisors[0].Armed || st.Supervisors[0].Tokens != 0 {
 		t.Fatalf("status %+v, %v", st.Supervisors, err)
 	}
 }
-
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
