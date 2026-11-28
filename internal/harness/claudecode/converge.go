@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ar4mirez/lucy/internal/harness"
 	"io"
 	"io/fs"
 	"os"
+
+	"github.com/ar4mirez/lucy/internal/harness"
 )
 
 // The files Claude Code keeps its account state in, inside its home: the state file, and the
