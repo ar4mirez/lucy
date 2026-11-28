@@ -70,6 +70,9 @@ const (
 // Config is what a Tower runs with. Store, Runtime, Forge, Clock and ForgeIdentity are required;
 // the store's registry must hold Payloads() and policy.DecisionRecord.
 type Config struct {
+	// Supervisor proposes answers to Pilot questions (LUCY-RUN-010); nil leaves every question to
+	// the owner, as the rules-only supervision does.
+	Supervisor    Supervisor
 	Store         *eventstore.Store
 	Runtime       Runtime
 	Forge         Forge
@@ -184,8 +187,12 @@ type Status struct {
 	Reason     string      // when grounded; when holding after its merges failed, the last merge error; when outside, the attribution
 	Since      time.Time   // when the flight entered its state
 	StepError  string      // why its last step failed; empty after a clean step
-	Failures   int         // its consecutive failed steps
-	RetryAt    time.Time   // when it is stepped again after a failed step; zero after a clean one
+	// ProposedBy and Proposed are a supervisor's proposed answer to the open question: a
+	// suggestion, waiting on the owner's answer (LUCY-RUN-010).
+	ProposedBy string
+	Proposed   string
+	Failures   int       // its consecutive failed steps
+	RetryAt    time.Time // when it is stepped again after a failed step; zero after a clean one
 }
 
 type flight struct {
@@ -198,8 +205,10 @@ type flight struct {
 	generation int
 	lost       int // sessions lost so far
 	question   string
-	need       string    // set while the Tower, not the Pilot, asks: what the harness needs the owner for
-	progress   time.Time // the Pilot's last progress: started or answered
+	need       string         // set while the Tower, not the Pilot, asks: what the harness needs the owner for
+	proposal   AnswerProposed // the supervisor\'s proposal for the open question, when it made one
+	proposedOn string         // the question the supervisor was last asked about, in memory: it is asked once
+	progress   time.Time      // the Pilot's last progress: started or answered
 	since      time.Time
 	pr         int
 	observed   PullRequest
@@ -364,6 +373,9 @@ func (f *flight) status(b converge.Options) Status {
 	if f.stepErr != nil {
 		s.StepError = f.stepErr.Error()
 	}
+	if f.state == StateAsking && f.proposal.By != "" {
+		s.ProposedBy, s.Proposed = f.proposal.By, f.proposal.Answer
+	}
 	if f.state == StateDispatched && f.startFails > 0 && f.stepErr == nil {
 		s.StepError, s.Failures, s.RetryAt = "the Pilot did not start: "+f.startErr, f.startFails, f.startRetryAt(b)
 	}
@@ -509,8 +521,11 @@ func (t *Tower) watchPilot(ctx context.Context, f *flight) error {
 		}
 	case PilotAsking:
 		if q := capText(rep.Question); f.state != StateAsking || f.question != q {
-			return t.record(ctx, f, ActorDaemon, PilotAsked{Session: f.session, Question: q})
+			if err := t.record(ctx, f, ActorDaemon, PilotAsked{Session: f.session, Question: q}); err != nil {
+				return err
+			}
 		}
+		return t.supervise(ctx, f) // in the same step, so the owner sees the proposal with the question
 	case PilotDone:
 		if rep.PR <= 0 {
 			return t.record(ctx, f, ActorDaemon, exited(ExitFailed, 0, "finished without a pull request"),
@@ -761,10 +776,12 @@ func (f *flight) apply(e eventstore.Event, p eventstore.Payload) {
 		f.session, f.generation, f.progress, f.question = p.Session, p.Generation, e.Time, ""
 		enter(StateFlying)
 	case PilotAsked:
-		f.question, f.need = p.Question, p.Need
+		f.question, f.need, f.proposal = p.Question, p.Need, AnswerProposed{}
 		enter(StateAsking)
+	case AnswerProposed:
+		f.proposal = p
 	case PilotAnswered:
-		f.question, f.progress = "", e.Time
+		f.question, f.progress, f.proposal = "", e.Time, AnswerProposed{}
 		if f.need != "" { // the owner did what the harness needed: start the next generation
 			f.need = ""
 			enter(StateDispatched)
@@ -856,4 +873,30 @@ func ownerNeedQuestion(org, runner, need string) string {
 			"Do not paste a password, token or key into this answer: lucy never needs one here.", org, where)
 	}
 	return fmt.Sprintf("The Pilot could not start: its harness needs you first (%s). Answer here once it is done.", need)
+}
+
+// supervise asks the Supervisor once about the flight's open question (LUCY-RUN-010) and records
+// its proposal, a suggestion shown to the owner beside the question. It never reaches the Pilot and
+// never closes the question, under any posture: only the owner answers (channel-05). A supervisor
+// that fails or declines leaves the question as it is; it is not asked again about the same one.
+func (t *Tower) supervise(ctx context.Context, f *flight) error {
+	if t.cfg.Supervisor == nil || f.need != "" || f.proposal.By != "" || f.proposedOn == f.question {
+		return nil
+	}
+	f.proposedOn = f.question
+	p, ok, err := t.cfg.Supervisor.ProposeAnswer(ctx, Escalation{Org: f.spec.Org, Flight: f.spec.ID, Project: f.spec.Project,
+		Goal: f.spec.Goal, Posture: f.spec.Posture, Question: f.question})
+	if err != nil || !ok || strings.TrimSpace(p.Answer) == "" || !strings.HasPrefix(p.By, "supervisor/") {
+		return nil
+	}
+	return t.record(ctx, f, ActorDaemon, AnswerProposed{Session: f.session, By: capText(p.By), Answer: capText(p.Answer)})
+}
+
+// Proposal returns the supervisor's proposed answer to the flight's open question, if one was made.
+func (t *Tower) Proposal(id string) (by, answer string, ok bool) {
+	f, found := t.flights[id]
+	if !found || f.state != StateAsking || f.proposal.By == "" {
+		return "", "", false
+	}
+	return f.proposal.By, f.proposal.Answer, true
 }

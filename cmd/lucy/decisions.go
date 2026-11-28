@@ -76,6 +76,9 @@ func runDecisions(args []string, stdout, stderr io.Writer) int {
 		if d.Body != "" {
 			fmt.Fprintf(stdout, "    asks: %s\n", untrusted(d.Body))
 		}
+		if d.ProposedBy != "" {
+			fmt.Fprintf(stdout, "    suggested by %s: %s\n", untrusted(d.ProposedBy), untrusted(d.Proposed))
+		}
 	}
 	return 0
 }

@@ -73,6 +73,15 @@ type PilotAsked struct {
 	Need string `json:"need,omitempty"`
 }
 
+// AnswerProposed records a Supervisor's proposed answer to the Pilot's open question
+// (LUCY-RUN-010). It is a suggestion to the owner: it never reaches the Pilot and never closes the
+// question, under any posture.
+type AnswerProposed struct {
+	Session string `json:"session"`
+	By      string `json:"by"`     // the supervisor, for example supervisor/rules
+	Answer  string `json:"answer"` // the proposed answer, capped: lucy's own text, never the owner's
+}
+
 // PilotAnswered records that the owner answered. The answer itself is not kept, only its digest.
 type PilotAnswered struct {
 	Session      string `json:"session"`
@@ -198,6 +207,8 @@ func (Grounded) EventVersion() int         { return 1 }
 func (PilotStartFailed) EventType() string { return "task.pilot_start_failed" }
 func (PilotStartFailed) EventVersion() int { return 1 }
 func (PostureTightened) EventType() string { return "task.posture_tightened" }
+func (AnswerProposed) EventType() string   { return "task.answer_proposed" }
+func (AnswerProposed) EventVersion() int   { return 1 }
 func (PostureTightened) EventVersion() int { return 1 }
 func (MergedOutside) EventVersion() int    { return 1 }
 
@@ -206,6 +217,6 @@ func (MergedOutside) EventVersion() int    { return 1 }
 func Payloads() []eventstore.Payload {
 	return []eventstore.Payload{
 		Dispatched{}, PilotStarted{}, PilotAsked{}, PilotAnswered{}, PilotExited{}, PRObserved{},
-		Approved{}, Cleared{}, MergeFailed{}, Takeoff{}, Grounded{}, MergedOutside{}, PilotStartFailed{}, PostureTightened{},
+		Approved{}, Cleared{}, MergeFailed{}, Takeoff{}, Grounded{}, MergedOutside{}, PilotStartFailed{}, PostureTightened{}, AnswerProposed{},
 	}
 }

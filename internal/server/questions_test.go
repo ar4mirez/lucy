@@ -104,3 +104,57 @@ func TestQuestionsThroughTheTower(t *testing.T) {
 		t.Errorf("recorded commands %v: every answer call is a recorded command", methods)
 	}
 }
+
+type proposingSupervisor struct{}
+
+func (proposingSupervisor) ProposeAnswer(context.Context, tower.Escalation) (tower.Proposal, bool, error) {
+	return tower.Proposal{By: "supervisor/test", Answer: "the staging account"}, true, nil
+}
+
+// A supervisor's proposal is shown with the question, never given to the Pilot; the owner may
+// accept it in one step, which is recorded as the owner's answer; with no proposal, accepting is
+// refused (LUCY-RUN-010, channel-05).
+func TestAcceptingAProposal(t *testing.T) {
+	w, err := sim.Open(context.Background(), shortTempDir(t), 7, sim.Options{Tower: tower.Config{Supervisor: proposingSupervisor{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { w.Close() })
+	w.Forge.AddRepo("acme/web", "ci")
+	if err := w.Dispatch(ctx, tower.Spec{ID: "f1", Org: "acme", Project: "web", Goal: "migrate", Posture: policy.PostureGreen, Delivery: tower.DeliveryPullRequest, Acceptance: "the checks pass"},
+		sim.Ask("which account?"), sim.OpenPR(sim.Passing("ci", time.Minute))); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Run(ctx, sim.RunOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	f := start(t, os.Geteuid(), 0, func(o *Options) { o.Questions = TowerQuestions{Tower: w.Tower, Lock: &mu} })
+	list, err := f.client.Questions(ctx)
+	if err != nil || len(list.Questions) != 1 || list.Questions[0].ProposedBy != "supervisor/test" || list.Questions[0].Proposed != "the staging account" {
+		t.Fatalf("questions %+v, %v", list, err)
+	}
+	_, err = f.client.Answer(ctx, api.AnswerParams{Flight: "f1", Answer: "x", AcceptProposal: true})
+	wantCode(t, err, api.CodeInvalidParams)
+	if res, err := f.client.Answer(ctx, api.AnswerParams{Flight: "f1", AcceptProposal: true}); err != nil || res.State != string(tower.StateFlying) {
+		t.Fatalf("accept: %+v, %v", res, err)
+	}
+	var got []string
+	for _, a := range w.Runtime.Answers {
+		got = append(got, a...)
+	}
+	if len(got) != 1 || got[0] != "the staging account" {
+		t.Fatalf("the Pilot got %v", got)
+	}
+	log, err := w.Log(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range log {
+		if l.Type == "task.pilot_answered" && l.Actor != tower.ActorOwner {
+			t.Fatalf("an accepted proposal recorded as %q's answer, want the owner's", l.Actor)
+		}
+	}
+	_, err = f.client.Answer(ctx, api.AnswerParams{Flight: "f1", AcceptProposal: true})
+	wantCode(t, err, api.CodeInvalidParams)
+}

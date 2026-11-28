@@ -25,7 +25,7 @@ type Projector struct{}
 func (Projector) Name() string { return "decision_catalog" }
 
 // Version implements eventstore.Projector.
-func (Projector) Version() int { return 2 }
+func (Projector) Version() int { return 3 }
 
 // Reset implements eventstore.Projector.
 func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
@@ -44,7 +44,9 @@ func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
 			answered_ns   INTEGER NOT NULL DEFAULT 0,
 			superseded_by INTEGER NOT NULL DEFAULT 0,
 			opened_ns     INTEGER NOT NULL,
-			updated_ns    INTEGER NOT NULL
+			updated_ns    INTEGER NOT NULL,
+			proposed_by   TEXT NOT NULL DEFAULT '',
+			proposed      TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE INDEX decision_catalog_open ON decision_catalog (lifecycle, kind, org, subject)`,
 		`DROP TABLE IF EXISTS decision_merge_errors`,
@@ -135,6 +137,16 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 			return err
 		}
 		return open(KindQuestion, org, flight, 0, "The Pilot of flight "+flight+" asks the owner a question", p.Question)
+	case tower.AnswerProposed{}.EventType():
+		// A supervisor's proposal is a suggestion on the open question: it never answers it, under
+		// any posture (channel-05, LUCY-RUN-010).
+		var p tower.AnswerProposed
+		if err := decode(&p); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE decision_catalog SET proposed_by = ?, proposed = ?, updated_ns = ?
+			WHERE kind = ? AND org = ? AND subject = ? AND lifecycle = ?`, p.By, p.Answer, at, KindQuestion, org, flight, Open)
+		return err
 	case tower.PilotAnswered{}.EventType():
 		return answer(KindQuestion, org, flight)
 	case tower.PilotExited{}.EventType():
@@ -192,7 +204,8 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 	return nil
 }
 
-const rowColumns = `seq, kind, org, subject, ref, summary, body, lifecycle, answered_by, answered_ns, superseded_by, opened_ns, updated_ns`
+const rowColumns = `seq, kind, org, subject, ref, summary, body, lifecycle, answered_by, answered_ns, superseded_by, opened_ns, updated_ns,
+	proposed_by, proposed`
 
 type rowScanner interface{ Scan(dest ...any) error }
 
@@ -200,7 +213,7 @@ func scan(r rowScanner) (Row, error) {
 	var d Row
 	var answered, opened, updated int64
 	err := r.Scan(&d.Seq, &d.Kind, &d.Org, &d.Subject, &d.Ref, &d.Summary, &d.Body, &d.Lifecycle, &d.AnsweredBy, &answered,
-		&d.SupersededBy, &opened, &updated)
+		&d.SupersededBy, &opened, &updated, &d.ProposedBy, &d.Proposed)
 	if err != nil {
 		return Row{}, err
 	}

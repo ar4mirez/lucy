@@ -26,9 +26,13 @@ only when the daemon was started with --dispatch.
 
 const answerUsage = `Usage:
   lucy answer [--socket <path>] <flight> <answer>...
+  lucy answer [--socket <path>] <flight> --accept-proposal
 
 Answers a flight's open question. The Tower relays the answer to its Pilot, through the runner's
 heartbeat, and the log keeps only the answer's digest. The words after the flight are the answer.
+--accept-proposal answers with the supervisor's proposed answer, which lucy questions shows beside
+the question: it is then your answer, recorded as yours. A supervisor's proposal alone never
+reaches the Pilot.
 
 Only a flight that is asking can be answered.
 `
@@ -63,6 +67,9 @@ func writeQuestions(w io.Writer, list api.QuestionsList) {
 	fmt.Fprintf(w, "questions[%d]{flight,org,project,since,question}:\n", len(list.Questions))
 	for _, q := range list.Questions {
 		fmt.Fprintf(w, "  %s,%s,%s,%s,%s\n", untrusted(q.Flight), untrusted(q.Org), untrusted(q.Project), q.Since.Format(time.RFC3339), untrusted(q.Question))
+		if q.ProposedBy != "" {
+			fmt.Fprintf(w, "    proposed by %s: %s\n", untrusted(q.ProposedBy), untrusted(q.Proposed))
+		}
 	}
 	fmt.Fprint(w, "help: run `lucy answer <flight> <answer>` to answer one\n")
 }
@@ -71,7 +78,16 @@ func runAnswer(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("answer", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	sock := fs.String("socket", "", "")
-	if err := fs.Parse(args); err != nil {
+	accept := false
+	var rest []string
+	for _, a := range args { // --accept-proposal may follow the flight
+		if a == "--accept-proposal" {
+			accept = true
+			continue
+		}
+		rest = append(rest, a)
+	}
+	if err := fs.Parse(rest); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprint(stdout, answerUsage)
 			return 0
@@ -79,19 +95,29 @@ func runAnswer(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "error: %v\nhelp: run `lucy answer --help`\n", err)
 		return 2
 	}
+	if accept {
+		if fs.NArg() != 1 {
+			fmt.Fprint(stderr, "error: lucy answer --accept-proposal needs a flight and no answer\nhelp: run `lucy answer --help`\n")
+			return 2
+		}
+		return answerWith(*sock, api.AnswerParams{Flight: fs.Arg(0), AcceptProposal: true}, stdout, stderr)
+	}
 	if fs.NArg() < 2 {
 		fmt.Fprint(stderr, "error: lucy answer needs a flight and an answer\nhelp: run `lucy answer --help`; `lucy questions` lists the open questions\n")
 		return 2
 	}
-	flight, answer := fs.Arg(0), strings.Join(fs.Args()[1:], " ")
-	c, code := dial(*sock, stderr)
+	return answerWith(*sock, api.AnswerParams{Flight: fs.Arg(0), Answer: strings.Join(fs.Args()[1:], " ")}, stdout, stderr)
+}
+
+func answerWith(sock string, p api.AnswerParams, stdout, stderr io.Writer) int {
+	c, code := dial(sock, stderr)
 	if c == nil {
 		return code
 	}
 	defer c.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), client.DefaultTimeout)
 	defer cancel()
-	res, err := c.Answer(ctx, api.AnswerParams{Flight: flight, Answer: answer})
+	res, err := c.Answer(ctx, p)
 	if err != nil {
 		return callFailed(err, c, stderr)
 	}

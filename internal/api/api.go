@@ -60,7 +60,9 @@ const Version = 1
 // Revision 22 added runner.finish's needs_owner outcome and its need.
 // Revision 23 added token use and cost: runner.heartbeat's usage events and tokens, runner.finish's
 // cost_micros, runs.list's and flights.list's tokens and cost.
-const SchemaRevision = 23
+// Revision 24 added a supervisor's proposed answer: questions.list's and decisions.list's proposed_by
+// and proposed, and questions.answer's accept_proposal.
+const SchemaRevision = 24
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"

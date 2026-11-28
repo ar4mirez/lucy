@@ -19,7 +19,13 @@ type Questions interface {
 	// Answer passes the owner's answer to the flight's Pilot. It fails with ErrNotAsking when the
 	// flight is not asking.
 	Answer(ctx context.Context, flight, answer string) (tower.Status, error)
+	// AcceptProposal answers the flight's question, as the owner, with the supervisor's proposed
+	// answer. It fails with ErrNotAsking, or ErrNoProposal when no supervisor proposed one.
+	AcceptProposal(ctx context.Context, flight string) (tower.Status, error)
 }
+
+// ErrNoProposal refuses to accept a proposal for a question no supervisor proposed an answer to.
+var ErrNoProposal = errors.New("server: no supervisor proposed an answer to the flight's question")
 
 // ErrNotAsking refuses an answer to a flight that has no open question.
 var ErrNotAsking = errors.New("server: the flight is not asking")
@@ -61,6 +67,24 @@ func (q TowerQuestions) Answer(ctx context.Context, flight, answer string) (towe
 	return st, nil
 }
 
+// AcceptProposal implements Questions: the owner's answer is the supervisor's proposed one.
+func (q TowerQuestions) AcceptProposal(ctx context.Context, flight string) (tower.Status, error) {
+	q.Lock.Lock()
+	defer q.Lock.Unlock()
+	if st, ok := q.Tower.Flight(flight); !ok || st.State != tower.StateAsking {
+		return tower.Status{}, ErrNotAsking
+	}
+	_, answer, ok := q.Tower.Proposal(flight)
+	if !ok {
+		return tower.Status{}, ErrNoProposal
+	}
+	if err := q.Tower.Answer(ctx, flight, answer); err != nil {
+		return tower.Status{}, err
+	}
+	st, _ := q.Tower.Flight(flight)
+	return st, nil
+}
+
 func (s *Server) questions(ctx context.Context, _ *api.NoParams) (api.QuestionsList, error) {
 	out := api.QuestionsList{Questions: []api.Question{}}
 	if s.opts.Questions == nil {
@@ -72,7 +96,7 @@ func (s *Server) questions(ctx context.Context, _ *api.NoParams) (api.QuestionsL
 	}
 	for _, f := range open {
 		out.Questions = append(out.Questions, api.Question{Flight: f.ID, Org: f.Org, Project: f.Project,
-			Question: f.Question, Since: f.Since.UTC()})
+			Question: f.Question, Since: f.Since.UTC(), ProposedBy: f.ProposedBy, Proposed: f.Proposed})
 	}
 	return out, nil
 }
@@ -82,7 +106,21 @@ func (s *Server) answer(ctx context.Context, p *api.AnswerParams) (api.AnswerRes
 		return api.AnswerResult{}, api.NewError(api.CodeUnavailable,
 			"this daemon hosts no Tower yet, so no flight can be answered; the Tower arrives with m1 slice 7a")
 	}
-	st, err := s.opts.Questions.Answer(ctx, p.Flight, p.Answer)
+	var st tower.Status
+	var err error
+	switch {
+	case p.AcceptProposal && p.Answer != "":
+		return api.AnswerResult{}, api.FieldError(api.CodeInvalidParams, "answer", "give an answer or accept the proposal, not both")
+	case p.AcceptProposal:
+		st, err = s.opts.Questions.AcceptProposal(ctx, p.Flight)
+	case p.Answer == "":
+		return api.AnswerResult{}, api.FieldError(api.CodeInvalidParams, "answer", "an answer is required, unless accept_proposal is set")
+	default:
+		st, err = s.opts.Questions.Answer(ctx, p.Flight, p.Answer)
+	}
+	if errors.Is(err, ErrNoProposal) {
+		return api.AnswerResult{}, api.FieldError(api.CodeInvalidParams, "accept_proposal", "no supervisor proposed an answer to this question; answer it yourself")
+	}
 	if errors.Is(err, ErrNotAsking) {
 		return api.AnswerResult{}, api.FieldError(api.CodeInvalidParams, "flight", "the flight is not asking; run `lucy questions` to see the open ones")
 	}

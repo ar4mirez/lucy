@@ -52,6 +52,10 @@ type Row struct {
 	SupersededBy int64
 	Opened       time.Time
 	Updated      time.Time
+	// ProposedBy and Proposed are a supervisor's suggested answer to an open question: a
+	// suggestion only, which never closes it (LUCY-RUN-010).
+	ProposedBy string
+	Proposed   string
 }
 
 // ID is the decision's id in the spec's form, DEC-NNNN.

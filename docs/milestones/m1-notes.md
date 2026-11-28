@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 35
+version: 36
 owner: ar4mirez
 requirements: []
 ---
@@ -137,8 +137,16 @@ slice table, requirement status and exit tests stay in the plan.
   event (`runner.heartbeat`, `run.streamed`), and summed on the run. Per task: the session's
   `total_cost_usd` rides on its exit and `runner.finish` as `cost_micros`, millionths of a dollar,
   bounded and untrusted like all runner reports; `flights.list` sums a flight's runs over every
-  generation, and `lucy flights` shows them. Next: supervision (LUCY-RUN-010), a seam in the Tower
-  whose default is today's rules, then a model-backed supervisor that proposes only.
+  generation, and `lucy flights` shows them. Supervision (LUCY-RUN-010): `tower.Supervisor` is asked once
+  about each new Pilot question, in the step that records it; its proposal is recorded
+  (`task.answer_proposed`, naming the supervisor) and shown in `lucy questions` and
+  `lucy decisions` as a suggestion. It never reaches the Pilot and never closes the question, under
+  any posture (corpus rule channel-05, now executable); the owner answers, or accepts the
+  suggestion with `lucy answer <flight> --accept-proposal`, recorded as the owner's answer. The
+  Tower's own questions are never put to it; with none configured nothing changes. Delegating
+  unattended answers is an m2 open question. Next: the model-backed supervisor (small model, then
+  large, then the owner), through the org's gateway, against a fake model server, off by default,
+  and per-org daily budgets.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real
   work on the host before it lands, since a host Pilot shares the daemon's uid and API authority.
   Shadow mode (slice 10) runs no Pilot and is unaffected.

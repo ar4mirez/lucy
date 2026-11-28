@@ -484,12 +484,19 @@ type Question struct {
 	Project  string    `json:"project" doc:"The flight's runway."`
 	Question string    `json:"question" doc:"The Pilot's question, as the Tower recorded it. Untrusted."`
 	Since    time.Time `json:"since" doc:"When the flight started asking, UTC."`
+	// A supervisor's proposal, recorded and shown, never given to the Pilot unless the posture
+	// allows unattended answers; the owner answers otherwise (LUCY-RUN-010).
+	ProposedBy string `json:"proposed_by,omitempty" doc:"The supervisor that proposed an answer, for example supervisor/rules; absent when none did."`
+	Proposed   string `json:"proposed,omitempty" doc:"Its proposed answer, waiting on the owner: the owner answers, with it or not."`
 }
 
 // AnswerParams answers one flight's question.
 type AnswerParams struct {
 	Flight string `json:"flight" lucy:"required,maxlen=200" doc:"The flight that is asking."`
-	Answer string `json:"answer" lucy:"required,maxlen=4096" doc:"The owner's answer. It reaches the Pilot through the Tower; the log keeps only its digest."`
+	Answer string `json:"answer,omitempty" lucy:"maxlen=4096" doc:"The owner's answer. It reaches the Pilot through the Tower; the log keeps only its digest. Required unless accept_proposal is set, and refused with it."`
+	// AcceptProposal answers with the supervisor's proposed answer: the owner's answer, recorded as
+	// the owner's, in one step (LUCY-RUN-010).
+	AcceptProposal bool `json:"accept_proposal,omitempty" doc:"Answer with the supervisor's proposed answer, as the owner's answer. Refused when no supervisor proposed one."`
 }
 
 // AnswerResult answers questions.answer.
@@ -712,6 +719,8 @@ type CatalogDecision struct {
 	AnsweredBy   string          `json:"answered_by,omitempty" doc:"When answered: the actor whose recorded word closed it."`
 	AnsweredAt   time.Time       `json:"answered_at,omitempty,omitzero" doc:"When answered, UTC."`
 	SupersededBy string          `json:"superseded_by,omitempty" doc:"When superseded: the decision that replaced it."`
+	ProposedBy   string          `json:"proposed_by,omitempty" doc:"A supervisor that suggested an answer to a question, for example supervisor/rules. A suggestion never closes the decision."`
+	Proposed     string          `json:"proposed,omitempty" doc:"Its suggested answer; the owner may accept it with lucy answer <flight> --accept-proposal."`
 }
 
 // CatalogOption is one way to settle a decision.
