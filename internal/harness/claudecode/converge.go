@@ -181,3 +181,10 @@ func (Adapter) Needs(home *os.Root) string {
 	}
 	return harness.NeedLogin
 }
+
+// SkillsDir implements harness.SkillHost: Claude Code reads user skills from .claude/skills.
+// TODO(LUCY-RUN-009): a session still runs with skills off (--disable-slash-commands), since a
+// skill's allowed-tools would skip the permission prompt and turning skills on may load a
+// repository's own; lucy's skills are installed and verified, and switched on only once a live
+// contract check shows neither can happen.
+func (Adapter) SkillsDir() string { return ".claude/skills" }

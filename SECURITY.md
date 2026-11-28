@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 19
+version: 20
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-SEC-002, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -135,13 +135,15 @@ Every delete lucy makes refuses `/`, `$HOME` and anything outside lucy's managed
 with the last component kept, must both be strictly inside a declared root and never a root
 itself, and it is deleted through an `os.Root` on that root, so a symlink, the requested one or one
 inside, is removed rather than followed, and none swapped in after the check takes the delete out
-of the root. lucy makes two recursive deletes. The first is a run's scratch directory, a
+of the root. lucy makes three recursive deletes. The first is a run's scratch directory, a
 `run-*` directory directly in the runner's root, never the org's home beside it. The second is a
 quarantined or broken slot of the worktree pool that the owner discards (`lucy worktree discard`,
 the admin-scoped `worktree.discard`, refused unless the confirmation repeats the slot exactly and
 for a free or leased slot): the discard is recorded first (`worktree.discarded`: by whom, the slot,
 its run, branch and head), then the slot's directory is removed through the guard with the pool's
-root as the one root, and the run's branch stays in the clone. A guard given a role's blocked paths
+root as the one root, and the run's branch stays in the clone. The third is an entry of the harness's skills
+directory in an org's synthetic home that is not one of lucy's bundled skills (LUCY-RUN-009),
+removed before a spawn through the runner's guard, whose root holds that home. A guard given a role's blocked paths
 (`Guard.WithBlocked`, LUCY-SPEC-015) also refuses, before removing anything, a target that matches
 one, ignoring case, or a directory holding an entry that does. Every other delete removes one file
 lucy made and names: a stale socket of its own (checked to be a socket first), a runner's registry

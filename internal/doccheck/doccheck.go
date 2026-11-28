@@ -46,6 +46,9 @@ var (
 	requiredKeys = []string{"id", "title", "status", "version", "owner", "requirements"}
 	statuses     = []string{"draft", "active", "accepted", "superseded", "deprecated"}
 	skipDirs     = []string{".git", ".github", ".claude", ".no-mistakes", "bin", "dist", "node_modules", "testdata"}
+	// skipPaths are directories, by path from the root, whose Markdown is not lucy's documentation:
+	// lucy's bundled skills, written in the harness's own skill format (LUCY-RUN-009).
+	skipPaths = []string{"internal/skills/builtin"}
 )
 
 // Doc is one Markdown file with its parsed front matter.
@@ -81,7 +84,7 @@ func Load(root string) ([]*Doc, error) {
 			return err
 		}
 		if d.IsDir() {
-			if p != "." && slices.Contains(skipDirs, d.Name()) {
+			if p != "." && (slices.Contains(skipDirs, d.Name()) || slices.Contains(skipPaths, filepath.ToSlash(p))) {
 				return fs.SkipDir
 			}
 			return nil

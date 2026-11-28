@@ -565,7 +565,8 @@ func TestHarnessExecutorSpeaksTheProtocol(t *testing.T) {
 		{"done", "harness", Result{Outcome: OutcomeDone, PR: 42}, []string{"lucy: the harness's account state was re-asserted in the org's home: " +
 			"onboarding marked complete, auto-updates turned off, user-scope MCP servers removed, the run's directory trusted, " +
 			"the run's directory onboarded, the run's directory's pre-allowed tools removed, the run's directory's MCP servers removed, " +
-			"the run's directory's project MCP servers disabled, hooks disabled",
+			"the run's directory's project MCP servers disabled, hooks disabled, skill installed lucy-researcher/SKILL.md, " +
+			"skill installed lucy-reviewer/SKILL.md, skill installed lucy-worker/SKILL.md",
 			"session started: claude-code " + claudecode.Pinned + ", model claude-opus-5-5",
 			"I will fix the failing test.", "tool: Bash", "tool result", "Opened the pull request.\nlucy:pr=42", "session ended: success after 3 turns"}},
 		{"refused", "harness", Result{Outcome: OutcomeDone}, nil},
@@ -852,6 +853,9 @@ func TestHarnessGetsRepositoryInstructions(t *testing.T) {
 		_, rest, _ := strings.Cut(argv[i+1], "<repository-instructions>\n")
 		framed, _, _ = strings.Cut(rest, "\n</repository-instructions>")
 	}
+	if i < 0 || i+1 >= len(argv) || !strings.Contains(argv[i+1], "# lucy ship worker") {
+		t.Errorf("the system prompt lacks the ship worker's instructions (LUCY-SPEC-015): %q", argv)
+	}
 	if !strings.Contains(framed, "run-dir-agents-9c1e") {
 		t.Errorf("the launch arguments lack the run directory's AGENTS.md: %q", argv)
 	}
@@ -1099,5 +1103,38 @@ func TestARunWithoutALoginIsHeldNotStarted(t *testing.T) {
 	}
 	if left := scratchLeft(t, pf.root); len(left) != 0 {
 		t.Errorf("scratch left behind: %v", left)
+	}
+}
+
+// Before a spawn, the org's home holds lucy's bundled skills and only them (LUCY-RUN-009): a skill
+// someone else put there is removed, through the path guard, and lucy's are installed and verified.
+func TestASpawnInstallsOnlyLucysSkills(t *testing.T) {
+	pf := newProc(t)
+	pf.ex.Harness = claudecode.Adapter{}
+	harnessLogin(t, pf.root)
+	stray := filepath.Join(pf.root, "home", ".claude", "skills", "owners-skill")
+	if err := os.MkdirAll(stray, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stray, "SKILL.md"), []byte("---\nallowed-tools: Bash\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	x, err := pf.ex.Start(context.Background(), procLease("harness - "+transcript(t, "done")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, res := drain(t, x); res.Outcome != OutcomeDone {
+		t.Fatalf("result %+v", res)
+	}
+	entries, err := os.ReadDir(filepath.Join(pf.root, "home", ".claude", "skills"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if strings.Join(names, ",") != "lucy-researcher,lucy-reviewer,lucy-worker" {
+		t.Fatalf("the org home's skills: %v", names)
 	}
 }

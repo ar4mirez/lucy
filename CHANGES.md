@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 48
+version: 49
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -51,6 +51,14 @@ Changes since the last release. When a version is cut, its section moves to
   `flights.list` reports the posture a Flight is flown under (OpenRPC revision 20).
 
 ### Changed
+
+- lucy bundles its own skills, one per Pilot role, each with its SHA-256 in a manifest. Before
+  every spawn the runner installs them into the harness's skills directory in the org's synthetic
+  home, verifies each against the manifest, and removes anything else there, through the path
+  guard; a mismatch refuses the spawn. Only lucy's skills are ever installed. Sessions still run
+  with skills switched off until a live check of the harness shows they cannot skip a permission
+  prompt; a Pilot gets its role's instructions, from the same bundle, in lucy's system prompt,
+  before the repository's instructions.
 
 - A Pilot whose harness has no login in its org's synthetic home is held for you instead of
   wedged on a login prompt: the runner does not start it and finishes the run `needs_owner`

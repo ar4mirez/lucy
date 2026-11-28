@@ -24,3 +24,10 @@ const NeedLogin = "harness_login"
 type Prerequisite interface {
 	Needs(home *os.Root) string
 }
+
+// SkillHost is an Adapter whose harness reads skills from a directory in its home: lucy's bundled
+// skills are installed there before every spawn, verified against their hashes, and anything else
+// in it removed (LUCY-RUN-009). SkillsDir is that directory, relative to the home.
+type SkillHost interface {
+	SkillsDir() string
+}
