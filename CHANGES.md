@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 40
+version: 41
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,12 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Changed
+
+- A Pilot that cannot start during an outage no longer grounds its flight: the failed start is
+  recorded (`task.pilot_start_failed`) and retried after a backoff that doubles with each failure,
+  and `lucy flights` shows why and when it is tried next. Only a start the runner protocol refuses
+  for good (an invalid task, a run id another flight holds, an older generation) still grounds the
+  flight with `start_failed`.
 
 - The daemon's background work runs as converge loops woken by the event log: the Tower steps its
   flights as soon as a commit lands (a Pilot's question reaches `lucy questions` within a second of

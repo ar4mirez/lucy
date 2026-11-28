@@ -15,7 +15,7 @@ an agent supervisor must keep, and every class of past incident, is a scenario t
 lucy on the simulation harness (LUCY-CORP-001, LUCY-CORP-002). An airspace moves onto lucy only
 when its corpus is green. `mise run conformance` runs it, and CI runs it on every change.
 
-Corpus v1: 88 scenarios, **62 executable** (green: CI fails on any red one) and **26 pending** on
+Corpus v1: 88 scenarios, **63 executable** (green: CI fails on any red one) and **25 pending** on
 the milestone named in their row. Each executable scenario runs twice, as written and with the
 daemon restarted before every step, and both runs must leave the same event log.
 
@@ -27,7 +27,7 @@ daemon restarted before every step, and both runs must leave the same event log.
 | checks | 5 | 0 |
 | approvals | 5 | 0 |
 | attribution | 4 | 0 |
-| bounded-retry | 4 | 1 |
+| bounded-retry | 5 | 0 |
 | liveness | 5 | 2 |
 | owner-channel | 3 | 2 |
 | untrusted-input | 4 | 0 |
@@ -75,7 +75,7 @@ requirements that make it executable.
 | retry-02 | bounded-retry | rule | high | A lost Pilot is replaced a bounded number of times, then the flight is grounded | executable |
 | retry-03 | bounded-retry | incident | critical | A refused merge is never recorded as landed | executable |
 | retry-04 | bounded-retry | rule | high | A merge refused for a conflict needs a fresh Clearance once the forge reports it resolved | executable |
-| retry-05 | bounded-retry | incident | medium | A Pilot that cannot start during a transient outage is retried with backoff, not grounded or left idle | pending: m1 (LUCY-SPEC-008) |
+| retry-05 | bounded-retry | incident | medium | A Pilot that cannot start during a transient outage is retried with backoff, not grounded or left idle | executable |
 | liveness-01 | liveness | incident | medium | A busy Pilot is not stuck: steady activity is never timed out, however long the work | executable |
 | liveness-02 | liveness | rule | medium | A silent Pilot is stopped and the flight grounded after the Pilot timeout | executable |
 | liveness-03 | liveness | rule | medium | A Pilot waiting on the owner's answer is never timed out, and resumes on the answer | executable |

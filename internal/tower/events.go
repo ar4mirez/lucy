@@ -39,6 +39,15 @@ type Pipeline struct {
 	OnTimeout       string        `json:"on_timeout,omitempty"`
 }
 
+// PilotStartFailed records a Pilot start the runtime failed for a reason a retry may change (an
+// outage). The flight stays dispatched, and the Tower starts it again after a backoff doubling with
+// each consecutive failure, from the recorded times, so a restarted Tower keeps the same schedule
+// (LUCY-SPEC-008).
+type PilotStartFailed struct {
+	Generation int    `json:"generation"`
+	Error      string `json:"error"` // the runtime's error, capped
+}
+
 // PilotStarted records a Pilot session started for the flight.
 type PilotStarted struct {
 	Session    string `json:"session"`
@@ -114,7 +123,7 @@ type Takeoff struct {
 
 // Grounding reasons.
 const (
-	GroundStartFailed = "start_failed" // the runtime could not start a Pilot
+	GroundStartFailed = "start_failed" // the runtime refused to start a Pilot (ErrStartRefused)
 	GroundPilotFailed = "pilot_failed" // the Pilot gave up
 	GroundPilotLost   = "pilot_lost"   // the Pilot was lost more often than the Tower restarts it
 	GroundTimeout     = "pilot_timeout"
@@ -160,24 +169,26 @@ func (Takeoff) EventType() string       { return "task.takeoff" }
 func (Grounded) EventType() string      { return "task.grounded" }
 func (MergedOutside) EventType() string { return "task.merged_outside" }
 
-func (Dispatched) EventVersion() int    { return 1 }
-func (PilotStarted) EventVersion() int  { return 1 }
-func (PilotAsked) EventVersion() int    { return 1 }
-func (PilotAnswered) EventVersion() int { return 1 }
-func (PilotExited) EventVersion() int   { return 1 }
-func (PRObserved) EventVersion() int    { return 1 }
-func (Approved) EventVersion() int      { return 1 }
-func (Cleared) EventVersion() int       { return 1 }
-func (MergeFailed) EventVersion() int   { return 1 }
-func (Takeoff) EventVersion() int       { return 1 }
-func (Grounded) EventVersion() int      { return 1 }
-func (MergedOutside) EventVersion() int { return 1 }
+func (Dispatched) EventVersion() int       { return 1 }
+func (PilotStarted) EventVersion() int     { return 1 }
+func (PilotAsked) EventVersion() int       { return 1 }
+func (PilotAnswered) EventVersion() int    { return 1 }
+func (PilotExited) EventVersion() int      { return 1 }
+func (PRObserved) EventVersion() int       { return 1 }
+func (Approved) EventVersion() int         { return 1 }
+func (Cleared) EventVersion() int          { return 1 }
+func (MergeFailed) EventVersion() int      { return 1 }
+func (Takeoff) EventVersion() int          { return 1 }
+func (Grounded) EventVersion() int         { return 1 }
+func (PilotStartFailed) EventType() string { return "task.pilot_start_failed" }
+func (PilotStartFailed) EventVersion() int { return 1 }
+func (MergedOutside) EventVersion() int    { return 1 }
 
 // Payloads returns a sample of every event the Tower appends, for an eventstore.Registry. The
 // Tower also appends policy.DecisionRecord.
 func Payloads() []eventstore.Payload {
 	return []eventstore.Payload{
 		Dispatched{}, PilotStarted{}, PilotAsked{}, PilotAnswered{}, PilotExited{}, PRObserved{},
-		Approved{}, Cleared{}, MergeFailed{}, Takeoff{}, Grounded{}, MergedOutside{},
+		Approved{}, Cleared{}, MergeFailed{}, Takeoff{}, Grounded{}, MergedOutside{}, PilotStartFailed{},
 	}
 }

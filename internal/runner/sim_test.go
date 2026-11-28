@@ -440,7 +440,20 @@ func TestStartIsIdempotentPerGeneration(t *testing.T) {
 	}
 	other := req
 	other.Org = "other"
-	if _, err := rt.Start(context.Background(), other); !errors.Is(err, runner.ErrExists) {
-		t.Fatalf("a run id taken in another org: %v", err)
+	if _, err := rt.Start(context.Background(), other); !errors.Is(err, runner.ErrExists) || !errors.Is(err, tower.ErrStartRefused) {
+		t.Fatalf("a run id taken in another org: %v, want a refusal the Tower grounds on", err)
+	}
+	// A request no retry would make acceptable is a refusal too: the Tower grounds the flight on it
+	// rather than retrying it (LUCY-SPEC-008).
+	if _, err := rt.Start(context.Background(), tower.PilotRequest{Flight: "f3", Org: "acme", Project: "web", Goal: "g", Base: "main", Generation: 2}); err != nil {
+		t.Fatal(err)
+	}
+	for name, bad := range map[string]tower.PilotRequest{
+		"a generation older than the flight's newest": {Flight: "f3", Org: "acme", Project: "web", Goal: "g", Base: "main", Generation: 1},
+		"no goal": {Flight: "f2", Org: "acme", Project: "web", Base: "main", Generation: 1},
+	} {
+		if _, err := rt.Start(context.Background(), bad); !errors.Is(err, tower.ErrStartRefused) {
+			t.Errorf("%s: %v, want tower.ErrStartRefused", name, err)
+		}
 	}
 }

@@ -37,6 +37,9 @@ type World struct {
 	// With Options.Runners: the daemon's broker (nil while the daemon is down) and the runners.
 	Broker  *runner.Broker
 	Runners []*runner.Runner
+	// FlightErrors are the flights' failed steps, in order: the Tower retries each such flight on
+	// its own backoff, so a Run goes on.
+	FlightErrors []tower.FlightError
 
 	dir      string
 	config   tower.Config
@@ -174,7 +177,7 @@ func (w *World) Run(ctx context.Context, opts RunOptions) error {
 				return err
 			}
 		}
-		if err := w.Tower.Step(ctx); err != nil {
+		if err := w.flightErrors(w.Tower.Step(ctx)); err != nil {
 			return err
 		}
 		next, active := w.Tower.NextWake()
@@ -243,4 +246,26 @@ func (w *World) Decisions(ctx context.Context) ([]Decision, error) {
 type Decision struct {
 	Seq    int64
 	Record policy.DecisionRecord
+}
+
+// flightErrors keeps each flight's failed step in FlightErrors, since the Tower retries that flight
+// on its own backoff, and returns whatever else went wrong.
+func (w *World) flightErrors(err error) error {
+	if err == nil {
+		return nil
+	}
+	errs := []error{err}
+	if j, ok := err.(interface{ Unwrap() []error }); ok {
+		errs = j.Unwrap()
+	}
+	var rest []error
+	for _, e := range errs {
+		var fe *tower.FlightError
+		if errors.As(e, &fe) {
+			w.FlightErrors = append(w.FlightErrors, *fe)
+			continue
+		}
+		rest = append(rest, e)
+	}
+	return errors.Join(rest...)
 }

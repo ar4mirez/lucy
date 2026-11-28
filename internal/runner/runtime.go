@@ -20,6 +20,9 @@ var _ tower.Runtime = Runtime{}
 // Start implements tower.Runtime: it queues the flight's Pilot generation as a run. Starting a
 // generation that is already queued or running returns its run rather than a second one: the
 // Tower asks again when the daemon stopped after queueing the run but before recording its start.
+// A request that no retry would make acceptable (an invalid task, a run id held by another
+// flight's run, a generation older than the flight's newest) is refused with tower.ErrStartRefused,
+// so the flight is grounded; any other error (the store, an outage) the Tower retries.
 func (r Runtime) Start(ctx context.Context, req tower.PilotRequest) (string, error) {
 	run := RunID(req.Flight, req.Generation)
 	err := r.Broker.Submit(ctx, Task{Run: run, Org: req.Org, Project: req.Project, Flight: req.Flight,
@@ -29,6 +32,9 @@ func (r Runtime) Start(ctx context.Context, req tower.PilotRequest) (string, err
 		if rerr == nil && ri.Org == req.Org && ri.Flight == req.Flight && ri.Generation == req.Generation {
 			return run, nil
 		}
+	}
+	if errors.Is(err, ErrInvalid) || errors.Is(err, ErrExists) || errors.Is(err, ErrStale) {
+		return "", fmt.Errorf("%w: %w", tower.ErrStartRefused, err)
 	}
 	if err != nil {
 		return "", err

@@ -299,7 +299,10 @@ func retryScenarios() []Scenario {
 		{
 			ID: "retry-05", Title: "A Pilot that cannot start during a transient outage is retried with backoff, not grounded or left idle",
 			Class: ClassRetry, Source: FromIncident, Severity: Medium,
-			Pending: &Pending{Milestone: "m1", Requirements: []string{"LUCY-SPEC-008"}, Needs: "converge loops with backoff; a run now waits queued for a runner, but a start that fails still grounds the flight"},
+			Setup: Setup{Flights: []Flight{Fly("f1", policy.PostureGreen)}},
+			Steps: []Action{FailStarts(3, "the runner protocol is unavailable"), Proceed()},
+			Expect: []Assertion{Ends("f1", tower.StateTakeoff, ""), Events("f1", "grounded", 0), PilotsStarted("f1", 1),
+				StartsBackOff(4, time.Second)},
 		},
 	}
 }
