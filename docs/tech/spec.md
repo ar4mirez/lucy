@@ -2,7 +2,7 @@
 id: tech-spec
 title: "lucy: the spec model and audit log"
 status: active
-version: 3
+version: 4
 owner: ar4mirez
 requirements: [LUCY-SPEC-001, LUCY-SPEC-002, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-007, LUCY-SPEC-009, LUCY-SPEC-017]
 ---
@@ -52,3 +52,6 @@ Built in `internal/spec`, `internal/jcs` and `internal/audit` ([D3b](../decision
   is admitted once written as an org's config (a namespace, no `status`), every invalid one is
   refused on the schema. lucy refuses a spec-valid document only under its own two rules:
   `MissingNamespace` (LUCY-SPEC-002) and `StatusInConfig` (LUCY-SPEC-003).
+- **QualityGate overrides** (LUCY-SPEC-010). A gate's `override.requiredRole`, or a visual rule's
+  `override.approvers`, naming anyone but `owner` is accepted, as the spec writes it, and marked with
+  the condition `Override` (`OverrideIsOwner`): lucy lets only the owner override a gate.

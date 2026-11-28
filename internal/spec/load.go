@@ -151,6 +151,7 @@ func LoadDir(dir string) (Set, error) {
 	}
 	markDuplicates(set.Results)
 	markReadiness(set.Results)
+	markOverrides(set.Results)
 	sortResults(set.Results)
 	return set, nil
 }
