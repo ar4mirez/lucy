@@ -229,9 +229,6 @@ func Instructions(role string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if digest(b) != f.SHA256 {
-			return "", fmt.Errorf("%w: the bundled %s", ErrMismatch, f.Path)
-		}
 		body := string(b)
 		if rest, ok := strings.CutPrefix(body, "---\n"); ok {
 			if _, after, found := strings.Cut(rest, "\n---\n"); found {

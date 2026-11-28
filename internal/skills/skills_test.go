@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 const dir = ".claude/skills"
@@ -41,7 +43,23 @@ func TestManifest(t *testing.T) {
 		if hex.EncodeToString(s[:]) != f.SHA256 {
 			t.Errorf("%s: the manifest says %s", f.Path, f.SHA256)
 		}
-		if strings.Contains(string(b), "allowed-tools") {
+		skill, name, _ := strings.Cut(f.Path, "/")
+		if name != "SKILL.md" {
+			continue
+		}
+		rest, ok := strings.CutPrefix(string(b), "---\n")
+		front, _, found := strings.Cut(rest, "\n---\n")
+		if !ok || !found {
+			t.Fatalf("%s has no front matter", f.Path)
+		}
+		var meta map[string]any
+		if err := yaml.Unmarshal([]byte(front), &meta); err != nil {
+			t.Fatalf("%s: front matter: %v", f.Path, err)
+		}
+		if meta["name"] != skill {
+			t.Errorf("%s is named %v, want %s", f.Path, meta["name"], skill)
+		}
+		if _, ok := meta["allowed-tools"]; ok {
 			t.Errorf("%s pre-allows tools; a bundled skill never does", f.Path)
 		}
 	}
