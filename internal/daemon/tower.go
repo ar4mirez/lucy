@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ar4mirez/lucy/internal/converge"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/pipeline"
 	"github.com/ar4mirez/lucy/internal/policy"
@@ -225,38 +226,53 @@ func ready(res spec.Result) bool {
 	return false
 }
 
-// run steps the Tower every poll interval until ctx ends; a step's error is logged, not fatal.
-func (h *hostedTower) run(ctx context.Context, poll time.Duration) {
-	t := time.NewTicker(poll)
-	defer t.Stop()
-	for {
-		h.step(ctx)
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-		}
-	}
+// run runs the Tower's converge loop until ctx ends (LUCY-SPEC-008): it steps every flight when the
+// log changes (a Pilot's heartbeat, an answer, an approval), at least every poll interval while a
+// flight is active (to watch what the log does not carry: the forge, a Pilot's silence), and
+// backs off after a step fails.
+func (h *hostedTower) run(ctx context.Context, store *eventstore.Store, poll time.Duration) {
+	converge.Run(ctx, towerLoop{h}, store, converge.Options{Resync: max(poll, converge.DefaultResync),
+		MinInterval: min(poll, converge.DefaultMinInterval), Log: h.log})
 }
 
-// step steps the Tower once and logs each flight's step error, except the stub forge's refusal,
-// which every flight in review meets on every step.
-func (h *hostedTower) step(ctx context.Context) {
+// towerLoop is the Tower's converge loop body. A Tower step is level-triggered: each flight acts on
+// the state it rebuilt from the log and what the runtime and forge report now, and records only
+// what changed.
+type towerLoop struct{ h *hostedTower }
+
+func (towerLoop) Name() string { return "tower" }
+
+func (l towerLoop) Reconcile(ctx context.Context) (time.Time, error) {
+	err := l.h.step(ctx)
+	l.h.mu.Lock()
+	next, active := l.h.tw.NextWake()
+	l.h.mu.Unlock()
+	if !active {
+		next = time.Time{}
+	}
+	return next, err
+}
+
+// step steps the Tower once. It returns the flights' step errors but the stub forge's refusal,
+// which every flight in review meets on every step and which no backoff would change.
+func (h *hostedTower) step(ctx context.Context) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	err := h.tw.Step(ctx)
 	if err == nil || ctx.Err() != nil {
-		return
+		return nil
 	}
 	errs := []error{err}
 	if j, ok := err.(interface{ Unwrap() []error }); ok {
 		errs = j.Unwrap()
 	}
+	var kept []error
 	for _, e := range errs {
 		if !errors.Is(e, errNoForge) {
-			h.log.Warn("tower step failed", "err", e)
+			kept = append(kept, e)
 		}
 	}
+	return errors.Join(kept...)
 }
 
 // towerPipeline is what the Tower takes from a Pipeline: how many lost Pilots it replaces, whether

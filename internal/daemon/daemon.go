@@ -22,6 +22,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/audit"
 	"github.com/ar4mirez/lucy/internal/capability"
 	"github.com/ar4mirez/lucy/internal/config"
+	"github.com/ar4mirez/lucy/internal/converge"
 	"github.com/ar4mirez/lucy/internal/decision"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/gateway"
@@ -297,12 +298,12 @@ func Run(ctx context.Context, opts Options) error {
 	expiring := make(chan struct{})
 	go func() {
 		defer close(expiring)
-		expireLeases(ctx, broker, caps, log)
+		expireLeases(ctx, store, broker, caps, log)
 	}()
 	towering := make(chan struct{})
 	go func() {
 		defer close(towering)
-		hosted.run(ctx, poll)
+		hosted.run(ctx, store, poll)
 	}()
 	log.Info("lucy daemon serving", "socket", sock, "api", api.Path, "version", opts.Version)
 	if opts.OnReady != nil {
@@ -339,33 +340,41 @@ func Run(ctx context.Context, opts Options) error {
 	return nil
 }
 
-// expireLeases expires runner leases that were not renewed in time, every ExpiryInterval, until
-// ctx ends. A run whose runner went silent is then lost, and its fence refused (LUCY-RUN-001), and
-// the capability tokens of every run no longer leased under them are revoked (LUCY-CRED-003).
-func expireLeases(ctx context.Context, b *runner.Broker, caps *capability.Issuer, log *slog.Logger) {
-	t := time.NewTicker(ExpiryInterval)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-		}
-		n, err := b.Expire(ctx)
-		switch {
-		case err != nil && ctx.Err() == nil:
-			log.Warn("could not expire runner leases", "err", err)
-		case n > 0:
-			log.Info("runner leases expired", "runs", n)
-		}
-		n, err = caps.RevokeEnded(ctx)
-		switch {
-		case err != nil && ctx.Err() == nil:
-			log.Warn("could not revoke ended runs' capabilities", "err", err)
-		case n > 0:
-			log.Info("capabilities of ended runs revoked", "capabilities", n)
-		}
+// expireLeases runs the lease converge loop until ctx ends (LUCY-SPEC-008): it expires runner
+// leases that were not renewed in time, at least every ExpiryInterval, so a run whose runner went
+// silent is lost and its fence refused (LUCY-RUN-001), and it revokes the capability tokens of every
+// run no longer leased under them (LUCY-CRED-003). A change to the log wakes it too, so a finished
+// run's token is revoked when its end is recorded, not on the next sweep.
+func expireLeases(ctx context.Context, store *eventstore.Store, b *runner.Broker, caps *capability.Issuer, log *slog.Logger) {
+	converge.Run(ctx, leaseLoop{b: b, caps: caps, log: log}, store, converge.Options{Resync: ExpiryInterval, MinInterval: time.Second, Log: log})
+}
+
+// leaseLoop is the lease converge loop's body: idempotent, since an expired lease or a revoked token
+// is not expired or revoked again.
+type leaseLoop struct {
+	b    *runner.Broker
+	caps *capability.Issuer
+	log  *slog.Logger
+}
+
+func (leaseLoop) Name() string { return "leases" }
+
+func (l leaseLoop) Reconcile(ctx context.Context) (time.Time, error) {
+	n, err := l.b.Expire(ctx)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("expire runner leases: %w", err)
 	}
+	if n > 0 {
+		l.log.Info("runner leases expired", "runs", n)
+	}
+	n, err = l.caps.RevokeEnded(ctx)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("revoke ended runs' capabilities: %w", err)
+	}
+	if n > 0 {
+		l.log.Info("capabilities of ended runs revoked", "capabilities", n)
+	}
+	return time.Now().Add(ExpiryInterval), nil
 }
 
 // lastEvent returns the time of the newest event in the log, before this start appends any: when

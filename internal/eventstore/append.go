@@ -40,10 +40,11 @@ func (e *ConflictError) Is(target error) bool { return target == ErrConflict }
 // Tx is one write transaction. Everything done through it, every append and the projector updates
 // they cause and every ack, commits together or not at all.
 type Tx struct {
-	s      *Store
-	tx     *sql.Tx
-	done   bool
-	broken error // set when a write failed partway; the transaction can then only roll back
+	s        *Store
+	tx       *sql.Tx
+	done     bool
+	broken   error // set when a write failed partway; the transaction can then only roll back
+	appended bool  // an event was written, so a commit wakes Changed's waiters
 }
 
 // Update runs fn in one write transaction and commits if it returns nil. Writes are serialized, so
@@ -64,7 +65,13 @@ func (s *Store) Update(ctx context.Context, fn func(tx *Tx) error) error {
 	if tx.broken != nil {
 		return fmt.Errorf("eventstore: transaction rolled back after a failed write: %w", tx.broken)
 	}
-	return sqlTx.Commit()
+	if err := sqlTx.Commit(); err != nil {
+		return err
+	}
+	if tx.appended {
+		s.wakeWaiters()
+	}
+	return nil
 }
 
 // Append appends events to one stream in their own transaction. See Tx.Append.
@@ -125,6 +132,7 @@ func (tx *Tx) Append(ctx context.Context, stream string, expected int64, actor s
 		tx.broken = err
 		return nil, err
 	}
+	tx.appended = true
 	return out, nil
 }
 
