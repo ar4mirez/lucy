@@ -707,6 +707,26 @@ func (t *Tower) Answer(ctx context.Context, id, answer string) error {
 	return t.record(ctx, f, ActorOwner, PilotAnswered{Session: f.session, AnswerSHA256: hex.EncodeToString(sum[:])})
 }
 
+// ErrProposalStale is a Propose for a question that is no longer the one open: answered, replaced
+// by another, its flight no longer asking, or proposed on already.
+var ErrProposalStale = errors.New("tower: the question is no longer open, or already has a proposal")
+
+// Propose records a supervisor's proposal that arrives after the step that asked for it: a
+// supervisor that calls a model answers later, off the Tower's step (LUCY-RUN-010). It is recorded
+// only for the question e names, still open in e's session and with no proposal yet, and, like
+// every proposal, it never reaches the Pilot or closes the question. Tower questions are never
+// proposed on.
+func (t *Tower) Propose(ctx context.Context, e Escalation, p Proposal) error {
+	f, ok := t.flights[e.Flight]
+	if !ok || f.state != StateAsking || f.need != "" || f.session != e.Session || f.question != e.Question || f.proposal.By != "" {
+		return ErrProposalStale
+	}
+	if strings.TrimSpace(p.Answer) == "" || !strings.HasPrefix(p.By, "supervisor/") {
+		return errors.New("tower: a proposal needs an answer and a supervisor/ name")
+	}
+	return t.record(ctx, f, ActorDaemon, AnswerProposed{Session: f.session, By: capText(p.By), Answer: capText(p.Answer)})
+}
+
 // Approve records the owner's approval of the flight's merge, bound to the pull request's facts
 // as the Tower last recorded them: what the owner was shown. A later push or base change makes it
 // stale, and the policy engine then denies the merge (LUCY-POL-002). The owner's decide command
@@ -891,7 +911,7 @@ func (t *Tower) supervise(ctx context.Context, f *flight) error {
 	}
 	f.supervised = true
 	p, ok, err := t.cfg.Supervisor.ProposeAnswer(ctx, Escalation{Org: f.spec.Org, Flight: f.spec.ID, Project: f.spec.Project,
-		Goal: f.spec.Goal, Posture: f.spec.Posture, Question: f.question})
+		Session: f.session, Goal: f.spec.Goal, Posture: f.spec.Posture, Question: f.question})
 	if err != nil || !ok || strings.TrimSpace(p.Answer) == "" || !strings.HasPrefix(p.By, "supervisor/") {
 		return nil
 	}

@@ -72,6 +72,8 @@ type Options struct {
 	CallTimeout time.Duration     // DefaultCallTimeout when zero
 	OnShutdown  func()            // called by daemon.shutdown once it is recorded; must not block
 	Refused     func() int64      // the socket's refused-connection count, for status.get
+	// Supervisors reports each opted-in org's model supervisor, for status.get; none when nil.
+	Supervisors func(ctx context.Context) ([]api.SupervisorUsage, error)
 	// PolicyFacts gathers the facts policy.evaluate decides on, from the daemon's trusted sources.
 	// Nil means no facts are known, so every privileged action is denied or escalated.
 	PolicyFacts func(ctx context.Context, req policy.Request) (policy.Facts, error)

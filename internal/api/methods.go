@@ -150,13 +150,26 @@ type Health struct {
 
 // Status answers status.get.
 type Status struct {
-	ServerVersion      string    `json:"server_version" doc:"The daemon's lucy version."`
-	APIVersion         int       `json:"api_version" doc:"The API version served."`
-	PID                int       `json:"pid" doc:"The daemon's process id."`
-	StartedAt          time.Time `json:"started_at" doc:"When the daemon started, UTC."`
-	UptimeSeconds      int64     `json:"uptime_seconds" doc:"Seconds since the daemon started."`
-	EventHead          int64     `json:"event_head" doc:"Sequence number of the last event in the log; 0 when empty."`
-	RefusedConnections int64     `json:"refused_connections" doc:"Socket connections refused since start (another user, or no peer credentials)."`
+	ServerVersion      string            `json:"server_version" doc:"The daemon's lucy version."`
+	APIVersion         int               `json:"api_version" doc:"The API version served."`
+	PID                int               `json:"pid" doc:"The daemon's process id."`
+	StartedAt          time.Time         `json:"started_at" doc:"When the daemon started, UTC."`
+	UptimeSeconds      int64             `json:"uptime_seconds" doc:"Seconds since the daemon started."`
+	EventHead          int64             `json:"event_head" doc:"Sequence number of the last event in the log; 0 when empty."`
+	RefusedConnections int64             `json:"refused_connections" doc:"Socket connections refused since start (another user, or no peer credentials)."`
+	Supervisors        []SupervisorUsage `json:"supervisors" doc:"Each org that opts into a model supervisor: its tokens today against its daily budget."`
+}
+
+// SupervisorUsage is one org's model supervisor (LUCY-RUN-010), which only proposes answers.
+type SupervisorUsage struct {
+	Org         string `json:"org" doc:"The org."`
+	Armed       bool   `json:"armed" doc:"Whether the daemon was started with --supervise; without it the org's questions go to the owner with no model call."`
+	Day         string `json:"day" doc:"The UTC day the tokens are counted in, YYYY-MM-DD."`
+	Tokens      int64  `json:"tokens" doc:"Tokens the supervisor spent for the org on that day, input and output."`
+	DailyTokens int64  `json:"daily_tokens" doc:"The org's daily budget; once spent, questions go straight to the owner."`
+	SmallModel  string `json:"small_model" doc:"The model asked first."`
+	LargeModel  string `json:"large_model" doc:"The model asked when the small one is not confident."`
+	Route       string `json:"route" doc:"The org's gateway route its model calls go through."`
 }
 
 // Event list bounds.

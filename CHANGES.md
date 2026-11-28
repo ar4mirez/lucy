@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 52
+version: 53
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -16,6 +16,13 @@ Changes since the last release. When a version is cut, its section moves to
 
 ### Added
 
+- A model supervisor can suggest answers to Pilots' questions. An org opts in through its Airspace
+  (`spec.supervisor`: a gateway route, a small and a large model, a daily token budget) and the
+  daemon arms it with `lucy daemon --supervise`; both are needed, and it is off by default. Its model
+  calls go only through the org's credential gateway, with a short-lived capability bound to that
+  route, so the daemon holds no key. It suggests only: you answer. `lucy status` shows each org's
+  tokens today against its budget (OpenRPC revision 25); a spent budget, a refusal or an error
+  leaves the question to you, recorded as `supervisor.declined`.
 - A supervisor can suggest an answer to a Pilot's question. The suggestion is recorded
   (`task.answer_proposed`, naming the supervisor) and shown beside the question in `lucy
   questions` and `lucy decisions`; it never reaches the Pilot and never closes the question, under

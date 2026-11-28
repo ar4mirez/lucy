@@ -163,3 +163,55 @@ func TestTheSameQuestionAskedAgainIsProposedOnAgain(t *testing.T) {
 		t.Fatalf("%d proposals recorded, want 2: %v", n, logs[0])
 	}
 }
+
+// A proposal that arrives after its step, as a model supervisor's does, is recorded through
+// Tower.Propose only for the question still open in the same session; a stale one is refused, and
+// a recorded one still never reaches the Pilot (LUCY-RUN-010).
+func TestALateProposalIsRecordedOnlyForTheOpenQuestion(t *testing.T) {
+	ctx := context.Background()
+	s := &fakeSupervisor{} // declines in the step: the proposal comes later
+	w := supervisedWorld(t, 83, s)
+	dispatch(t, w, spec("f1", policy.PostureGreen), askingScript()...)
+	run(t, w, RunOptions{})
+	if len(s.asked) != 1 {
+		t.Fatalf("asked %d times", len(s.asked))
+	}
+	e := s.asked[0]
+	if e.Session == "" || e.Question != "which region?" {
+		t.Fatalf("the escalation %+v", e)
+	}
+	for name, stale := range map[string]tower.Escalation{
+		"another question": {Flight: e.Flight, Session: e.Session, Question: "which zone?"},
+		"another session":  {Flight: e.Flight, Session: e.Session + "x", Question: e.Question},
+		"another flight":   {Flight: "f2", Session: e.Session, Question: e.Question},
+	} {
+		if err := w.Tower.Propose(ctx, stale, tower.Proposal{By: "supervisor/test", Answer: "eu-west"}); !errors.Is(err, tower.ErrProposalStale) {
+			t.Errorf("%s: %v, want ErrProposalStale", name, err)
+		}
+	}
+	if err := w.Tower.Propose(ctx, e, tower.Proposal{By: "someone", Answer: "eu-west"}); err == nil {
+		t.Fatal("a proposal not named supervisor/ was recorded")
+	}
+	if err := w.Tower.Propose(ctx, e, tower.Proposal{By: "supervisor/test", Answer: "eu-west"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Tower.Propose(ctx, e, tower.Proposal{By: "supervisor/test", Answer: "us-east"}); !errors.Is(err, tower.ErrProposalStale) {
+		t.Fatalf("a second proposal: %v", err)
+	}
+	run(t, w, RunOptions{})
+	stepAfter(t, w, 24*time.Hour)
+	if st := state(t, w, "f1"); st.State != tower.StateAsking || st.Proposed != "eu-west" {
+		t.Fatalf("flight %+v", st)
+	}
+	for _, a := range w.Runtime.Answers {
+		if len(a) > 0 {
+			t.Fatalf("the Pilot got %v", a)
+		}
+	}
+	if err := w.Tower.Answer(ctx, "f1", "us-east"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Tower.Propose(ctx, e, tower.Proposal{By: "supervisor/test", Answer: "eu-west"}); !errors.Is(err, tower.ErrProposalStale) {
+		t.Fatalf("after the owner's answer: %v", err)
+	}
+}

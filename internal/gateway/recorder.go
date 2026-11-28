@@ -185,9 +185,13 @@ func (s *StoreRecorder) Decide(ctx context.Context, org string, u Use) (Decision
 	if refused != "" {
 		return Decision{Rule: "capability", Reason: refused}, nil
 	}
+	whom := policy.Input{Source: policy.SourceTask, Ref: "run/" + c.Run}
+	if c.IsSupervisor() {
+		whom = policy.Input{Source: policy.SourceAgent, Ref: c.Run} // supervisor/<org>, bound to no run (LUCY-RUN-010)
+	}
 	req := policy.Request{Actor: a, Kind: policy.KindCredentialUse,
 		Target: policy.Target{Org: org, Resource: rt.Credential},
-		Inputs: []policy.Input{{Source: policy.SourceConfig, Ref: "route/" + rt.Name}, {Source: policy.SourceTask, Ref: "run/" + c.Run},
+		Inputs: []policy.Input{{Source: policy.SourceConfig, Ref: "route/" + rt.Name}, whom,
 			{Source: policy.SourceAgent, Ref: "gateway/" + rt.Name}}}
 	facts := policy.Facts{CredentialScope: rt.Scope}
 	d := policy.Evaluate(req, facts)

@@ -2,9 +2,9 @@
 id: tech-capability
 title: Capability tokens
 status: active
-version: 4
+version: 5
 owner: ar4mirez
-requirements: [LUCY-CRED-003]
+requirements: [LUCY-CRED-003, LUCY-RUN-010]
 ---
 
 # Capability tokens
@@ -39,6 +39,12 @@ is `internal/capability`; the gateway checks tokens through the daemon
   before the daemon records the expiry. A refused token is recorded as `gateway.denied` with its
   id and run and the reason (unknown, revoked, expired, out of scope, run ended); a cleared request
   records the run and capability id with its decision, and the run is an input of the decision.
+- **Supervisor capabilities** (LUCY-RUN-010). The one kind bound to no run: for each model call
+  of an org's supervisor, the daemon issues a token whose principal is `supervisor/<org>` (where a
+  run's token records its run, with fence 0), for the org's one model route, expiring two minutes
+  on and never more than ten. It is recorded, listed and revoked like any; the gateway verifies it
+  the same way, with no lease to check, and the run sweep leaves it to expire. A run token can never
+  take that principal. The daemon uses the token in the call and keeps only its digest.
 - **Revoke.** The owner revokes one by its id (`capability.revoke`, `lucy capability revoke`),
   recorded as `capability.revoked`; the gateway refuses it from then on. `capabilities.list` and
   `lucy capability ls` show ids, org, run, routes and times, never a token.
