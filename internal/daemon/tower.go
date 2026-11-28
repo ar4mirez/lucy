@@ -438,13 +438,6 @@ func (h *hostedTower) tighten(ctx context.Context, set *spec.Set) int {
 	return n
 }
 
-// Reload is what a reload of the config directory did.
-type Reload struct {
-	Applied   bool     // the new config replaced the old: it had no refused resource
-	Refused   []string // the refused resources, as "source: reason: message", when not applied
-	Tightened int      // flights in flight moved to a stricter posture
-}
-
 // reload loads the config directory again and re-runs admission, without a restart
 // (LUCY-POL-005). A load with no refused resource replaces the config the daemon runs on: its
 // statuses are recorded, its Ready Flights dispatched (with dispatch on) and its flights in flight
@@ -453,15 +446,15 @@ type Reload struct {
 // AutonomyPolicy became invalid or vanished; the last good config stays for everything else. A
 // loosening is never applied to a flight in flight.
 func (h *hostedTower) reload(ctx context.Context, store *eventstore.Store, dir string, enabled bool, gate func(org, project string) error,
-	refresh func(set spec.Set) error) (Reload, error) {
+	refresh func(set spec.Set) error) (api.ReloadResult, error) {
 	h.reloadMu.Lock()
 	defer h.reloadMu.Unlock()
 	next, err := loadResources(dir)
 	if err != nil {
-		return Reload{}, err // nothing is known about the new config: keep the last good one whole
+		return api.ReloadResult{}, err // nothing is known about the new config: keep the last good one whole
 	}
 	if next.Invalid() > 0 {
-		out := Reload{Tightened: h.tighten(ctx, &next)}
+		out := api.ReloadResult{Tightened: h.tighten(ctx, &next)}
 		for _, r := range next.Results {
 			if !r.Valid() {
 				c, _ := r.Condition(spec.ConditionValid)
@@ -472,13 +465,11 @@ func (h *hostedTower) reload(ctx context.Context, store *eventstore.Store, dir s
 			"refused", len(out.Refused), "tightened", out.Tightened)
 		return out, nil
 	}
-	if refresh != nil {
-		if err := refresh(next); err != nil {
-			return Reload{}, err
-		}
+	if err := refresh(next); err != nil {
+		return api.ReloadResult{}, err
 	}
 	h.dispatch(ctx, &next, enabled, gate)
-	out := Reload{Applied: true, Tightened: h.tighten(ctx, &next)}
+	out := api.ReloadResult{Applied: true, Tightened: h.tighten(ctx, &next)}
 	h.mu.Lock()
 	h.set = &next
 	h.mu.Unlock()

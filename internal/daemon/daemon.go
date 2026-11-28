@@ -305,8 +305,7 @@ func Run(ctx context.Context, opts Options) error {
 		Approvals:    server.TowerQuestions{Tower: hosted.tw, Lock: &hosted.mu},
 		Flights:      hosted.flights,
 		Reload: func(ctx context.Context) (api.ReloadResult, error) {
-			r, err := hosted.reload(ctx, store, opts.ResourcesDir, opts.Dispatch, gate, refresh)
-			return api.ReloadResult{Applied: r.Applied, Refused: r.Refused, Tightened: r.Tightened}, err
+			return hosted.reload(context.WithoutCancel(ctx), store, opts.ResourcesDir, opts.Dispatch, gate, refresh)
 		},
 	})
 	if err != nil {
@@ -323,7 +322,9 @@ func Run(ctx context.Context, opts Options) error {
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 	defer signal.Stop(hup)
+	reloading := make(chan struct{})
 	go func() {
+		defer close(reloading)
 		for {
 			select {
 			case <-ctx.Done():
@@ -372,6 +373,7 @@ func Run(ctx context.Context, opts Options) error {
 	stop(nil)
 	<-expiring
 	<-towering
+	<-reloading
 	worktrees.Wait()
 	if _, err := store.Append(shutdownCtx, DaemonStream, eventstore.AnyVersion, "daemon",
 		Stopped{PID: os.Getpid(), Reason: reason}); err != nil {
