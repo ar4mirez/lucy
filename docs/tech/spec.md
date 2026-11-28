@@ -2,7 +2,7 @@
 id: tech-spec
 title: "lucy: the spec model and audit log"
 status: active
-version: 2
+version: 3
 owner: ar4mirez
 requirements: [LUCY-SPEC-001, LUCY-SPEC-002, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-007, LUCY-SPEC-009, LUCY-SPEC-017]
 ---
@@ -17,7 +17,8 @@ Built in `internal/spec`, `internal/jcs` and `internal/audit` ([D3b](../decision
 
 - **Resources.** Config is ai-sdlc resources: `apiVersion`, `kind`, `metadata`, `spec`
   (LUCY-SPEC-001). The core kinds (`Pipeline`, `AgentRole`, `QualityGate`, `AutonomyPolicy`,
-  `AdapterBinding`) are `ai-sdlc.io/v1alpha1`; lucy's (`Airspace`, `Runway`, `Flight`, `Pilot`,
+  `AdapterBinding`) are `ai-sdlc.io/v1alpha1`, as is `WorktreePool`, an org's worktree pool
+  ([worktree](worktree.md)); lucy's (`Airspace`, `Runway`, `Flight`, `Pilot`,
   schema stubs so far) are `lucy/v1alpha1`. `metadata.namespace` is required and names the
   airspace (LUCY-SPEC-002).
 - **Schemas.** The spec's schemas at commit `b56ceca` are vendored verbatim under

@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 25
+version: 26
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-RUN-005, LUCY-OPS-005, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -175,12 +175,17 @@ dispatched. `lucy config status` shows each Ready Flight's `Dispatched` conditio
 | False / `NameInUse` | a flight of another org or runway holds its name; rename the Flight |
 | False / `Finished` | the flight with its name is finished (grounded, takeoff or merged outside); a new Flight needs a new name |
 | False / `PipelineInvalid` | the org's Pipeline for the Flight's shape (`ship` or `research` in its namespace) is invalid: the spec loader rejected it, or it has a field lucy refuses; the message names it and why. lucy never falls back to its built-in Pipeline; fix the org's Pipeline and restart |
+| False / `WorktreePoolInvalid` | the org's `WorktreePool` cannot be accepted: the spec loader rejected it, it has a field lucy refuses (`rootDir` among them), or the org declares two; the message names it and the field |
 | False / `DispatchFailed` | the Tower refused it; the message says why |
 
 The Tower's forge is a stub that reads no pull request and merges nothing until the validation
 slice. The gate is checked again whenever a run is leased: a run whose Runway names a real remote
 gets the gate as its `worktree_error`, with nothing reserved or cloned, and fails without starting.
 The gateway refuses every git push (see [gateway](../tech/gateway.md)).
+
+`lucy flights` lists every Flight the daemon loaded with its readiness, its `Dispatched` condition
+and the Tower's state of it; `lucy flights --json` writes each as the spec's `BacklogTask`
+document, one per line, for a tool that reads the spec's backlog.
 
 ## Decisions
 

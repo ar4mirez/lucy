@@ -32,6 +32,7 @@ Usage:
   lucy questions
   lucy answer <flight> <answer>...
   lucy decisions [--all] [--json]
+  lucy flights [--json]
   lucy approve <flight>
   lucy sandbox held | confirm <org> <op> <decision>
   lucy gateway --org <org> [--listen <path>]
@@ -54,6 +55,7 @@ Commands:
   audit          verify the hash-chained audit log
   runner         run a runner on this machine: lease runs, run a command for each
   decisions      list the decisions that wait on you
+  flights        list the Flights the daemon loaded; --json as the spec's BacklogTask
   approve        approve, as the owner, the merge a flight holds for
   sandbox        list and confirm org container operations that wait on you
   gateway        run an org's credential gateway
@@ -102,6 +104,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runAnswer(args[1:], stdout, stderr)
 	case "decisions":
 		return runDecisions(args[1:], stdout, stderr)
+	case "flights":
+		return runFlights(args[1:], stdout, stderr)
 	case "approve":
 		return runApprove(args[1:], stdout, stderr)
 	case "runner":

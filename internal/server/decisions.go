@@ -68,3 +68,11 @@ func (s *Server) approve(ctx context.Context, p *api.ApproveParams) (api.Approve
 	}
 	return api.ApproveResult{Flight: st.ID, State: string(st.State)}, nil
 }
+
+func (s *Server) flights(_ context.Context, _ *api.NoParams) (api.FlightList, error) {
+	out := api.FlightList{Flights: []api.FlightInfo{}}
+	if s.opts.Flights != nil {
+		out.Flights = append(out.Flights, s.opts.Flights()...)
+	}
+	return out, nil
+}

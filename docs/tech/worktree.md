@@ -2,9 +2,9 @@
 id: tech-worktree
 title: The worktree pool
 status: active
-version: 3
+version: 4
 owner: ar4mirez
-requirements: [LUCY-RUN-007]
+requirements: [LUCY-RUN-007, LUCY-SPEC-017]
 ---
 
 # The worktree pool
@@ -131,6 +131,19 @@ Where a run's checkout of its repository comes from (TECH.md section 6). The cod
   scratch directory there, since the slot's path is the host's. The remote is
   `https://github.com/<owner>/<name>.git`; the daemon's git has no credentials of its own, so a
   private repository cannot be fetched yet.
+
+## An org's WorktreePool
+
+An org declares its pool with the spec's `WorktreePool` resource (`ai-sdlc.io/v1alpha1`, in its
+namespace, at most one), LUCY-SPEC-017. lucy accepts only what it acts on: `layout` as
+`workspace-scoped` (every slot lives under lucy's data directory, apart from the clone) and
+`cleanup.onMerge` as `true` (a slot is given back once its work has landed). The members the
+loader fills with their schema default (`staleThresholdDays` 14, `basePort` 3190,
+`ownershipGuard` strict, `cleanup.onAbort` and `cleanup.onTimeout` true) are accepted only at that
+default, the same as leaving them out. `rootDir` and every other field are refused by name, as not
+supported yet: the pool's root stays under lucy's guarded data directory. An org whose WorktreePool
+the schema or lucy refuses, or that declares two, has its Flights held with the `Dispatched`
+reason `WorktreePoolInvalid`; lucy's defaults never stand in for a pool it cannot accept.
 
 ## Not built yet
 

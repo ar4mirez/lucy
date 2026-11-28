@@ -47,3 +47,5 @@ file be86babb53a68c3ed967a0ffd1c7ef2ca6515d37c6b3c1847a381007f38b81ea internal/s
 file 4fc80e59ebaa1ca63b1d9e70ef518cd361a71cb244b18507919f60323f5de3a1 internal/spec/testdata/conformance/v1alpha1/quality-gate/valid-cost-rule.yaml conformance/tests/v1alpha1/quality-gate/valid-cost-rule.yaml
 file 316ed34e508247d40351dbe98cf4106b575dfa1dd7df6fbde024a1796833e156 internal/spec/testdata/conformance/v1alpha1/quality-gate/valid-metric-rule.yaml conformance/tests/v1alpha1/quality-gate/valid-metric-rule.yaml
 file bb0983e4aff1d24ea9f483e63b5d945b95ce9b0edfe6b253912e28d01c4f564a internal/spec/testdata/conformance/v1alpha1/quality-gate/valid-tool-rule.yaml conformance/tests/v1alpha1/quality-gate/valid-tool-rule.yaml
+file 467b19502a34a76d6669c09a4ea5a46e52f836da8ec9e9ebfa7742619ac92af0 internal/spec/schemas/ai-sdlc/v1alpha1/backlog-task.v1.schema.json spec/schemas/backlog-task.v1.schema.json
+file 021a2634ac453f4a58544cfd610a9d35cfacceea9e251fa4678a26551d795155 internal/spec/schemas/ai-sdlc/v1alpha1/worktree-pool.schema.json spec/schemas/worktree-pool.schema.json

@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.17.0"
+    "version": "1.18.0"
   },
   "servers": [
     {
@@ -1624,6 +1624,135 @@
           },
           "required": [
             "decisions"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "read",
+      "x-lucy-mutating": false,
+      "x-lucy-group": "query"
+    },
+    {
+      "name": "flights.list",
+      "summary": "Every Flight the daemon loaded, with its goal, its readiness, whether the Tower flies it and the Tower's state of it: lucy's backlog, which lucy flights --json writes as the spec's BacklogTask documents (LUCY-SPEC-017).",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "flights": {
+              "description": "Every Flight the daemon loaded and admitted, sorted by org and name.",
+              "items": {
+                "properties": {
+                  "autonomy": {
+                    "description": "Its autonomy posture: owner, green or client.",
+                    "type": "string"
+                  },
+                  "dispatched": {
+                    "description": "Its Dispatched condition: whether the Tower flies it, and why not; empty (no type) when the Flight is not Ready.",
+                    "properties": {
+                      "last_transition_time": {
+                        "description": "When the status last changed, RFC 3339 UTC.",
+                        "type": "string"
+                      },
+                      "message": {
+                        "description": "What a person needs to know.",
+                        "type": "string"
+                      },
+                      "reason": {
+                        "description": "A machine-readable reason, for example SchemaViolation.",
+                        "type": "string"
+                      },
+                      "status": {
+                        "description": "True, False or Unknown.",
+                        "type": "string"
+                      },
+                      "type": {
+                        "description": "The aspect, for example Valid.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "status"
+                    ],
+                    "type": "object"
+                  },
+                  "goal": {
+                    "description": "What the Flight is for, as its config says. Owner-written.",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "The Flight's name.",
+                    "type": "string"
+                  },
+                  "org": {
+                    "description": "The airspace (org): the Flight's namespace.",
+                    "type": "string"
+                  },
+                  "ready": {
+                    "description": "Its Ready condition: whether it has what dispatch needs.",
+                    "properties": {
+                      "last_transition_time": {
+                        "description": "When the status last changed, RFC 3339 UTC.",
+                        "type": "string"
+                      },
+                      "message": {
+                        "description": "What a person needs to know.",
+                        "type": "string"
+                      },
+                      "reason": {
+                        "description": "A machine-readable reason, for example SchemaViolation.",
+                        "type": "string"
+                      },
+                      "status": {
+                        "description": "True, False or Unknown.",
+                        "type": "string"
+                      },
+                      "type": {
+                        "description": "The aspect, for example Valid.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "status"
+                    ],
+                    "type": "object"
+                  },
+                  "reason": {
+                    "description": "Why the flight is in its state, when the Tower says: a grounding reason, for example.",
+                    "type": "string"
+                  },
+                  "runway": {
+                    "description": "The project it lands on.",
+                    "type": "string"
+                  },
+                  "shape": {
+                    "description": "ship or research.",
+                    "type": "string"
+                  },
+                  "state": {
+                    "description": "The Tower's state of the flight; empty when the Tower does not fly it.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "org",
+                  "name",
+                  "shape",
+                  "ready",
+                  "dispatched"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "flights"
           ],
           "type": "object"
         }

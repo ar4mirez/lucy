@@ -52,7 +52,8 @@ const Version = 1
 // Revision 15 added runner.slot: a read-only query of a held run's worktree state.
 // Revision 16 added decisions.list (the decision catalog) and flights.approve.
 // Revision 17 added the delete action kind to runner.permit.
-const SchemaRevision = 17
+// Revision 18 added flights.list.
+const SchemaRevision = 18
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"

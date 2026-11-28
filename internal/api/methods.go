@@ -56,6 +56,7 @@ const (
 	MethodWtDiscard = "worktree.discard"
 	MethodDecList   = "decisions.list"
 	MethodApprove   = "flights.approve"
+	MethodFlights   = "flights.list"
 )
 
 var methods = []Method{
@@ -76,6 +77,7 @@ var methods = []Method{
 	{MethodFinish, "Finish a leased run with its outcome.", "command", ScopeRun, true, typeOf[FinishParams](), typeOf[FinishResult]()},
 	{MethodPermit, "Ask the policy engine whether a leased run's Pilot may use a prompted file tool; the decision is recorded before it is returned.", "command", ScopeRun, true, typeOf[PermitParams](), typeOf[PermitResult]()},
 	{MethodDecList, "The decisions that wait on the owner, projected from the event log as the spec's Decision resources (RFC-0035): a Pilot's question, a merge holding for approval, a container operation holding for confirmation. Only the owner's recorded word closes one.", "query", ScopeRead, false, typeOf[CatalogParams](), typeOf[CatalogList]()},
+	{MethodFlights, "Every Flight the daemon loaded, with its goal, its readiness, whether the Tower flies it and the Tower's state of it: lucy's backlog, which lucy flights --json writes as the spec's BacklogTask documents (LUCY-SPEC-017).", "query", ScopeRead, false, typeOf[NoParams](), typeOf[FlightList]()},
 	{MethodApprove, "Approve, as the owner, the merge a flight holds for: the Tower then asks the policy engine again with the approval, bound to the facts it holds now.", "command", ScopeDecide, true, typeOf[ApproveParams](), typeOf[ApproveResult]()},
 	{MethodQuestions, "The Pilots' open questions, as the Tower records them: each flight that is asking, oldest first.", "query", ScopeRead, false, typeOf[NoParams](), typeOf[QuestionsList]()},
 	{MethodAnswer, "Answer a flight's open question; the Tower relays the answer to its Pilot and records only its digest.", "command", ScopeDecide, true, typeOf[AnswerParams](), typeOf[AnswerResult]()},
@@ -711,4 +713,23 @@ type ApproveParams struct {
 type ApproveResult struct {
 	Flight string `json:"flight" doc:"The flight approved."`
 	State  string `json:"state" doc:"The flight's state after the approval."`
+}
+
+// FlightList answers flights.list.
+type FlightList struct {
+	Flights []FlightInfo `json:"flights" doc:"Every Flight the daemon loaded and admitted, sorted by org and name."`
+}
+
+// FlightInfo is one Flight: what its config says, and how the daemon and the Tower stand on it.
+type FlightInfo struct {
+	Org        string        `json:"org" doc:"The airspace (org): the Flight's namespace."`
+	Name       string        `json:"name" doc:"The Flight's name."`
+	Goal       string        `json:"goal,omitempty" doc:"What the Flight is for, as its config says. Owner-written."`
+	Shape      string        `json:"shape" doc:"ship or research."`
+	Runway     string        `json:"runway,omitempty" doc:"The project it lands on."`
+	Autonomy   string        `json:"autonomy,omitempty" doc:"Its autonomy posture: owner, green or client."`
+	State      string        `json:"state,omitempty" doc:"The Tower's state of the flight; empty when the Tower does not fly it."`
+	Reason     string        `json:"reason,omitempty" doc:"Why the flight is in its state, when the Tower says: a grounding reason, for example."`
+	Ready      ConditionInfo `json:"ready" doc:"Its Ready condition: whether it has what dispatch needs."`
+	Dispatched ConditionInfo `json:"dispatched" doc:"Its Dispatched condition: whether the Tower flies it, and why not; empty (no type) when the Flight is not Ready."`
 }
