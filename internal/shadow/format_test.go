@@ -89,6 +89,38 @@ func TestRefusals(t *testing.T) {
 	}
 }
 
+// A credential prefix counts only at the start of the text or after a character that is not a
+// letter or digit, so ordinary hyphenated words are not taken for tokens.
+func TestCredentialsAreTokensNotWords(t *testing.T) {
+	withGoal := func(goal string) string {
+		return strings.Replace(task, "fix it", goal, 1) + "\n" + dispatched
+	}
+	for _, goal := range []string{
+		"fix the flaky task-runner-integration-tests",
+		"desk-booking-calendar-sync",
+		"disk-usage-reporting-job",
+		"rotate the akiaxxxxxxxxxxxxxxxx placeholder",
+	} {
+		if _, err := shadow.Parse(strings.NewReader(withGoal(goal))); err != nil {
+			t.Errorf("goal %q: %v, want accepted", goal, err)
+		}
+	}
+	for name, token := range map[string]string{
+		"an sk- token":   "s" + "k-" + strings.Repeat("a1", 12),
+		"an lcap_ token": "lc" + "ap_" + strings.Repeat("b2", 12),
+		"an AKIA key id": "AK" + "IA" + strings.Repeat("Q7", 8),
+		"a ghp_ token":   fakeToken,
+		"a quoted ghp_":  "(" + fakeToken + ")",
+	} {
+		for _, goal := range []string{token, "use " + token + " here"} {
+			_, err := shadow.Parse(strings.NewReader(withGoal(goal)))
+			if !errors.Is(err, shadow.ErrRefused) || !strings.Contains(err.Error(), "credential") {
+				t.Errorf("%s in %q: %v, want refused as a credential", name, goal, err)
+			}
+		}
+	}
+}
+
 func TestTaskRefusalsNameTheLine(t *testing.T) {
 	second := strings.ReplaceAll(task, "t-1", "t-2")
 	act2 := func(rest string) string { return strings.Replace(act(rest), "t-1", "t-2", 1) }

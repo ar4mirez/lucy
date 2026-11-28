@@ -84,8 +84,10 @@ var (
 )
 
 // credential matches values that look like a credential: known token prefixes, private key
-// blocks, JWTs and cloud access key ids. A file holding one is refused whole.
-var credential = regexp.MustCompile(`(?i)(gh[pousr]_[a-z0-9]{16,}|github_pat_|glpat-|xox[abprs]-|sk-[a-z0-9_-]{16,}|sk_(live|test)_|rk_(live|test)_|lcap_|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY|eyJ[a-z0-9_-]{8,}\.eyJ[a-z0-9_-]{8,}|AIza[0-9a-z_-]{35}|npm_[a-z0-9]{36})`)
+// blocks, JWTs and cloud access key ids, each starting the text or following a character that is
+// not a letter or digit, so a word such as task-runner-integration-tests is not one. A file
+// holding one is refused whole.
+var credential = regexp.MustCompile(`(?:^|[^A-Za-z0-9])(?:(?i:gh[pousr]_[a-z0-9]{16,}|github_pat_|glpat-|xox[abprs]-|sk-[a-z0-9_-]{16,}|sk_(?:live|test)_|rk_(?:live|test)_|lcap_|eyJ[a-z0-9_-]{8,}\.eyJ[a-z0-9_-]{8,}|npm_[a-z0-9]{36})|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY|AIza[0-9A-Za-z_-]{35})`)
 
 // ErrRefused wraps every reason a file, a line or a task is refused.
 var ErrRefused = errors.New("shadow: refused")
