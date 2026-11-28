@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 42
+version: 44
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,14 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Added
+
+- Demoting a Runway's autonomy level now tightens its flights already in flight, at the daemon's
+  next start: each moves to the stricter posture, recorded as `task.posture_tightened` with the old
+  and new posture and why, and its next merge is decided again under it. A promotion applies only
+  to Flights dispatched afterwards, never to one in flight. A flight whose posture can no longer be
+  resolved from the config moves to owner (a client flight stays client): its Runway is removed or
+  refused, its Runway's AutonomyPolicy is removed or has a field lucy refuses, or neither its Runway
+  nor its Flight states a posture any more.
 
 - A project's merge posture can come from the spec's AutonomyPolicy: a Runway names a policy and a
   level (`autonomyPolicy`, `autonomyLevel`), and lucy reads only that level's
