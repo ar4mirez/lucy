@@ -3,6 +3,7 @@ package spec
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // ConditionOverride is the condition an admitted QualityGate carries when a gate of it names who
@@ -62,7 +63,8 @@ func GateOverrides(r Resource) []string {
 }
 
 // overrideMessage lists the entries GateOverrides names, up to maxOverrideMessage, ending with
-// "and N more" when the rest do not fit.
+// "and N more" when the rest do not fit; a first entry too long to fit is cut short, so the message
+// always names at least one gate.
 func overrideMessage(named []string) string {
 	const prefix = "only the owner may override a gate; not acted on: "
 	msg := prefix
@@ -78,9 +80,17 @@ func overrideMessage(named []string) string {
 		}
 		if len(msg)+len(sep)+len(e)+reserve > maxOverrideMessage {
 			if i > 0 {
-				msg += ", "
+				return msg + fmt.Sprintf(", and %d more", len(named)-i)
 			}
-			return msg + fmt.Sprintf("and %d more", len(named)-i)
+			n := max(maxOverrideMessage-len(msg)-len("...")-reserve, 0)
+			for n > 0 && !utf8.RuneStart(e[n]) {
+				n--
+			}
+			msg += e[:n] + "..."
+			if rest > 0 {
+				msg += fmt.Sprintf(", and %d more", rest)
+			}
+			return msg
 		}
 		msg += sep + e
 	}

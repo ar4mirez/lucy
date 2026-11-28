@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func gate(override, rule string) string {
@@ -94,5 +95,32 @@ func TestOverrideMessageIsComplete(t *testing.T) {
 	}
 	if rec := recorded(results[0]); len(rec) == 0 || rec[len(rec)-1].Message != cond.Message {
 		t.Errorf("recorded status %+v does not carry the whole message %q", rec, cond.Message)
+	}
+}
+
+// A single visual gate whose approvers alone exceed the cap is still named, cut short at a rune
+// boundary, with the gates after it counted.
+func TestOverrideMessageNamesTheFirstGate(t *testing.T) {
+	approvers := make([]string, 60)
+	for i := range approvers {
+		approvers[i] = fmt.Sprintf("désigner-%02d", i)
+	}
+	doc := gate("", "{ visualRegression: true, designSystem: web, override: { approvers: ["+strings.Join(approvers, ", ")+"] } }") +
+		"    - name: second\n      enforcement: soft-mandatory\n      rule: { metric: line-coverage, operator: '>=', threshold: 80 }\n" +
+		"      override: { requiredRole: engineering-manager, requiresJustification: true }\n"
+	results := LoadFile("g.yaml", []byte(doc))
+	if !results[0].Valid() {
+		t.Fatalf("not admitted: %+v", results[0].Conditions)
+	}
+	markOverrides(results)
+	cond, ok := results[0].Condition(ConditionOverride)
+	if !ok {
+		t.Fatalf("no Override condition: %+v", results[0].Conditions)
+	}
+	if len(cond.Message) > maxOverrideMessage || !utf8.ValidString(cond.Message) {
+		t.Errorf("message %q (%d bytes) is over the cap or not valid UTF-8", cond.Message, len(cond.Message))
+	}
+	if !strings.Contains(cond.Message, "coverage (approvers désigner-00") || !strings.HasSuffix(cond.Message, "..., and 1 more") {
+		t.Errorf("message %q does not name the first gate and count the second", cond.Message)
 	}
 }
