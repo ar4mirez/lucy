@@ -49,8 +49,9 @@ type PilotStartFailed struct {
 }
 
 // PostureTightened records a flight in flight moved to a stricter posture: its Runway was demoted,
-// its own autonomy tightened, or its Runway's AutonomyPolicy became invalid (then owner). A posture
-// is never loosened in flight: a promotion applies only to flights dispatched after it.
+// its own autonomy tightened, or its posture can no longer be resolved from the config (then
+// owner). A posture is never loosened in flight: a promotion applies only to flights dispatched
+// after it.
 type PostureTightened struct {
 	From   policy.Posture `json:"from"`
 	To     policy.Posture `json:"to"`

@@ -371,7 +371,8 @@ func flightPosture(set *spec.Set, f spec.Resource) (policy.Posture, error) {
 // (LUCY-POL-005): its Runway's AutonomyPolicy level was demoted, or its Flight's own autonomy
 // tightened. A flight whose posture can no longer be resolved from the config moves to owner: its
 // Runway is gone or refused, its Runway's AutonomyPolicy can no longer be read, or neither its
-// Runway nor its Flight states a posture any more. A flight is never loosened in flight: a promotion applies only to flights dispatched after it.
+// Runway nor its Flight states a posture any more. A flight is never loosened in flight: a
+// promotion applies only to flights dispatched after it.
 func (h *hostedTower) tighten(ctx context.Context, set *spec.Set) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
