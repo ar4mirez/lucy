@@ -47,7 +47,7 @@ type Projector struct{}
 func (Projector) Name() string { return "runner_runs" }
 
 // Version implements eventstore.Projector.
-func (Projector) Version() int { return 8 }
+func (Projector) Version() int { return 9 }
 
 // Reset implements eventstore.Projector.
 func (Projector) Reset(ctx context.Context, tx eventstore.Execer) error {
@@ -207,7 +207,11 @@ func (Projector) Apply(ctx context.Context, tx eventstore.Execer, e eventstore.E
 			return err
 		}
 		q = `UPDATE runner_runs SET version = ?, state = ?, pr = ?, reason = ?, asking = 0, question = '', ended_ns = ? WHERE run = ?`
-		args = []any{e.StreamVersion, string(finalState(p.Outcome)), p.PR, p.Reason, at, run}
+		reason := p.Reason
+		if p.Outcome == OutcomeNeedsOwner {
+			reason = p.Need // the run's reason is the need: a known value, never runner text
+		}
+		args = []any{e.StreamVersion, string(finalState(p.Outcome)), p.PR, reason, at, run}
 	case Expired{}.EventType():
 		q = `UPDATE runner_runs SET version = ?, state = ?, reason = ?, asking = 0, question = '', ended_ns = ? WHERE run = ?`
 		args = []any{e.StreamVersion, string(StateLost), "the lease expired", at, run}
@@ -234,6 +238,8 @@ func finalState(o Outcome) State {
 		return StateStopped
 	case OutcomeLost:
 		return StateLost
+	case OutcomeNeedsOwner:
+		return StateNeedsOwner
 	}
 	return StateFailed
 }

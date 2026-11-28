@@ -178,6 +178,13 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 			pe.cleanup()
 			return nil, err
 		}
+		if need := harnessNeeds(p.Harness, orgHome); need != "" {
+			// The harness cannot run on its own (no login in the org's home): hold the run for the
+			// owner rather than start a session that would wait on a prompt for ever (LUCY-RUN-008).
+			pe.cleanup()
+			log.Warn("the harness needs the owner first: the run is held, not started", "run", l.Run, "need", need)
+			return needsOwner{need}, nil
+		}
 		if len(changed) > 0 {
 			log.Info("harness account state re-asserted in the org's home", "run", l.Run, "changed", changed)
 			pe.lines = append(pe.lines, Event{Kind: KindOutput, Text: "lucy: the harness's account state was re-asserted in the org's home: " + strings.Join(changed, ", ")})
@@ -650,3 +657,28 @@ func convergeHome(conv harness.Converger, orgHome, work string) ([]string, error
 	}
 	return changed, nil
 }
+
+// harnessNeeds asks a harness that can tell whether it needs the owner before a spawn.
+func harnessNeeds(h harness.Adapter, orgHome string) string {
+	pre, ok := h.(harness.Prerequisite)
+	if !ok {
+		return ""
+	}
+	r, err := os.OpenRoot(orgHome)
+	if err != nil {
+		return ""
+	}
+	defer r.Close() //nolint:errcheck // a read-only handle's close error is no news
+	return pre.Needs(r)
+}
+
+// needsOwner is the Execution of a run that did not start: its harness needs the owner first.
+type needsOwner struct{ need string }
+
+// Poll implements Execution: the run is over at once, held for the owner.
+func (n needsOwner) Poll() Update {
+	return Update{Result: &Result{Outcome: OutcomeNeedsOwner, Need: n.need}}
+}
+
+// Stop implements Execution: nothing runs.
+func (needsOwner) Stop() {}

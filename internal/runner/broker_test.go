@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ar4mirez/lucy/internal/harness"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -637,4 +638,33 @@ func (testPlacement) VerifyPlacement(_ context.Context, _, _, proof string) erro
 		return errors.New("not a placement proof")
 	}
 	return nil
+}
+
+// A run whose harness needs the owner finishes as needs_owner, naming a known need, which is the
+// run's reason (LUCY-RUN-008). Only a needs_owner run names a need, and only a known one.
+func TestFinishNeedsOwner(t *testing.T) {
+	ctx := context.Background()
+	f := open(t)
+	if err := f.b.Submit(ctx, Task{Run: "a#1", Org: "acme", Project: "web", Flight: "a", Generation: 1, Goal: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	l, ok, err := f.b.Lease(ctx, "r1", PlacementHost, "acme", "", 0)
+	if err != nil || !ok {
+		t.Fatalf("lease: %v, %v", ok, err)
+	}
+	for _, bad := range []Result{
+		{Outcome: OutcomeNeedsOwner},
+		{Outcome: OutcomeNeedsOwner, Need: "a root shell"},
+		{Outcome: OutcomeFailed, Need: harness.NeedLogin},
+	} {
+		if err := f.b.Finish(ctx, "r1", l.Run, l.Fence, bad); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%+v: %v, want ErrInvalid", bad, err)
+		}
+	}
+	if err := f.b.Finish(ctx, "r1", l.Run, l.Fence, Result{Outcome: OutcomeNeedsOwner, Need: harness.NeedLogin, Reason: "ignored text"}); err != nil {
+		t.Fatal(err)
+	}
+	if ri := f.run("a#1"); ri.State != StateNeedsOwner || ri.Reason != harness.NeedLogin || !ri.State.Final() {
+		t.Fatalf("run %+v", ri)
+	}
 }

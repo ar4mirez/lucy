@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 31
+version: 32
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-RUN-005, LUCY-OPS-005, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -212,6 +212,13 @@ AutonomyPolicy can no longer be read, or neither its Runway nor its Flight state
 and the Tower's state of it (the API's `flights.list` adds a failing flight's step error);
 `lucy flights --json` writes each as the spec's `BacklogTask` document, one per line, for a tool
 that reads the spec's backlog.
+
+A Pilot whose harness has no login in its org's synthetic home is not started; the Tower asks you
+instead, in its own words: which runner's machine, what to run there (for Claude Code, `claude`
+with `HOME` set to the runner's `--root` followed by `/home`, then log in), and to answer once it
+is done. Answer it with `lucy answer <flight> done` and the Tower starts the Pilot again. The
+question never asks for a secret: never paste a password, token or key into an answer. lucy never
+reads a login, and never copies one from your own home.
 
 ## Decisions
 

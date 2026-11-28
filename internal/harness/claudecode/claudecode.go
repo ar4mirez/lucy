@@ -92,8 +92,9 @@ const SessionSettings = `{"permissions":{"allow":[]}}`
 type Adapter struct{}
 
 var (
-	_ harness.Adapter   = Adapter{}
-	_ harness.Converger = Adapter{}
+	_ harness.Adapter      = Adapter{}
+	_ harness.Converger    = Adapter{}
+	_ harness.Prerequisite = Adapter{}
 )
 
 // Name implements harness.Adapter.

@@ -70,6 +70,8 @@ func (r Runtime) Poll(ctx context.Context, session string) (tower.PilotReport, e
 		return tower.PilotReport{State: tower.PilotDone, PR: ri.PR}, nil
 	case StateFailed:
 		return tower.PilotReport{State: tower.PilotFailed, Reason: ri.Reason}, nil
+	case StateNeedsOwner:
+		return tower.PilotReport{State: tower.PilotNeedsOwner, Need: ri.Reason, Runner: ri.Runner}, nil
 	case StateStopped:
 		return tower.PilotReport{State: tower.PilotFailed, Reason: "the run was stopped"}, nil
 	case StateLost:

@@ -193,7 +193,7 @@ func (s *Server) runnerFinish(ctx context.Context, p *api.FinishParams) (api.Fin
 	if err != nil {
 		return api.FinishResult{}, err
 	}
-	res := runner.Result{Outcome: runner.Outcome(p.Outcome), PR: p.PR, Reason: p.Reason}
+	res := runner.Result{Outcome: runner.Outcome(p.Outcome), PR: p.PR, Reason: p.Reason, Need: p.Need}
 	if err := b.Finish(ctx, p.Runner, p.Run, p.Fence, res); err != nil {
 		return api.FinishResult{}, runnerError(err)
 	}

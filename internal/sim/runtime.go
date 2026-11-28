@@ -17,6 +17,7 @@ const (
 	stepFail
 	stepHang
 	stepCrash
+	stepNeedsLogin
 	stepOpenPR
 )
 
@@ -43,6 +44,10 @@ func Hang() Step { return Step{kind: stepHang} }
 
 // Crash is the Pilot's session dying: the runtime reports it lost.
 func Crash() Step { return Step{kind: stepCrash} }
+
+// NeedsLogin is a session that does not start: its harness has no login in the org's home, so the
+// run is held for the owner (LUCY-RUN-008).
+func NeedsLogin() Step { return Step{kind: stepNeedsLogin} }
 
 // OpenPR is the Pilot pushing its branch and opening a pull request that runs checks, which
 // ends the session successfully.
@@ -164,6 +169,9 @@ func (r *Runtime) advance(s *session) {
 			s.answered = false
 		case stepFail:
 			s.report, s.final = tower.PilotReport{State: tower.PilotFailed, Reason: st.text}, true
+			return
+		case stepNeedsLogin:
+			s.report, s.final = tower.PilotReport{State: tower.PilotNeedsOwner, Need: "harness_login", Runner: "sim-runner"}, true
 			return
 		case stepHang: // running, silent since it hung
 			s.report = tower.PilotReport{State: tower.PilotRunning, Activity: s.at}

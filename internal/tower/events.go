@@ -67,7 +67,10 @@ type PilotStarted struct {
 // PilotAsked records the Pilot's question; the flight waits on the owner's answer.
 type PilotAsked struct {
 	Session  string `json:"session"`
-	Question string `json:"question"` // untrusted agent output, capped
+	Question string `json:"question"` // untrusted agent output, capped; the Tower's own words when Need is set
+	// Need is set when the Tower asks, not the Pilot: the session did not start because its harness
+	// needs the owner first (harness_login). The owner's answer then starts the next generation.
+	Need string `json:"need,omitempty"`
 }
 
 // PilotAnswered records that the owner answered. The answer itself is not kept, only its digest.
@@ -82,6 +85,8 @@ const (
 	ExitFailed  = "failed"  // the Pilot gave up
 	ExitLost    = "lost"    // the session crashed or vanished
 	ExitStopped = "stopped" // the Tower stopped it
+	// ExitNeedsOwner: the session did not start: its harness needs the owner first.
+	ExitNeedsOwner = "needs_owner"
 )
 
 // PilotExited records that a Pilot session ended.

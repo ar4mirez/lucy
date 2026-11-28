@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.21.0"
+    "version": "1.22.0"
   },
   "servers": [
     {
@@ -1387,7 +1387,7 @@
         },
         {
           "name": "outcome",
-          "description": "done, failed, stopped or lost.",
+          "description": "done, failed, stopped, lost or needs_owner (the work did not start: its harness needs the owner first).",
           "required": true,
           "schema": {
             "maxLength": 16,
@@ -1410,6 +1410,15 @@
           "required": false,
           "schema": {
             "maxLength": 1024,
+            "type": "string"
+          }
+        },
+        {
+          "name": "need",
+          "description": "When needs_owner, and only then: what the harness needs the owner for: harness_login.",
+          "required": false,
+          "schema": {
+            "maxLength": 32,
             "type": "string"
           }
         }

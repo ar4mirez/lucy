@@ -29,6 +29,9 @@ const (
 	PilotDone    PilotState = "done"    // finished; its pull request is open
 	PilotFailed  PilotState = "failed"  // gave up, with a reason
 	PilotLost    PilotState = "lost"    // the session is gone: the process crashed or the runner lost it
+	// PilotNeedsOwner: the session did not start because its harness needs the owner first (Need,
+	// a known code, never agent text), so the Tower holds the flight for the owner (LUCY-RUN-008).
+	PilotNeedsOwner PilotState = "needs_owner"
 )
 
 // PilotRequest is what a Pilot session is started with.
@@ -48,6 +51,8 @@ type PilotReport struct {
 	Question string    // when asking: the question, untrusted agent output
 	PR       int       // when done: the pull request the Pilot opened
 	Reason   string    // when failed: why, untrusted agent output
+	Need     string    // when needs_owner: what for (harness_login)
+	Runner   string    // when needs_owner: the runner whose org home needs it, as the lease names it
 }
 
 // Runtime starts and watches Pilot sessions: a harness adapter on a runner (LUCY-RUN-001, m1).

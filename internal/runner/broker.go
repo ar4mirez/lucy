@@ -572,9 +572,12 @@ func (b *Broker) Finish(ctx context.Context, runner, run string, fence int64, re
 	if res.PR < 0 || (res.PR != 0 && res.Outcome != OutcomeDone) {
 		return fmt.Errorf("%w: only a done run reports a pull request", ErrInvalid)
 	}
+	if (res.Outcome == OutcomeNeedsOwner) != (res.Need != "") || (res.Need != "" && res.Need != harness.NeedLogin) {
+		return fmt.Errorf("%w: a needs_owner run, and only one, names a known need (%s), not %q", ErrInvalid, harness.NeedLogin, res.Need)
+	}
 	err := b.held(ctx, runner, run, fence, func(tx *eventstore.Tx, ri RunInfo) error {
 		_, err := tx.Append(ctx, Stream(ri.Org, ri.Run), ri.Version, runnerActor(runner),
-			Finished{Fence: fence, Outcome: res.Outcome, PR: res.PR, Reason: capText(res.Reason)})
+			Finished{Fence: fence, Outcome: res.Outcome, PR: res.PR, Reason: capText(res.Reason), Need: res.Need})
 		return err
 	})
 	if err == nil {

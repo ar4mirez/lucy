@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 30
+version: 31
 owner: ar4mirez
 requirements: []
 ---
@@ -236,9 +236,13 @@ slice table, requirement status and exit tests stay in the plan.
 - **8, account state (LUCY-RUN-008).** `harness.Converger`: the runner opens the org's synthetic
   home as an `os.Root` and lets the adapter re-assert its account state there before each spawn;
   Claude Code's writes `.claude.json` and `.claude/settings.json` only, keeping every key it does
-  not own, refuses a symlinked file or directory, and is idempotent. Next in the slice, as decided:
-  a run whose harness needs a human (no login in the org's home) is held with a question to the
-  owner that never contains or asks for a secret, then lucy's bundled, hash-verified skills.
+  not own, refuses a symlinked file or directory, and is idempotent. A run whose harness needs a human is held, not
+  wedged: `harness.Prerequisite` (Claude Code's checks only that a credentials file or an
+  `oauthAccount` is there, never what it holds) makes the runner finish the run `needs_owner` with a
+  known need instead of spawning; the run's reason is that need, never runner text; the Tower
+  records `task.pilot_exited` (needs_owner) and its own `task.pilot_asked` (with `need`), so the
+  question reaches `lucy questions` and `lucy decisions`, and the owner's answer moves the flight
+  back to dispatched for the next generation. Next: lucy's bundled, hash-verified skills.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real
   work on the host before it lands, since a host Pilot shares the daemon's uid and API authority.
   Shadow mode (slice 10) runs no Pilot and is unaffected.

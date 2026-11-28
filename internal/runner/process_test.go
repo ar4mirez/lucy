@@ -199,6 +199,19 @@ func newProc(t *testing.T) procFixture {
 	return pf
 }
 
+// harnessLogin gives the org's synthetic home under root a test login, so a harness that needs one
+// starts: an account named in the state file, never a credential.
+func harnessLogin(t *testing.T, root string) {
+	t.Helper()
+	home := filepath.Join(root, "home")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(`{"oauthAccount": {"emailAddress": "pilot@example.test"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func procLease(goal string) Lease {
 	return Lease{Task: Task{Run: "f1#2", Org: "acme", Project: "web", Flight: "f1", Generation: 2, Goal: goal, Base: "main"},
 		Runner: "r1", Fence: 7}
@@ -564,6 +577,7 @@ func TestHarnessExecutorSpeaksTheProtocol(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			pf := newProc(t)
 			pf.ex.Harness = claudecode.Adapter{}
+			harnessLogin(t, pf.root)
 			x, err := pf.ex.Start(context.Background(), procLease(c.goal+" - "+transcript(t, c.name)))
 			if err != nil {
 				t.Fatal(err)
@@ -587,6 +601,7 @@ func TestHarnessExecutorSpeaksTheProtocol(t *testing.T) {
 func TestHarnessExecutorHoldsAnUnpinnedHarness(t *testing.T) {
 	pf := newProc(t)
 	pf.ex.Harness = claudecode.Adapter{}
+	harnessLogin(t, pf.root)
 	_, err := pf.ex.Start(context.Background(), procLease("harness 2.1.400 "+transcript(t, "done")))
 	if !errors.Is(err, harness.ErrUnpinned) {
 		t.Fatalf("Start = %v, want ErrUnpinned", err)
@@ -614,6 +629,7 @@ func TestPlainProcessTakesNoAnswer(t *testing.T) {
 func TestHarnessExecutorAnswers(t *testing.T) {
 	pf := newProc(t)
 	pf.ex.Harness = claudecode.Adapter{}
+	harnessLogin(t, pf.root)
 	x, err := pf.ex.Start(context.Background(), procLease("harness - "+transcript(t, "ask")))
 	if err != nil {
 		t.Fatal(err)
@@ -647,6 +663,7 @@ func TestHarnessExecutorKeepsTheQuestionOpen(t *testing.T) {
 		`{"stderr":"`+stderr+`"}`)
 	pf := newProc(t)
 	pf.ex.Harness = claudecode.Adapter{}
+	harnessLogin(t, pf.root)
 	x, err := pf.ex.Start(context.Background(), procLease("harness - "+path))
 	if err != nil {
 		t.Fatal(err)
@@ -707,6 +724,7 @@ func TestHarnessExecutorTagsEveryRepeat(t *testing.T) {
 	path := askWhileWaiting(t, `{"stderr":"`+stderr+`"}`, `{"out":{"type":"mystery"}}`)
 	pf := newProc(t)
 	pf.ex.Harness = claudecode.Adapter{}
+	harnessLogin(t, pf.root)
 	x, err := pf.ex.Start(context.Background(), procLease("harness - "+path))
 	if err != nil {
 		t.Fatal(err)
@@ -774,6 +792,7 @@ func TestHarnessIgnoresProjectSettings(t *testing.T) {
 	run := func(a harness.Adapter) []string {
 		pf := newProc(t)
 		pf.ex.Harness = a
+		harnessLogin(t, pf.root)
 		x, err := pf.ex.Start(context.Background(), procLease("harness - "+transcript(t, "project")))
 		if err != nil {
 			t.Fatal(err)
@@ -813,6 +832,7 @@ func TestHarnessGetsRepositoryInstructions(t *testing.T) {
 	pf := newProc(t)
 	var argv []string
 	pf.ex.Harness = recordArgs{got: &argv}
+	harnessLogin(t, pf.root)
 	pf.ex.prepare = func(dir string) error {
 		if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("@AGENTS.md\n"), 0o600); err != nil {
 			return err
@@ -880,6 +900,7 @@ func TestRunsWorkInTheirWorktree(t *testing.T) {
 	// The harness reads the checkout's instructions.
 	var argv []string
 	pf.ex.Harness = recordArgs{got: &argv}
+	harnessLogin(t, pf.root)
 	if err := os.WriteFile(filepath.Join(wt, "CLAUDE.md"), []byte("checkout-instructions-5d2a\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -920,6 +941,7 @@ func TestRunsWorkInTheirWorktree(t *testing.T) {
 func TestHarnessExecutorStreamsHooks(t *testing.T) {
 	pf := newProc(t)
 	pf.ex.Harness = claudecode.Adapter{}
+	harnessLogin(t, pf.root)
 	x, err := pf.ex.Start(context.Background(), procLease("harness - "+transcript(t, "hooks")))
 	if err != nil {
 		t.Fatal(err)
@@ -956,6 +978,7 @@ func TestHarnessExecutorKeepsTheQuestionAfterAHook(t *testing.T) {
 		`{"in":{"type":"control_response","response":{"subtype":"success","request_id":"req_2","response":{}}}}`)
 	pf := newProc(t)
 	pf.ex.Harness = claudecode.Adapter{}
+	harnessLogin(t, pf.root)
 	x, err := pf.ex.Start(context.Background(), procLease("harness - "+path))
 	if err != nil {
 		t.Fatal(err)
@@ -1057,5 +1080,24 @@ func TestAFailedConvergeRefusesTheSpawn(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(outside); string(data) != `{"kept":true}` {
 		t.Fatalf("the file outside the org's home changed: %s", data)
+	}
+}
+
+// A run whose harness has no login in the org's home is held for the owner, not started
+// (LUCY-RUN-008): the result is needs_owner with the known need, the program never runs, and the
+// run's scratch directory is gone.
+func TestARunWithoutALoginIsHeldNotStarted(t *testing.T) {
+	pf := newProc(t)
+	pf.ex.Harness = claudecode.Adapter{}
+	x, err := pf.ex.Start(context.Background(), procLease("harness - "+filepath.Join(t.TempDir(), "never-played.jsonl")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines, res := drain(t, x)
+	if res != (Result{Outcome: OutcomeNeedsOwner, Need: harness.NeedLogin}) || len(lines) != 0 {
+		t.Fatalf("result %+v, events %q; want needs_owner for a login, nothing streamed", res, lines)
+	}
+	if left := scratchLeft(t, pf.root); len(left) != 0 {
+		t.Errorf("scratch left behind: %v", left)
 	}
 }

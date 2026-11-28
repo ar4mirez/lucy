@@ -397,9 +397,10 @@ type FinishParams struct {
 	Runner  string `json:"runner" lucy:"required,maxlen=63" doc:"The runner holding the lease."`
 	Run     string `json:"run" lucy:"required,maxlen=256" doc:"The leased run."`
 	Fence   int64  `json:"fence" lucy:"min=1" doc:"The lease's fencing token."`
-	Outcome string `json:"outcome" lucy:"required,maxlen=16" doc:"done, failed, stopped or lost."`
+	Outcome string `json:"outcome" lucy:"required,maxlen=16" doc:"done, failed, stopped, lost or needs_owner (the work did not start: its harness needs the owner first)."`
 	PR      int    `json:"pr,omitempty" lucy:"min=0" doc:"When done: the pull request the work opened."`
 	Reason  string `json:"reason,omitempty" lucy:"maxlen=1024" doc:"When not done: why. Untrusted."`
+	Need    string `json:"need,omitempty" lucy:"maxlen=32" doc:"When needs_owner, and only then: what the harness needs the owner for: harness_login."`
 }
 
 // FinishResult answers runner.finish.

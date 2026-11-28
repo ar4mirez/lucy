@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 47
+version: 48
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -51,6 +51,13 @@ Changes since the last release. When a version is cut, its section moves to
   `flights.list` reports the posture a Flight is flown under (OpenRPC revision 20).
 
 ### Changed
+
+- A Pilot whose harness has no login in its org's synthetic home is held for you instead of
+  wedged on a login prompt: the runner does not start it and finishes the run `needs_owner`
+  (`runner.finish`, OpenRPC revision 22), and the Tower asks you, in its own words, where and how to
+  log in once as that home. The question never asks for a secret, and lucy reads no login and
+  copies none from your home; no timeout grounds the flight while it waits, and your answer
+  (`lucy answer <flight> done`) starts the Pilot again.
 
 - Before every spawn, the runner re-asserts the harness's account state in the org's synthetic
   home: for Claude Code, onboarding complete, the run's directory trusted with no tools pre-allowed,
