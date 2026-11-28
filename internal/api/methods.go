@@ -503,6 +503,8 @@ type Question struct {
 	ProposalID string `json:"proposal_id,omitempty" doc:"The proposal's id, for example p12; accepting it names it. A newer proposal has a new id."`
 	ProposedBy string `json:"proposed_by,omitempty" doc:"The supervisor that proposed an answer, for example supervisor/rules; absent when none did."`
 	Proposed   string `json:"proposed,omitempty" doc:"Its proposed answer, waiting on the owner: the owner answers, with it or not."`
+	// ProposalTruncated marks a proposed answer the Tower cut short: accepting it is refused.
+	ProposalTruncated bool `json:"proposal_truncated,omitempty" doc:"The proposed answer was cut short when recorded: it cannot be accepted; type an answer instead."`
 }
 
 // AnswerParams answers one flight's question.
@@ -738,6 +740,8 @@ type CatalogDecision struct {
 	ProposalID   string          `json:"proposal_id,omitempty" doc:"The id of a supervisor's suggested answer to a question, as questions.list shows it."`
 	ProposedBy   string          `json:"proposed_by,omitempty" doc:"A supervisor that suggested an answer to a question, for example supervisor/rules. A suggestion never closes the decision."`
 	Proposed     string          `json:"proposed,omitempty" doc:"Its suggested answer; the owner may accept it with lucy answer <flight> --accept-proposal <id>, the id lucy questions shows."`
+	// ProposalTruncated marks a suggested answer the Tower cut short: accepting it is refused.
+	ProposalTruncated bool `json:"proposal_truncated,omitempty" doc:"The suggested answer was cut short when recorded: it cannot be accepted; type an answer instead."`
 }
 
 // CatalogOption is one way to settle a decision.

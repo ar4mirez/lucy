@@ -71,13 +71,21 @@ func writeQuestions(w io.Writer, list api.QuestionsList) {
 		fmt.Fprintf(w, "  %s,%s,%s,%s,%s\n", untrusted(q.Flight), untrusted(q.Org), untrusted(q.Project), q.Since.Format(time.RFC3339), untrusted(q.Question))
 		if q.ProposalID != "" {
 			proposals = true
-			fmt.Fprintf(w, "    proposal %s by %s: %s\n", untrusted(proposalToken(q)), untrusted(q.ProposedBy), untrusted(q.Proposed))
+			fmt.Fprintf(w, "    proposal %s by %s: %s%s\n", untrusted(proposalToken(q)), untrusted(q.ProposedBy), untrusted(q.Proposed), cutShort(q.ProposalTruncated))
 		}
 	}
 	fmt.Fprint(w, "help: run `lucy answer <flight> <answer>` to answer one\n")
 	if proposals {
 		fmt.Fprint(w, "help: run `lucy answer <flight> --accept-proposal <proposal>` to answer with a proposal, as your answer\n")
 	}
+}
+
+// cutShort is the note beside a suggestion the Tower cut short, which cannot be accepted.
+func cutShort(truncated bool) string {
+	if truncated {
+		return " (cut short: type your answer)"
+	}
+	return ""
 }
 
 // proposalToken names a proposal and the question it answers in one token: the proposal's id, a

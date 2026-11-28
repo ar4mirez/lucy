@@ -76,8 +76,8 @@
                   "propose": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 4096,
-                    "description": "The answer to propose; the owner still answers."
+                    "maxLength": 1024,
+                    "description": "The answer to propose, at most 1024 bytes (UTF-8); the owner still answers."
                   },
                   "owner": {
                     "type": "boolean",

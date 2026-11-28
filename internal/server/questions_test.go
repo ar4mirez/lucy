@@ -138,7 +138,7 @@ func TestAcceptingAProposal(t *testing.T) {
 			t.Fatalf("questions %+v, %v", list, err)
 		}
 		q := list.Questions[0]
-		if q.ProposalID == "" || q.ProposedBy != "supervisor/test" || q.Proposed != "the staging account" || len(q.QuestionSHA256) != 64 {
+		if q.ProposalID == "" || q.ProposedBy != "supervisor/test" || q.Proposed != "the staging account" || q.ProposalTruncated || len(q.QuestionSHA256) != 64 {
 			t.Fatalf("question %+v", q)
 		}
 		return q
@@ -205,4 +205,63 @@ func TestAcceptingAProposal(t *testing.T) {
 		}
 	}
 	refused(api.AnswerParams{Flight: "f1", AcceptProposal: q3.ProposalID, QuestionSHA256: q3.QuestionSHA256}, "flight")
+}
+
+// longSupervisor proposes, as a model might, an answer longer than the Tower keeps.
+type longSupervisor struct{ answer string }
+
+func (l longSupervisor) ProposeAnswer(context.Context, tower.Escalation) (tower.Proposal, bool, error) {
+	return tower.Proposal{By: "supervisor/models", Answer: l.answer}, true, nil
+}
+
+// A proposal the Tower cut short is recorded and shown as truncated, and accepting it is refused:
+// the owner would answer with less than was proposed, never knowing. A typed answer still works,
+// and nothing reaches the Pilot before it (LUCY-RUN-010).
+func TestATruncatedProposalIsNotAccepted(t *testing.T) {
+	long := strings.Repeat("я", 600) // 1200 bytes, over the 1024 the Tower keeps
+	w, err := sim.Open(context.Background(), shortTempDir(t), 7, sim.Options{Tower: tower.Config{Supervisor: longSupervisor{long}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { w.Close() })
+	w.Forge.AddRepo("acme/web", "ci")
+	if err := w.Dispatch(ctx, tower.Spec{ID: "f1", Org: "acme", Project: "web", Goal: "migrate", Posture: policy.PostureGreen, Delivery: tower.DeliveryPullRequest, Acceptance: "the checks pass"},
+		sim.Ask("which account?"), sim.OpenPR(sim.Passing("ci", time.Minute))); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Run(ctx, sim.RunOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	f := start(t, os.Geteuid(), 0, func(o *Options) { o.Questions = TowerQuestions{Tower: w.Tower, Lock: &mu} })
+	list, err := f.client.Questions(ctx)
+	if err != nil || len(list.Questions) != 1 {
+		t.Fatalf("questions %+v, %v", list, err)
+	}
+	q := list.Questions[0]
+	if !q.ProposalTruncated || q.Proposed != strings.Repeat("я", 512) || q.ProposedBy != "supervisor/models" {
+		t.Fatalf("question %+v", q)
+	}
+	log, err := w.Log(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded := false
+	for _, l := range log {
+		recorded = recorded || (l.Type == "task.answer_proposed" && strings.Contains(l.Payload, `"truncated":true`))
+	}
+	if !recorded {
+		t.Fatal("no task.answer_proposed recorded as truncated")
+	}
+
+	_, err = f.client.Answer(ctx, api.AnswerParams{Flight: "f1", AcceptProposal: q.ProposalID, QuestionSHA256: q.QuestionSHA256})
+	if ae := wantCode(t, err, api.CodeInvalidParams); ae.Data.Field != "accept_proposal" || !strings.Contains(ae.Data.Help, "cut short") {
+		t.Fatalf("accepting a truncated proposal: %+v", ae)
+	}
+	if len(w.Runtime.Answers) != 0 {
+		t.Fatalf("the Pilot got %v after a refused accept", w.Runtime.Answers)
+	}
+	if res, err := f.client.Answer(ctx, api.AnswerParams{Flight: "f1", Answer: "the dev account"}); err != nil || res.State != string(tower.StateFlying) {
+		t.Fatalf("a typed answer: %+v, %v", res, err)
+	}
 }

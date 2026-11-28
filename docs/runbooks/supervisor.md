@@ -47,7 +47,9 @@ spec:
 ```
 
 `match` is an [RE2](https://github.com/google/re2/wiki/Syntax) expression, found anywhere in the
-question; an expression RE2 refuses (a lookahead, say) refuses the whole Airspace at load.
+question; an expression RE2 refuses (a lookahead, say) refuses the whole Airspace at load. A
+`propose` answer is at most 1024 bytes (UTF-8), the most lucy keeps of a suggestion; a longer one
+refuses the Airspace at load too.
 
 `route` names a route of the org's gateway binding whose upstream is the model API, allowing
 `POST /v1/messages`. The key stays in the org's vault and the gateway injects it, so the daemon
@@ -62,3 +64,5 @@ flight's org, project and goal, and nothing else. A model's reply must be the pl
 - `lucy events` shows `supervisor.called` for each model call with its tokens, and
   `supervisor.declined` with the reason a question went to you: a safety rule, the org's rule, a
   spent budget, a refused or failed call, or neither model confident.
+- A model's suggestion longer than 1024 bytes is kept cut short and marked `(cut short: type your
+  answer)` in `lucy questions` and `lucy decisions`; it cannot be accepted, so type your answer.

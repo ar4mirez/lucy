@@ -66,7 +66,8 @@ const Version = 1
 // Revision 25 added status.get's supervisors: each org's model supervisor tokens today against its
 // daily budget.
 // Revision 26 lists in status.get's supervisors each org that opts in, a rules-only one included,
-// with armed true only when its models are asked.
+// with armed true only when its models are asked, and adds questions.list's and decisions.list's
+// proposal_truncated: a proposed answer the Tower cut short, which questions.answer refuses to accept.
 const SchemaRevision = 26
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"unicode/utf8"
 
+	"github.com/ar4mirez/lucy/internal/spec"
 	"github.com/ar4mirez/lucy/internal/tower"
 )
 
@@ -56,11 +57,12 @@ func keywords(compound, plain string) *regexp.Regexp {
 	return regexp.MustCompile(re)
 }
 
-// Limits on an org's rules, as the Airspace schema caps them.
+// Limits on an org's rules, as admission caps them: a match in characters, a proposed answer in
+// bytes, the most the Tower keeps.
 const (
 	maxRules   = 64
 	maxMatch   = 512
-	maxPropose = 4096
+	maxPropose = spec.MaxProposeBytes
 )
 
 // parseRules reads an Airspace's spec.supervisor.rules, which admission already checked. It returns
@@ -80,7 +82,7 @@ func parseRules(v any) ([]Rule, string) {
 		match, _ := m["match"].(string)
 		propose, _ := m["propose"].(string)
 		owner, _ := m["owner"].(bool)
-		if match == "" || utf8.RuneCountInString(match) > maxMatch || utf8.RuneCountInString(propose) > maxPropose || (propose == "") == !owner {
+		if match == "" || utf8.RuneCountInString(match) > maxMatch || len(propose) > maxPropose || (propose == "") == !owner {
 			return nil, fmt.Sprintf("spec.supervisor.rules[%d] needs a match and either propose or owner: true", i)
 		}
 		re, err := regexp.Compile("(?i)" + match)

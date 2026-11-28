@@ -21,7 +21,9 @@ Changes since the last release. When a version is cut, its section moves to
   own ordered rules in the org's Airspace (`spec.supervisor.rules`, RE2 matches) either suggest a
   fixed answer or send the question to you. Rules call nothing and spend nothing, so they apply
   with the Airspace alone, without `--supervise`. The model settings are now optional, all four or
-  none. See the [supervisor runbook](docs/runbooks/supervisor.md) (OpenRPC revision 26).
+  none. A rule's suggested answer is at most 1024 bytes. A suggestion lucy cut short is marked
+  "(cut short: type your answer)" and cannot be accepted. See the
+  [supervisor runbook](docs/runbooks/supervisor.md) (OpenRPC revision 26).
 - A model supervisor can suggest answers to Pilots' questions. An org opts in through its Airspace
   (`spec.supervisor`: a gateway route, a small and a large model, a daily token budget) and the
   daemon arms it with `lucy daemon --supervise`; both are needed, and it is off by default. Its model

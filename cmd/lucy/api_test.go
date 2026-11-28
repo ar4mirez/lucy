@@ -277,6 +277,13 @@ func TestQuestionsShowAProposalToAccept(t *testing.T) {
 	if id, d, ok := parseProposal("p7.0123456789abcdef"); !ok || id != "p7" || !strings.HasPrefix(digest, d) {
 		t.Fatalf("parsed %q %q %v", id, d, ok)
 	}
+	// A proposal the Tower cut short says so: it cannot be accepted.
+	q.ProposalTruncated = true
+	out.Reset()
+	writeQuestions(&out, api.QuestionsList{Questions: []api.Question{q}})
+	if !strings.Contains(out.String(), "    proposal p7.0123456789abcdef by supervisor/test: staging (cut short: type your answer)\n") {
+		t.Fatalf("a truncated proposal:\n%s", out.String())
+	}
 }
 
 func TestQuestionsEscapeUntrustedText(t *testing.T) {

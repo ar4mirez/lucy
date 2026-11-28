@@ -24,14 +24,19 @@ type Questions interface {
 	Answer(ctx context.Context, flight, answer string) (tower.Status, error)
 	// AcceptProposal answers the flight's question, as the owner, with the supervisor's proposed
 	// answer the owner saw: the proposal named by proposalID, for the question whose SHA-256 starts
-	// with questionSHA256. It fails with ErrNotAsking, or ErrStaleProposal when the flight's
-	// proposal or question is no longer the one named.
+	// with questionSHA256. It fails with ErrNotAsking, ErrStaleProposal when the flight's
+	// proposal or question is no longer the one named, or ErrTruncatedProposal when the proposal
+	// was cut short.
 	AcceptProposal(ctx context.Context, flight, proposalID, questionSHA256 string) (tower.Status, error)
 }
 
 // ErrStaleProposal refuses to accept a proposal the owner was not shown: the flight's proposal or
 // its question changed since, or it has none.
 var ErrStaleProposal = errors.New("server: the flight's question or its proposal changed")
+
+// ErrTruncatedProposal refuses to accept a proposal the Tower cut short when it recorded it: the
+// owner would answer with less than the supervisor proposed.
+var ErrTruncatedProposal = errors.New("server: the flight's proposal was cut short")
 
 // ErrNotAsking refuses an answer to a flight that has no open question.
 var ErrNotAsking = errors.New("server: the flight is not asking")
@@ -84,6 +89,9 @@ func (q TowerQuestions) AcceptProposal(ctx context.Context, flight, proposalID, 
 	if st.ProposalID != proposalID || !strings.HasPrefix(questionDigest(st.Question), questionSHA256) {
 		return tower.Status{}, ErrStaleProposal
 	}
+	if st.ProposalTruncated {
+		return tower.Status{}, ErrTruncatedProposal
+	}
 	if err := q.Tower.Answer(ctx, flight, st.Proposed); err != nil {
 		return tower.Status{}, err
 	}
@@ -103,7 +111,7 @@ func (s *Server) questions(ctx context.Context, _ *api.NoParams) (api.QuestionsL
 	for _, f := range open {
 		out.Questions = append(out.Questions, api.Question{Flight: f.ID, Org: f.Org, Project: f.Project,
 			Question: f.Question, QuestionSHA256: questionDigest(f.Question), Since: f.Since.UTC(), ProposalID: f.ProposalID,
-			ProposedBy: f.ProposedBy, Proposed: f.Proposed})
+			ProposedBy: f.ProposedBy, Proposed: f.Proposed, ProposalTruncated: f.ProposalTruncated})
 	}
 	return out, nil
 }
@@ -149,6 +157,10 @@ func (s *Server) answer(ctx context.Context, p *api.AnswerParams) (api.AnswerRes
 	if errors.Is(err, ErrStaleProposal) {
 		return api.AnswerResult{}, api.FieldError(api.CodeInvalidParams, "accept_proposal",
 			"the question or its suggestion changed since you saw it; run `lucy questions` and accept the one shown now")
+	}
+	if errors.Is(err, ErrTruncatedProposal) {
+		return api.AnswerResult{}, api.FieldError(api.CodeInvalidParams, "accept_proposal",
+			"the suggestion was cut short; type your answer with `lucy answer <flight> <answer>`")
 	}
 	if errors.Is(err, ErrNotAsking) {
 		return api.AnswerResult{}, api.FieldError(api.CodeInvalidParams, "flight", "the flight is not asking; run `lucy questions` to see the open ones")

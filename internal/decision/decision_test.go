@@ -256,8 +256,12 @@ func TestAProposalNeverAnswersAQuestion(t *testing.T) {
 	q := appendAs(t, st, f1, "daemon", tower.PilotAsked{Session: "f1#1", Question: "which account?"})
 	appendAs(t, st, f1, "daemon", tower.AnswerProposed{Session: "f1#1", By: "supervisor/test", Answer: "staging"})
 	d, ok := list(t, st, false)[Row{Seq: q}.ID()]
-	if !ok || d.Lifecycle != Open || !strings.HasPrefix(d.ProposalID, "p") || d.ProposedBy != "supervisor/test" || d.Proposed != "staging" || d.AnsweredBy != "" {
+	if !ok || d.Lifecycle != Open || !strings.HasPrefix(d.ProposalID, "p") || d.ProposedBy != "supervisor/test" || d.Proposed != "staging" || d.ProposalTruncated || d.AnsweredBy != "" {
 		t.Fatalf("after a proposal: %+v, %v", d, ok)
+	}
+	appendAs(t, st, f1, "daemon", tower.AnswerProposed{Session: "f1#1", By: "supervisor/models", Answer: "stag", Truncated: true})
+	if d := list(t, st, false)[Row{Seq: q}.ID()]; !d.ProposalTruncated || d.Proposed != "stag" {
+		t.Fatalf("after a truncated proposal: %+v", d)
 	}
 	appendAs(t, st, f1, "owner", tower.PilotAnswered{Session: "f1#1", AnswerSHA256: "x"})
 	if d := list(t, st, true)[Row{Seq: q}.ID()]; d.Lifecycle != Answered || d.AnsweredBy != "owner" {

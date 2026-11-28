@@ -164,12 +164,17 @@ func TestRulesFromTheAirspace(t *testing.T) {
 	if c.Invalid != "" || c.UsesModels() || len(c.Rules) != 2 || c.Rules[0].Propose != "eu-west" || !c.Rules[1].Owner {
 		t.Fatalf("config %+v", c)
 	}
-	// The limits count characters, as the schema does, not bytes.
-	long := strings.Repeat("я", 4000)
+	// A match counts characters, as the schema does; a proposed answer counts bytes, the most the
+	// Tower keeps of it, so an admitted answer is never cut short.
+	long := strings.Repeat("я", spec.MaxProposeBytes/2) // 512 characters, 1024 bytes
 	if r := admit(`{ rules: [ { match: '` + strings.Repeat("я", 500) + `', propose: '` + long + `' } ] }`); len(r) != 1 || r[0].Resource == nil {
 		t.Fatalf("multi-byte rule refused: %+v", r)
 	} else if c := supervise.Configs([]spec.Resource{*r[0].Resource})["acme"]; c.Invalid != "" || len(c.Rules) != 1 || c.Rules[0].Propose != long {
 		t.Fatalf("multi-byte rule not read: %+v", c.Invalid)
+	}
+	over := admit(`{ rules: [ { match: x, owner: true }, { match: y, propose: '` + long + `z' } ] }`) // 1025 bytes, 513 characters
+	if len(over) != 1 || over[0].Resource != nil || len(over[0].Conditions) != 1 || !strings.Contains(over[0].Conditions[0].Message, "spec.supervisor.rules[1].propose is 1025 bytes; at most 1024 bytes") {
+		t.Fatalf("a 1025-byte answer: %+v", over)
 	}
 	for name, bad := range map[string]string{
 		"not RE2":                `{ rules: [ { match: '(?=x)', propose: y } ] }`,

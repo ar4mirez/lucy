@@ -80,6 +80,9 @@ type AnswerProposed struct {
 	Session string `json:"session"`
 	By      string `json:"by"`     // the supervisor, for example supervisor/rules
 	Answer  string `json:"answer"` // the proposed answer, capped: lucy's own text, never the owner's
+	// Truncated is set when Answer is shorter than the answer proposed: the owner may not accept it
+	// as it is, and types an answer instead.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // PilotAnswered records that the owner answered. The answer itself is not kept, only its digest.

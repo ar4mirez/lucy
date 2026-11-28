@@ -30,6 +30,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/converge"
 	"github.com/ar4mirez/lucy/internal/eventstore"
 	"github.com/ar4mirez/lucy/internal/policy"
+	"github.com/ar4mirez/lucy/internal/spec"
 )
 
 // Actors the Tower appends events as.
@@ -187,14 +188,18 @@ type Status struct {
 	Reason     string      // when grounded; when holding after its merges failed, the last merge error; when outside, the attribution
 	Since      time.Time   // when the flight entered its state
 	StepError  string      // why its last step failed; empty after a clean step
+
 	// ProposalID, ProposedBy and Proposed are a supervisor's proposed answer to the open question:
 	// a suggestion, waiting on the owner's answer (LUCY-RUN-010). The id is "p" and the stream
 	// version of its task.answer_proposed, so a newer proposal has a new id.
-	ProposalID string
-	ProposedBy string
-	Proposed   string
-	Failures   int       // its consecutive failed steps
-	RetryAt    time.Time // when it is stepped again after a failed step; zero after a clean one
+	// ProposalTruncated is set when Proposed was cut short: it cannot be accepted as it is.
+	ProposalID        string
+	ProposedBy        string
+	Proposed          string
+	ProposalTruncated bool
+
+	Failures int       // its consecutive failed steps
+	RetryAt  time.Time // when it is stepped again after a failed step; zero after a clean one
 }
 
 type flight struct {
@@ -377,7 +382,7 @@ func (f *flight) status(b converge.Options) Status {
 		s.StepError = f.stepErr.Error()
 	}
 	if f.state == StateAsking && f.proposal.By != "" {
-		s.ProposalID, s.ProposedBy, s.Proposed = f.proposalID, f.proposal.By, f.proposal.Answer
+		s.ProposalID, s.ProposedBy, s.Proposed, s.ProposalTruncated = f.proposalID, f.proposal.By, f.proposal.Answer, f.proposal.Truncated
 	}
 	if f.state == StateDispatched && f.startFails > 0 && f.stepErr == nil {
 		s.StepError, s.Failures, s.RetryAt = "the Pilot did not start: "+f.startErr, f.startFails, f.startRetryAt(b)
@@ -724,7 +729,7 @@ func (t *Tower) Propose(ctx context.Context, e Escalation, p Proposal) error {
 	if strings.TrimSpace(p.Answer) == "" || !strings.HasPrefix(p.By, "supervisor/") {
 		return errors.New("tower: a proposal needs an answer and a supervisor/ name")
 	}
-	return t.record(ctx, f, ActorDaemon, AnswerProposed{Session: f.session, By: capText(p.By), Answer: capText(p.Answer)})
+	return t.record(ctx, f, ActorDaemon, proposed(f.session, p))
 }
 
 // Approve records the owner's approval of the flight's merge, bound to the pull request's facts
@@ -871,15 +876,25 @@ func (f *flight) apply(e eventstore.Event, p eventstore.Payload) {
 }
 
 // capText bounds untrusted text kept in an event.
-func capText(s string) string {
-	if len(s) <= maxTextBytes {
+func capText(s string) string { return capBytes(s, maxTextBytes) }
+
+// capBytes keeps at most n bytes of s, without splitting a UTF-8 sequence.
+func capBytes(s string, n int) string {
+	if len(s) <= n {
 		return s
 	}
-	cut := maxTextBytes
+	cut := n
 	for cut > 0 && s[cut]&0xC0 == 0x80 { // do not split a UTF-8 sequence
 		cut--
 	}
 	return s[:cut]
+}
+
+// proposed is the task.answer_proposed of a proposal: its answer capped at the bytes a rule may
+// propose, and marked truncated when the cap cut it, so a cut answer is never accepted as it is.
+func proposed(session string, p Proposal) AnswerProposed {
+	answer := capBytes(p.Answer, spec.MaxProposeBytes)
+	return AnswerProposed{Session: session, By: capText(p.By), Answer: answer, Truncated: len(answer) < len(p.Answer)}
 }
 
 // ownerNeedQuestion is the Tower's question to the owner when a Pilot could not start because its
@@ -915,5 +930,5 @@ func (t *Tower) supervise(ctx context.Context, f *flight) error {
 	if err != nil || !ok || strings.TrimSpace(p.Answer) == "" || !strings.HasPrefix(p.By, "supervisor/") {
 		return nil
 	}
-	return t.record(ctx, f, ActorDaemon, AnswerProposed{Session: f.session, By: capText(p.By), Answer: capText(p.Answer)})
+	return t.record(ctx, f, ActorDaemon, proposed(f.session, p))
 }
