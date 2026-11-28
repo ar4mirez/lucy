@@ -53,10 +53,12 @@ type Row struct {
 	Opened       time.Time
 	Updated      time.Time
 	// ProposalID, ProposedBy and Proposed are a supervisor's suggested answer to an open question:
-	// a suggestion only, which never closes it (LUCY-RUN-010).
-	ProposalID string
-	ProposedBy string
-	Proposed   string
+	// a suggestion only, which never closes it (LUCY-RUN-010). ProposalTruncated is set when
+	// Proposed was cut short, and so cannot be accepted as it is.
+	ProposalID        string
+	ProposedBy        string
+	Proposed          string
+	ProposalTruncated bool
 }
 
 // ID is the decision's id in the spec's form, DEC-NNNN.

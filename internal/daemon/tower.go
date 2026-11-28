@@ -67,13 +67,13 @@ type hostedTower struct {
 	// last is the last reload's outcome when it was not applied, guarded by mu.
 	last     api.ReloadOutcome
 	reloadMu sync.Mutex
-	// supervision is the orgs that opt into a model supervisor in the config the daemon runs on,
-	// guarded by mu, for status.get.
+	// supervision is the orgs that opt into supervision, by rules, models or both, in the config the
+	// daemon runs on, guarded by mu, for status.get.
 	supervision map[string]supervise.Config
-	async       *asyncSupervisor // nil unless the daemon was started with --supervise
+	async       *asyncSupervisor
 }
 
-// asyncSupervisor asks the model supervisor off the Tower's step: the Tower steps under mu, and a
+// asyncSupervisor asks the supervisor's rules in the Tower's step and its models off it: the Tower steps under mu, and a
 // model call takes seconds. The Tower asks it once per question; it answers at once with no
 // proposal, calls the model in the background, and hands what it proposes to Tower.Propose, which
 // records it only while that same question is still open (LUCY-RUN-010).
@@ -85,9 +85,17 @@ type asyncSupervisor struct {
 }
 
 // ProposeAnswer implements tower.Supervisor.
-func (a *asyncSupervisor) ProposeAnswer(_ context.Context, e tower.Escalation) (tower.Proposal, bool, error) {
+func (a *asyncSupervisor) ProposeAnswer(ctx context.Context, e tower.Escalation) (tower.Proposal, bool, error) {
+	// The rules are deterministic and call nothing: they decide in the step.
+	p, out, err := a.sup.Rules(ctx, e)
+	if err != nil || out != supervise.Unmatched {
+		return p, out == supervise.Proposed, err
+	}
+	if !a.sup.ModelsFor(e.Org) {
+		return tower.Proposal{}, false, nil
+	}
 	a.wg.Go(func() {
-		p, ok, err := a.sup.ProposeAnswer(a.ctx, e)
+		p, ok, err := a.sup.AskModels(a.ctx, e)
 		if err != nil {
 			a.h.log.Warn("the supervisor could not propose an answer", "flight", e.Flight, "err", err)
 		}
@@ -106,13 +114,11 @@ func (a *asyncSupervisor) ProposeAnswer(_ context.Context, e tower.Escalation) (
 
 // wait waits for the supervisor's calls in flight, which end with the daemon's context.
 func (h *hostedTower) waitSupervisor() {
-	if h.async != nil {
-		h.async.wg.Wait()
-	}
+	h.async.wg.Wait()
 }
 
 // supervisorUsage is each opted-in org's supervisor tokens today against its daily budget, and
-// whether the daemon armed it (--supervise).
+// whether its models are asked: the daemon was started with --supervise and the org names them.
 func (h *hostedTower) supervisorUsage(ctx context.Context, store *eventstore.Store, armed bool) ([]api.SupervisorUsage, error) {
 	h.mu.Lock()
 	orgs := make([]supervise.Config, 0, len(h.supervision))
@@ -128,7 +134,7 @@ func (h *hostedTower) supervisorUsage(ctx context.Context, store *eventstore.Sto
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, api.SupervisorUsage{Org: c.Org, Armed: armed, Day: day, Tokens: used, DailyTokens: c.DailyTokens,
+		out = append(out, api.SupervisorUsage{Org: c.Org, Armed: armed && c.UsesModels(), Day: day, Tokens: used, DailyTokens: c.DailyTokens,
 			Route: c.Route})
 	}
 	return out, nil
@@ -200,20 +206,15 @@ func startTower(ctx context.Context, store *eventstore.Store, broker *runner.Bro
 	cfg := tower.Config{Store: store, Runtime: runner.Runtime{Broker: broker}, Forge: stubForge{},
 		Clock: wallClock{}, ForgeIdentity: stubIdentity, PollInterval: poll,
 		Refusal: func(err error) bool { return errors.Is(err, errNoForge) }}
-	var async *asyncSupervisor
-	if sup != nil {
-		async = &asyncSupervisor{ctx: ctx, sup: sup}
-		cfg.Supervisor = async // left nil when off: the Tower then asks no supervisor
-	}
+	async := &asyncSupervisor{ctx: ctx, sup: sup}
+	cfg.Supervisor = async
 	tw, err := tower.New(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
 	h := &hostedTower{tw: tw, log: log, pipelines: pipelines, set: set, broker: broker, supervision: supervise.Configs(set.Admitted()),
 		async: async}
-	if async != nil {
-		async.h = h
-	}
+	async.h = h
 	h.dispatch(ctx, set, dispatch, gate)
 	h.tighten(ctx, set)
 	return h, nil

@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.25.0"
+    "version": "1.26.0"
   },
   "servers": [
     {
@@ -208,7 +208,7 @@
               "items": {
                 "properties": {
                   "armed": {
-                    "description": "Whether the daemon was started with --supervise; without it the org's questions go to the owner with no model call.",
+                    "description": "Whether the org's models are asked: the daemon was started with --supervise and the org names them. Its rules apply either way.",
                     "type": "boolean"
                   },
                   "daily_tokens": {
@@ -1699,6 +1699,10 @@
                     "description": "The id of a supervisor's suggested answer to a question, as questions.list shows it.",
                     "type": "string"
                   },
+                  "proposal_truncated": {
+                    "description": "The suggested answer was cut short when recorded: it cannot be accepted; type an answer instead.",
+                    "type": "boolean"
+                  },
                   "proposed": {
                     "description": "Its suggested answer; the owner may accept it with lucy answer \u003cflight\u003e --accept-proposal \u003cid\u003e, the id lucy questions shows.",
                     "type": "string"
@@ -2045,6 +2049,10 @@
                   "proposal_id": {
                     "description": "The proposal's id, for example p12; accepting it names it. A newer proposal has a new id.",
                     "type": "string"
+                  },
+                  "proposal_truncated": {
+                    "description": "The proposed answer was cut short when recorded: it cannot be accepted; type an answer instead.",
+                    "type": "boolean"
                   },
                   "proposed": {
                     "description": "Its proposed answer, waiting on the owner: the owner answers, with it or not.",

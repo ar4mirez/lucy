@@ -93,7 +93,7 @@ func open(t *testing.T, budget int64) *fixture {
 	srv := httptest.NewServer(f.model)
 	t.Cleanup(srv.Close)
 	f.iss = &capability.Issuer{Store: st, Leases: runner.NewBroker(st, nil), Now: func() time.Time { return f.now }}
-	f.sup = &supervise.Supervisor{Store: st, Issuer: f.iss, Now: func() time.Time { return f.now },
+	f.sup = &supervise.Supervisor{Store: st, Issuer: f.iss, Models: true, Now: func() time.Time { return f.now },
 		Transport: func(string) http.RoundTripper { return rewrite{to: srv.URL} }}
 	f.sup.SetOrgs(map[string]supervise.Config{"acme": {Org: "acme", Route: "models", Small: "small-1", Large: "large-1", DailyTokens: budget}})
 	return f
@@ -110,7 +110,7 @@ func (r rewrite) RoundTrip(req *http.Request) (*http.Response, error) {
 	return http.DefaultTransport.RoundTrip(out)
 }
 
-var question = tower.Escalation{Org: "acme", Flight: "f1", Project: "web", Goal: "fix the login page", Posture: "green", Question: "staging or production?"}
+var question = tower.Escalation{Org: "acme", Flight: "f1", Project: "web", Goal: "fix the login page", Posture: "green", Question: "which region, eu-west or us-east?"}
 
 func (f *fixture) types(t *testing.T) []string {
 	t.Helper()
@@ -141,7 +141,7 @@ func TestTheSmallModelProposesWhenConfident(t *testing.T) {
 	if r.Path != "/models/v1/messages" || r.Model != "small-1" || !strings.HasPrefix(r.Capability, capability.Prefix) {
 		t.Fatalf("the call %+v: want the org's model route, with a capability", r)
 	}
-	for _, want := range []string{"acme", "web", "fix the login page", "staging or production?"} {
+	for _, want := range []string{"acme", "web", "fix the login page", "which region, eu-west or us-east?"} {
 		if !strings.Contains(r.Prompt, want) {
 			t.Errorf("the prompt %q lacks %q", r.Prompt, want)
 		}

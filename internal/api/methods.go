@@ -163,7 +163,7 @@ type Status struct {
 // SupervisorUsage is one org's model supervisor (LUCY-RUN-010), which only proposes answers.
 type SupervisorUsage struct {
 	Org         string `json:"org" doc:"The org."`
-	Armed       bool   `json:"armed" doc:"Whether the daemon was started with --supervise; without it the org's questions go to the owner with no model call."`
+	Armed       bool   `json:"armed" doc:"Whether the org's models are asked: the daemon was started with --supervise and the org names them. Its rules apply either way."`
 	Day         string `json:"day" doc:"The UTC day the tokens are counted in, YYYY-MM-DD."`
 	Tokens      int64  `json:"tokens" doc:"Tokens the supervisor spent for the org on that day, input and output."`
 	DailyTokens int64  `json:"daily_tokens" doc:"The org's daily budget; once spent, questions go straight to the owner."`
@@ -503,6 +503,8 @@ type Question struct {
 	ProposalID string `json:"proposal_id,omitempty" doc:"The proposal's id, for example p12; accepting it names it. A newer proposal has a new id."`
 	ProposedBy string `json:"proposed_by,omitempty" doc:"The supervisor that proposed an answer, for example supervisor/rules; absent when none did."`
 	Proposed   string `json:"proposed,omitempty" doc:"Its proposed answer, waiting on the owner: the owner answers, with it or not."`
+	// ProposalTruncated marks a proposed answer the Tower cut short: accepting it is refused.
+	ProposalTruncated bool `json:"proposal_truncated,omitempty" doc:"The proposed answer was cut short when recorded: it cannot be accepted; type an answer instead."`
 }
 
 // AnswerParams answers one flight's question.
@@ -738,6 +740,8 @@ type CatalogDecision struct {
 	ProposalID   string          `json:"proposal_id,omitempty" doc:"The id of a supervisor's suggested answer to a question, as questions.list shows it."`
 	ProposedBy   string          `json:"proposed_by,omitempty" doc:"A supervisor that suggested an answer to a question, for example supervisor/rules. A suggestion never closes the decision."`
 	Proposed     string          `json:"proposed,omitempty" doc:"Its suggested answer; the owner may accept it with lucy answer <flight> --accept-proposal <id>, the id lucy questions shows."`
+	// ProposalTruncated marks a suggested answer the Tower cut short: accepting it is refused.
+	ProposalTruncated bool `json:"proposal_truncated,omitempty" doc:"The suggested answer was cut short when recorded: it cannot be accepted; type an answer instead."`
 }
 
 // CatalogOption is one way to settle a decision.

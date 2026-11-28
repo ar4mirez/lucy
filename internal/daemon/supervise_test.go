@@ -240,3 +240,75 @@ func TestTheSupervisorIsOffByDefault(t *testing.T) {
 		t.Fatalf("status %+v, %v", st.Supervisors, err)
 	}
 }
+
+// An org's rules apply with the Airspace opt-in alone, without --supervise: a matching rule's
+// answer is shown as supervisor/rules' proposal and never reaches the Pilot, and a question about
+// a secret goes to the owner with the reason recorded (LUCY-RUN-010).
+func TestRulesApplyWithoutSupervise(t *testing.T) {
+	for _, c := range []struct{ question, proposed, declined string }{
+		{"which account?", "use the staging account", ""},
+		{"what is the deploy token?", "", "a secret or a credential"},
+	} {
+		t.Run(c.question, func(t *testing.T) {
+			dir := shortTempDir(t)
+			o := opts(dir)
+			o.TowerPollInterval = 20 * time.Millisecond
+			o.Dispatch = true
+			writeFlights(t, o, "spec: {}")
+			if err := os.WriteFile(filepath.Join(o.ResourcesDir, "airspace.yaml"), []byte("apiVersion: lucy/v1alpha1\nkind: Airspace\n"+
+				"metadata: { name: acme, namespace: acme }\nspec: { supervisor: { rules: [ { match: '\\baccount\\b', propose: use the staging account } ] } }\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cl := startClient(t, o)
+			ctx := context.Background()
+			var lease api.LeaseResult
+			var err error
+			for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+				if lease, err = cl.RunnerLease(ctx, api.LeaseParams{Runner: "acme-host-1", Org: "acme"}); err == nil && lease.Leased {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("no lease")
+				}
+			}
+			if _, err := cl.RunnerHeartbeat(ctx, api.HeartbeatParams{Runner: "acme-host-1", Run: lease.Run.Run, Fence: lease.Run.Fence,
+				Events: []api.RunEvent{{Seq: 1, Kind: "asking", Text: c.question, Question: "q-1"}}}); err != nil {
+				t.Fatal(err)
+			}
+			var q api.QuestionsList
+			var reasons []string
+			for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+				q, err = cl.Questions(ctx)
+				page, perr := cl.Events(ctx, api.EventsParams{Limit: 500})
+				if perr != nil {
+					t.Fatal(perr)
+				}
+				reasons = nil
+				for _, e := range page.Events {
+					if e.Type == "supervisor.declined" {
+						reasons = append(reasons, string(e.Payload))
+					}
+				}
+				if err == nil && len(q.Questions) == 1 && (q.Questions[0].Proposed != "" || len(reasons) > 0) {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("no proposal or decline: %+v, %v", q, err)
+				}
+			}
+			got := q.Questions[0]
+			if c.proposed != "" && (got.ProposedBy != "supervisor/rules" || got.Proposed != c.proposed || len(reasons) != 0) {
+				t.Fatalf("the question %+v, declined %q", got, reasons)
+			}
+			if c.declined != "" && (got.Proposed != "" || len(reasons) != 1 || !strings.Contains(reasons[0], c.declined)) {
+				t.Fatalf("the question %+v, declined %q", got, reasons)
+			}
+			if beat, err := cl.RunnerHeartbeat(ctx, api.HeartbeatParams{Runner: "acme-host-1", Run: lease.Run.Run, Fence: lease.Run.Fence}); err != nil || beat.Answer != "" {
+				t.Fatalf("the Pilot's heartbeat %+v, %v", beat, err)
+			}
+			if st, err := cl.Status(ctx); err != nil || len(st.Supervisors) != 1 || st.Supervisors[0].Armed {
+				t.Fatalf("status %+v, %v", st.Supervisors, err)
+			}
+		})
+	}
+}

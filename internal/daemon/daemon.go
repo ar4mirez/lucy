@@ -287,7 +287,9 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		return takeoverGate(remote)
 	}
-	var sup *supervise.Supervisor
+	// The supervisor's rules apply to each org that opts in through its Airspace; its models only
+	// when the daemon is also armed with --supervise (LUCY-RUN-010).
+	sup := &supervise.Supervisor{Store: store, Issuer: caps, Models: opts.Supervise}
 	if opts.Supervise {
 		dir := opts.GatewayDir
 		if dir == "" {
@@ -297,9 +299,9 @@ func Run(ctx context.Context, opts Options) error {
 			}
 			dir = filepath.Join(rt, "gateway")
 		}
-		sup = &supervise.Supervisor{Store: store, Issuer: caps, Transport: supervise.GatewayTransport(dir)}
-		sup.SetOrgs(supervise.Configs(set.Admitted()))
+		sup.Transport = supervise.GatewayTransport(dir)
 	}
+	sup.SetOrgs(supervise.Configs(set.Admitted()))
 	hosted, err := startTower(ctx, store, broker, &set, pipelines, poll, log, opts.Dispatch, gate, sup)
 	// refresh brings what the daemon built from the config at start up to an applied reload: the
 	// Pipelines and the worktree pool's Runways. TODO(LUCY-POL-005): the roles' blocked paths and the
@@ -316,9 +318,7 @@ func Run(ctx context.Context, opts Options) error {
 		hosted.pipelines = p
 		hosted.mu.Unlock()
 		worktrees.SetRunways(next.Admitted())
-		if sup != nil {
-			sup.SetOrgs(supervise.Configs(next.Admitted()))
-		}
+		sup.SetOrgs(supervise.Configs(next.Admitted()))
 		hosted.mu.Lock()
 		hosted.supervision = supervise.Configs(next.Admitted())
 		hosted.mu.Unlock()

@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 37
+version: 38
 owner: ar4mirez
 requirements: []
 ---
@@ -145,8 +145,12 @@ slice table, requirement status and exit tests stay in the plan.
   suggestion with `lucy answer <flight> --accept-proposal <proposal>`, recorded as the owner's
   answer and refused as stale when the question or proposal changed since `lucy questions`. The
   Tower's own questions are never put to it; with none configured nothing changes. Delegating
-  unattended answers is an m2 open question. The model-backed supervisor (`internal/supervise`) asks a
-  small model, then a large one, then leaves it to the owner. It takes two keys: the org's Airspace
+  unattended answers is an m2 open question. The supervisor (`internal/supervise`) asks rules first:
+  built-in safety rules send secrets, credentials, payments and irreversible or production changes
+  to the owner, never to a model; then the org's ordered RE2 rules (Airspace
+  `spec.supervisor.rules`) propose a fixed answer or send the question to the owner. Rules call
+  nothing, so they apply with the Airspace alone. Then it asks a small model, then a large one,
+  then leaves it to the owner. The models take two keys: the org's Airspace
   `spec.supervisor` (gateway route, models, daily token budget) and `lucy daemon --supervise`. Its
   calls go through the org's gateway with a short-lived supervisor capability bound to that one
   route, off the Tower's step, carrying only the question and the flight's org, project and goal;

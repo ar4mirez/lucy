@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -181,6 +182,12 @@ func Admit(doc any, src Source) Result {
 		r.refuse(ReasonNamespaceMismatch, fmt.Sprintf("an Airspace's namespace is its own name: set metadata.namespace to %q", r.Name))
 		return r
 	}
+	if r.Kind == "Airspace" {
+		if msg := supervisorRules(obj); msg != "" {
+			r.refuse(ReasonSchemaViolation, msg)
+			return r
+		}
+	}
 	s, err := schemaFor(k.Schema)
 	if err != nil {
 		r.refuse(ReasonSchemaViolation, err.Error())
@@ -259,4 +266,29 @@ func sortResults(rs []Result) {
 		}
 		return a.Source.Doc - b.Source.Doc
 	})
+}
+
+// MaxProposeBytes is the most bytes (UTF-8) of a proposed answer the Tower keeps, and so the most
+// an Airspace's rule may propose (LUCY-RUN-010): admission, the rules and the Tower share it, so an
+// admitted answer is never cut short.
+const MaxProposeBytes = 1024
+
+// supervisorRules checks an Airspace's spec.supervisor.rules, which the schema cannot: each match
+// must be an RE2 regular expression, and each proposed answer at most MaxProposeBytes bytes (the
+// schema counts characters). It returns why one is refused, or "".
+func supervisorRules(obj map[string]any) string {
+	spec, _ := obj["spec"].(map[string]any)
+	sup, _ := spec["supervisor"].(map[string]any)
+	rules, _ := sup["rules"].([]any)
+	for i, r := range rules {
+		m, _ := r.(map[string]any)
+		match, _ := m["match"].(string)
+		if _, err := regexp.Compile("(?i)" + match); err != nil {
+			return fmt.Sprintf("spec.supervisor.rules[%d].match is not an RE2 regular expression: %v", i, err)
+		}
+		if propose, _ := m["propose"].(string); len(propose) > MaxProposeBytes {
+			return fmt.Sprintf("spec.supervisor.rules[%d].propose is %d bytes; at most %d bytes", i, len(propose), MaxProposeBytes)
+		}
+	}
+	return ""
 }
