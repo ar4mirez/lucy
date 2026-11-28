@@ -166,3 +166,33 @@ func TestSourceCheckoutResolvesSymlinks(t *testing.T) {
 		t.Fatalf("a run that holds no slot has checkout %q", got)
 	}
 }
+
+// A reload replaces the Runways while runs are placed: SetRunways and every reader of the Runways
+// may overlap, and each reader sees one whole set, the old or the new (run under -race).
+func TestSetRunwaysOverlapsReads(t *testing.T) {
+	src := &Source{}
+	src.SetRunways([]spec.Resource{runwayRes("acme", "web", "acme/web")})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 200 {
+			repo := "acme/web"
+			if i%2 == 1 {
+				repo = "acme/site"
+			}
+			src.SetRunways([]spec.Resource{runwayRes("acme", "web", repo)})
+		}
+	}()
+	for {
+		select {
+		case <-done:
+			return
+		default:
+		}
+		remote, ok, err := src.RemoteOf("acme", "web")
+		if err != nil || !ok || (!strings.HasSuffix(remote, "/acme/web.git") && !strings.HasSuffix(remote, "/acme/site.git")) {
+			t.Fatalf("RemoteOf: %q, %v, %v", remote, ok, err)
+		}
+		src.repoNamed("acme", "web")
+	}
+}

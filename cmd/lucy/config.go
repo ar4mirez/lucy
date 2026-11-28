@@ -165,7 +165,7 @@ func runConfigStatus(args []string, stdout, stderr io.Writer) int {
 			untrusted(last.At), last.Refused)
 	}
 	if len(all) == 0 && len(refused) == 0 {
-		fmt.Fprint(stdout, "resources[0]: the daemon has loaded none\nhelp: add resources to the config directory and restart the daemon\n")
+		fmt.Fprint(stdout, "resources[0]: the daemon has loaded none\nhelp: add resources to the config directory, then run `lucy config reload` (or send the daemon SIGHUP)\n")
 		return 0
 	}
 	fmt.Fprintf(stdout, "resources[%d]{namespace,kind,name,source,type,status,reason,message,since}:\n", len(all))
@@ -187,7 +187,7 @@ func runConfigStatus(args []string, stdout, stderr io.Writer) int {
 	if truncated > 0 {
 		fmt.Fprintf(stdout, "refused_truncated: %d\n", truncated)
 	}
-	fmt.Fprint(stdout, "help: these name no resource, so they carry no status of their own; run `lucy config validate` for details, fix them and restart the daemon\n")
+	fmt.Fprint(stdout, "help: these name no resource, so they carry no status of their own; run `lucy config validate` for details, fix them, then run `lucy config reload` (or send the daemon SIGHUP)\n")
 	return 0
 }
 

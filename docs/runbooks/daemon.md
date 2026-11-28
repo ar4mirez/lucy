@@ -55,7 +55,8 @@ A document that names no resource (it does not parse, lacks a valid kind, name o
 duplicates another) has no status of its own; `lucy config status` lists the latest load's under
 `refused`, with its file and document.
 
-Change config by editing the files and restarting the daemon. Recorded violation messages carry
+Change config by editing the files, then running `lucy config reload` (or sending the daemon
+SIGHUP); only the roles' blocked paths and the gateway's routes still need a restart. Recorded violation messages carry
 only the paths; `lucy config validate` shows the full messages.
 
 ## The audit chain
