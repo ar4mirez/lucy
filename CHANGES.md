@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 45
+version: 46
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,11 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Added
+
+- Only you can override a QualityGate. A gate whose `override.requiredRole` (or a visual rule whose
+  `override.approvers`) names anyone else is still loaded, as the spec writes it, but `lucy config
+  status` shows the condition `Override` (`OverrideIsOwner`) saying lucy lets only you override
+  it, and the daemon logs a warning. Its `requiresJustification` is kept.
 
 - `lucy config reload` (the API's `config.reload`, OpenRPC revision 21) and SIGHUP make the daemon
   load its config again without a restart. A config with no refused resource is applied: its

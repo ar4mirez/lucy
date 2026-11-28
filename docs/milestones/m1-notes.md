@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 28
+version: 29
 owner: ar4mirez
 requirements: []
 ---
@@ -225,6 +225,12 @@ slice table, requirement status and exit tests stay in the plan.
   Flight's own applies, tightening only. Each is recorded as `task.posture_tightened` (from, to,
   why), and the flight's next merge is decided again. A promotion is never applied in flight: it
   holds for flights dispatched after it.
+- **7b, QualityGate overrides (LUCY-SPEC-010).** A QualityGate is accepted as the spec writes
+  it, so Core conformance holds, but lucy lets only the owner override a gate: a gate's
+  `override.requiredRole`, or a visual rule's `override.approvers`, naming anyone else gets the
+  condition `Override` (reason `OverrideIsOwner`) in `lucy config status` and a warning in the
+  daemon's log at start and on each applied reload. `requiresJustification` is kept as stated.
+  The validation slice (11) takes an override only as the owner's recorded word.
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real

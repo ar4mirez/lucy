@@ -509,6 +509,12 @@ func recordResources(ctx context.Context, store *eventstore.Store, set spec.Set,
 	}
 	log.Log(ctx, level, "config loaded", "dir", set.Dir, "resources", len(set.Results), "refused", set.Invalid(),
 		"changed", sum.Changed, "removed", sum.Removed)
+	for _, r := range set.Results {
+		if c, ok := r.Condition(spec.ConditionOverride); ok {
+			log.Warn("a QualityGate names an override role other than the owner: lucy lets only the owner override it",
+				"resource", r.Namespace+"/"+r.Kind+"/"+r.Name, "detail", c.Message)
+		}
+	}
 	return nil
 }
 
