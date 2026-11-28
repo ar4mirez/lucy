@@ -34,7 +34,7 @@ func lucy(args ...string) (int, string, string) {
 func TestClientCommandsWithoutADaemon(t *testing.T) {
 	sock := filepath.Join(shortTempDir(t), "none.sock")
 	for _, cmd := range [][]string{{"status"}, {"events"}, {"daemon", "stop"}, {"questions"}, {"answer", "f1", "yes"},
-		{"sandbox", "held"}, {"capability", "ls"}, {"worktree", "ls"}} {
+		{"sandbox", "held"}, {"capability", "ls"}, {"worktree", "ls"}, {"flights"}} {
 		code, out, errOut := lucy(append(cmd, "--socket", sock)...)
 		if code != 1 || out != "" || !strings.Contains(errOut, "lucy daemon is not running") ||
 			!strings.Contains(errOut, "help: start it with `lucy daemon`") {

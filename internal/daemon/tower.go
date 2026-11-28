@@ -1,13 +1,16 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ar4mirez/lucy/internal/api"
 	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +21,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/runner"
 	"github.com/ar4mirez/lucy/internal/spec"
 	"github.com/ar4mirez/lucy/internal/tower"
+	"github.com/ar4mirez/lucy/internal/worktree"
 )
 
 // The daemon hosts the Tower (m1 slice 7a): it flies the flights in its log and, only when started
@@ -74,6 +78,9 @@ const (
 	ReasonFinished         = "Finished"
 	ReasonDispatchFailed   = "DispatchFailed"
 	ReasonPipelineInvalid  = "PipelineInvalid" // the org's Pipeline of the Flight's shape is invalid; the built-in one never stands in
+	// ReasonWorktreePoolInvalid: the org's WorktreePool cannot be accepted (LUCY-SPEC-017); lucy's
+	// own pool defaults never stand in for it.
+	ReasonWorktreePoolInvalid = "WorktreePoolInvalid"
 )
 
 // takeoverGate refuses remote unless it is a file:// URL or an absolute path that, with symlinks
@@ -127,6 +134,7 @@ func startTower(ctx context.Context, store *eventstore.Store, broker *runner.Bro
 // its name, in its namespace and runway, was dispatched by an earlier start, unless it is
 // finished; one whose name a flight of another org or runway holds is not dispatched.
 func (h *hostedTower) dispatch(ctx context.Context, set *spec.Set, enabled bool, gate func(org, project string) error) {
+	pools := worktree.PoolErrors(set.Results)
 	bases := map[string]string{}
 	for _, r := range set.Admitted() {
 		if r.APIVersion == spec.LucyAPIVersion && r.Kind == "Runway" {
@@ -181,6 +189,11 @@ func (h *hostedTower) dispatch(ctx context.Context, set *spec.Set, enabled bool,
 		shape := str("shape")
 		if shape == "" {
 			shape = pipeline.Ship
+		}
+		if err := pools[org]; err != nil {
+			h.log.Warn("flight not dispatched: its org's WorktreePool is invalid", "flight", r.ID(), "err", err)
+			mark(spec.False, ReasonWorktreePoolInvalid, err.Error())
+			continue
 		}
 		p, err := h.pipelines.For(org, shape)
 		if errors.Is(err, pipeline.ErrNoPipeline) {
@@ -255,5 +268,39 @@ func towerPipeline(p pipeline.Policy) *tower.Pipeline {
 	case pipeline.OnTimeoutAbort:
 		out.OnTimeout = tower.OnTimeoutAbort
 	}
+	return out
+}
+
+// flights lists the admitted Flights of set, sorted by org and name, with their Ready and
+// Dispatched conditions and the Tower's state of each flight it flies under the Flight's name and
+// org (LUCY-SPEC-017).
+func (h *hostedTower) flights(set *spec.Set) []api.FlightInfo {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	cond := func(res spec.Result, typ string) api.ConditionInfo {
+		c, ok := res.Condition(typ)
+		if !ok {
+			return api.ConditionInfo{}
+		}
+		return api.ConditionInfo{Type: c.Type, Status: string(c.Status), Reason: c.Reason, Message: c.Message, LastTransitionTime: c.LastTransitionTime}
+	}
+	var out []api.FlightInfo
+	for _, res := range set.Results {
+		r := res.Resource
+		if r == nil || r.APIVersion != spec.LucyAPIVersion || r.Kind != "Flight" {
+			continue
+		}
+		str := func(k string) string { s, _ := r.Spec[k].(string); return s }
+		f := api.FlightInfo{Org: r.Metadata.Namespace, Name: r.Metadata.Name, Goal: str("goal"), Shape: str("shape"),
+			Runway: str("runway"), Autonomy: str("autonomy"), Ready: cond(res, spec.ConditionReady), Dispatched: cond(res, ConditionDispatched)}
+		if f.Shape == "" {
+			f.Shape = pipeline.Ship
+		}
+		if st, ok := h.tw.Flight(r.Metadata.Name); ok && st.Org == f.Org && st.Project == f.Runway {
+			f.State, f.Reason = string(st.State), st.Reason
+		}
+		out = append(out, f)
+	}
+	slices.SortFunc(out, func(a, b api.FlightInfo) int { return cmp.Or(cmp.Compare(a.Org, b.Org), cmp.Compare(a.Name, b.Name)) })
 	return out
 }

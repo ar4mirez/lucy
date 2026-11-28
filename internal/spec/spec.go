@@ -76,6 +76,7 @@ var kinds = []Kind{
 	{CoreAPIVersion, "QualityGate", coreSchemaBase + "quality-gate.schema.json", true},
 	{CoreAPIVersion, "AutonomyPolicy", coreSchemaBase + "autonomy-policy.schema.json", true},
 	{CoreAPIVersion, "AdapterBinding", coreSchemaBase + "adapter-binding.schema.json", true},
+	{CoreAPIVersion, "WorktreePool", coreSchemaBase + "worktree-pool.schema.json", false},
 	{LucyAPIVersion, "Airspace", lucySchemaBase + "airspace.schema.json", false},
 	{LucyAPIVersion, "Runway", lucySchemaBase + "runway.schema.json", false},
 	{LucyAPIVersion, "Flight", lucySchemaBase + "flight.schema.json", false},
@@ -86,6 +87,11 @@ var kinds = []Kind{
 // decision projected from the event log. lucy never admits a Decision from config; it projects
 // the decisions waiting on the owner into this shape (LUCY-SPEC-013).
 const DecisionSchema = coreSchemaBase + "decision.v1.schema.json"
+
+// BacklogTaskSchema is the vendored schema of the spec's BacklogTask, the front matter of a backlog
+// task. lucy reads no backlog files; it writes each Flight in this shape for tools that read the
+// spec's backlog (LUCY-SPEC-017).
+const BacklogTaskSchema = coreSchemaBase + "backlog-task.v1.schema.json"
 
 // Kinds returns the kinds lucy admits, in a stable order.
 func Kinds() []Kind { return slices.Clone(kinds) }

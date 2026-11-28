@@ -279,6 +279,7 @@ func Run(ctx context.Context, opts Options) error {
 		CallTimeout:  opts.CallTimeout,
 		Questions:    server.TowerQuestions{Tower: hosted.tw, Lock: &hosted.mu},
 		Approvals:    server.TowerQuestions{Tower: hosted.tw, Lock: &hosted.mu},
+		Flights:      func() []api.FlightInfo { return hosted.flights(&set) },
 	})
 	if err != nil {
 		return err

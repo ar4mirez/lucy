@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 36
+version: 37
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,14 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Added
+
+- An org declares its worktree pool with the spec's `WorktreePool` resource. lucy accepts only
+  what it acts on, `layout: workspace-scoped` and `cleanup.onMerge: true`, and refuses `rootDir` and
+  every other field by name: the pool stays under lucy's guarded data directory. An org whose
+  WorktreePool lucy cannot accept, or that declares two, has its Flights held with reason
+  `WorktreePoolInvalid`. `lucy flights` lists every loaded Flight with its readiness and the Tower's
+  state; `lucy flights --json` writes each as the spec's `BacklogTask` document, checked against the
+  vendored schema. The API gains `flights.list` (OpenRPC revision 18).
 
 - lucy passes the ai-sdlc spec's Core conformance level: every Core fixture of the spec's own
   conformance suite, vendored at the pinned commit, is accepted or rejected as the suite requires.
@@ -66,7 +74,7 @@ Changes since the last release. When a version is cut, its section moves to
   data directory or the system temp directory: real repositories are refused until #36 and the
   owner's go/no-go), `NameInUse` (a flight of another org or runway has its name), `Finished` (a
   finished flight has its name), `PipelineInvalid` (the org's Pipeline for the Flight's shape is
-  invalid) or `DispatchFailed`. The Tower's forge is a stub that reads no pull
+  invalid), `WorktreePoolInvalid` (the org's WorktreePool cannot be accepted) or `DispatchFailed`. The Tower's forge is a stub that reads no pull
   request and merges nothing until the validation slice. The gate also holds at every lease: a run
   whose Runway names a real remote gets no checkout, only the gate as its worktree error.
 - The credential gateway refuses every git push while the takeover gate is closed: a request whose
