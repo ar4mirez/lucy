@@ -2,7 +2,7 @@
 id: tech-harness
 title: Harness adapters
 status: active
-version: 3
+version: 4
 owner: ar4mirez
 requirements: [LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-008, LUCY-RUN-013]
 ---
@@ -56,3 +56,10 @@ Claude Code's needs a login in the org's home, and checks only that `.claude/.cr
 there or `.claude.json` names an `oauthAccount`, never what they hold. The runner then does not
 spawn: it finishes the run `needs_owner` with the need (`harness_login`), and the Tower holds the
 flight with a question to the owner (LUCY-RUN-008).
+
+A `harness.SkillHost` adapter names the directory its harness reads skills from (Claude Code's
+`.claude/skills`). Before every spawn the runner installs lucy's bundled skills there
+(`internal/skills`, LUCY-RUN-009), verifies each against its SHA-256 in the bundled manifest,
+and removes everything else through the path guard; a mismatch refuses the spawn. Sessions still
+run with skills off (`--disable-slash-commands`) until a live check shows that no skill's
+`allowed-tools` skips the permission prompt and that no repository skill loads.

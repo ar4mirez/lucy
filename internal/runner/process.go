@@ -18,6 +18,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/harness"
 	"github.com/ar4mirez/lucy/internal/pathguard"
 	"github.com/ar4mirez/lucy/internal/policy"
+	"github.com/ar4mirez/lucy/internal/skills"
 )
 
 // ProcessExecutor runs one program per leased run, directly on this machine. With a Harness it
@@ -177,6 +178,16 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 		if err != nil {
 			pe.cleanup()
 			return nil, err
+		}
+		if host, ok := p.Harness.(harness.SkillHost); ok {
+			// lucy's bundled skills, and only they, re-linked and verified before every spawn
+			// (LUCY-RUN-009); a mismatch refuses the spawn.
+			installed, err := installSkills(guard, orgHome, host.SkillsDir())
+			if err != nil {
+				pe.cleanup()
+				return nil, err
+			}
+			changed = append(changed, installed...)
 		}
 		if need := harnessNeeds(p.Harness, orgHome); need != "" {
 			// The harness cannot run on its own (no login in the org's home): hold the run for the
@@ -682,3 +693,23 @@ func (n needsOwner) Poll() Update {
 
 // Stop implements Execution: nothing runs.
 func (needsOwner) Stop() {}
+
+// installSkills installs lucy's bundled skills into dir in the org's home, through a Root on it.
+// Unknown entries are removed through guard, whose root holds the org's home (LUCY-SEC-005).
+func installSkills(guard *pathguard.Guard, orgHome, dir string) ([]string, error) {
+	r, err := os.OpenRoot(orgHome)
+	if err != nil {
+		return nil, fmt.Errorf("runner: open the org's home: %w", err)
+	}
+	defer r.Close() //nolint:errcheck // a read-only handle's close error is no news
+	changed, err := skills.Install(r, dir, func(rel string) error {
+		return guard.RemoveAll(filepath.Join(orgHome, filepath.FromSlash(rel)))
+	})
+	if err != nil {
+		return nil, fmt.Errorf("runner: install lucy's skills: %w", err)
+	}
+	for i, c := range changed {
+		changed[i] = "skill " + c
+	}
+	return changed, nil
+}

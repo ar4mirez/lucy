@@ -2,7 +2,7 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 31
+version: 32
 owner: ar4mirez
 requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-004, LUCY-SPEC-009, LUCY-SIM-001, LUCY-SIM-002, LUCY-RUN-001, LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-013, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007, LUCY-SEC-002]
 ---
@@ -222,6 +222,7 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 | `internal/server/` | The API's HTTP handler, peer-credential listener and authorizer seam |
 | `internal/daemon/` | `lucy daemon`: runtime dir, lock, socket, store, graceful stop |
 | `internal/config/` | `config.toml`: lucy's settings, and rendering the owner's display title |
+| `internal/skills/` | lucy's bundled skills and their SHA-256 manifest, installed and verified in an org's home before every spawn (LUCY-RUN-009) |
 | `internal/spec/` | Spec resources: vendored and lucy schemas, safe YAML decoding, loading, admission, status (section 10) |
 | `internal/jcs/` | RFC 8785 canonical JSON |
 | `internal/audit/` | The hash-chained audit log: entries, projector, verification (section 10) |

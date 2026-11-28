@@ -1,0 +1,6 @@
+# The SHA-256 of every file of lucy's bundled skills (LUCY-RUN-009), as installed: one line per file,
+# its hash and its path inside the skills directory. A test fails when a file and its line disagree,
+# or a file is not listed; the runner verifies each installed file against it before every spawn.
+cd2200f78569873dc9ea290743d9a46f00307008dddcb46fd57d1203128c5598 lucy-researcher/SKILL.md
+75feb75367776661ae6e53179b172fe8875ededa805f7b9f8b1e811912d381c5 lucy-reviewer/SKILL.md
+d686471994fc50905acf40862c23d6191492facc7a63e43af0c0228c7a8d4210 lucy-worker/SKILL.md

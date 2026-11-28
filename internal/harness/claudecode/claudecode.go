@@ -95,6 +95,7 @@ var (
 	_ harness.Adapter      = Adapter{}
 	_ harness.Converger    = Adapter{}
 	_ harness.Prerequisite = Adapter{}
+	_ harness.SkillHost    = Adapter{}
 )
 
 // Name implements harness.Adapter.
