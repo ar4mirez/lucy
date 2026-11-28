@@ -218,6 +218,9 @@ func Run(ctx context.Context, opts Options) error {
 	for _, err := range pipelines.Invalid() {
 		log.Warn("pipeline not flown: its org's Flights of its shape are held", "err", err)
 	}
+	for org, err := range worktree.PoolErrors(set.Results) {
+		log.Warn("worktree pool refused: its org's Flights are held", "org", org, "err", err)
+	}
 	roles, err := role.NewCatalog(set.Admitted())
 	if err != nil {
 		return fmt.Errorf("daemon: load the roles: %w", err)

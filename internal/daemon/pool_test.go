@@ -1,10 +1,13 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -70,5 +73,42 @@ func TestAnInvalidWorktreePoolHoldsItsOrgsFlights(t *testing.T) {
 				t.Fatalf("flights.list lists %d flights, sorted %+v; want draft and fix-login", len(fs), fs)
 			}
 		})
+	}
+}
+
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+// A WorktreePool lucy refuses is warned about at startup even without --dispatch, so the owner
+// learns of it in shadow mode (LUCY-SPEC-017).
+func TestARefusedWorktreePoolIsWarnedAboutWithoutDispatch(t *testing.T) {
+	o := opts(shortTempDir(t))
+	o.TowerPollInterval = 20 * time.Millisecond
+	var logs lockedBuffer
+	o.Log = slog.New(slog.NewTextHandler(&logs, nil))
+	writeFlights(t, o, "spec: {}")
+	writePool(t, o, "{ rootDir: /srv/worktrees }")
+	cl := startClient(t, o)
+	if d := dispatched(t, cl, "acme", "fix-login"); d.Reason != ReasonDispatchDisabled {
+		t.Fatalf("the Dispatched condition %+v, want %s", d, ReasonDispatchDisabled)
+	}
+	out := logs.String()
+	if !strings.Contains(out, "level=WARN") || !strings.Contains(out, "worktree pool refused") ||
+		!strings.Contains(out, "org=acme") || !strings.Contains(out, "spec.rootDir") {
+		t.Fatalf("no warning about the refused pool in the log:\n%s", out)
 	}
 }
