@@ -34,6 +34,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/runner"
 	"github.com/ar4mirez/lucy/internal/sandbox"
 	"github.com/ar4mirez/lucy/internal/server"
+	"github.com/ar4mirez/lucy/internal/shadow"
 	"github.com/ar4mirez/lucy/internal/spec"
 	"github.com/ar4mirez/lucy/internal/supervise"
 	"github.com/ar4mirez/lucy/internal/tower"
@@ -87,7 +88,7 @@ func Registry() (*eventstore.Registry, error) {
 	payloads := append(spec.Payloads(), Started{}, Stopped{}, ConfigReloadFailed{}, server.CommandEvent{}, policy.DecisionRecord{})
 	payloads = append(append(append(payloads, runner.Payloads()...), sandbox.Payloads()...), gateway.Payloads()...)
 	payloads = append(append(append(payloads, capability.Payloads()...), vault.Payloads()...), worktree.Payloads()...)
-	payloads = append(append(payloads, tower.Payloads()...), supervise.Payloads()...)
+	payloads = append(append(append(payloads, tower.Payloads()...), supervise.Payloads()...), shadow.Payloads()...)
 	return eventstore.NewRegistry(payloads...)
 }
 
@@ -97,7 +98,7 @@ func Registry() (*eventstore.Registry, error) {
 // transaction.
 func Projectors() []eventstore.Projector {
 	return []eventstore.Projector{spec.StatusProjector{}, runner.Projector{}, sandbox.Projector{}, capability.Projector{}, worktree.Projector{},
-		decision.Projector{}, audit.Projector{}, supervise.Projector{}}
+		decision.Projector{}, audit.Projector{}, supervise.Projector{}, shadow.Projector{}}
 }
 
 // ExpiryInterval is how often the daemon expires runner leases that were not renewed in time.
@@ -339,6 +340,7 @@ func Run(ctx context.Context, opts Options) error {
 		Runs:         broker,
 		Gateways:     gateways,
 		Capabilities: caps,
+		Shadow:       &shadow.Recorder{Store: store, Known: hosted.admitsOrg},
 		Worktrees:    worktrees,
 		CallTimeout:  opts.CallTimeout,
 		Questions:    server.TowerQuestions{Tower: hosted.tw, Lock: &hosted.mu},

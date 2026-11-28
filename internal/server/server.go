@@ -28,6 +28,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/gateway"
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/runner"
+	"github.com/ar4mirez/lucy/internal/shadow"
 	"github.com/ar4mirez/lucy/internal/worktree"
 )
 
@@ -107,6 +108,8 @@ type Options struct {
 	// Capabilities issues each leased run its capability token and serves capabilities.list and
 	// capability.revoke. Nil means no tokens are issued, so the gateway refuses every request.
 	Capabilities *capability.Issuer
+	// Shadow records shadow mode's imports; nil means shadow.import refuses every task.
+	Shadow *shadow.Recorder
 	// Worktrees reserves each host-placed run a slot of its project's repository when the run is
 	// leased, reports how its preparation stands on each heartbeat, gives it back when the run
 	// finishes, and serves worktree.list and worktree.discard (LUCY-RUN-007). Nil means runs get no

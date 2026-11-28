@@ -2,7 +2,7 @@
 id: sast-baseline
 title: "SAST baseline: reviewed gosec suppressions"
 status: active
-version: 9
+version: 10
 owner: ar4mirez
 requirements: [LUCY-SEC-002]
 ---
@@ -48,3 +48,4 @@ harness version check (G204) and the fake harness's fixture settings and MCP rea
 | `cmd/lucy/passphrase.go` | G304 | The same open: the path is the passphrase file the owner named with `--passphrase-file`, checked as above |
 | `internal/worktree/git.go` | G204 | Runs git with the worktree pool's own arguments: subcommands are constants, org and repository names are labels, a base is checked as a branch name, a remote may not start with `-` or name a `::` transport, a proof's commits are full object ids passed after `--end-of-options`, and paths follow `--`; no shell, and only the https, ssh and file transports |
 | `internal/vault/vault.go` | G115 | Writes the PBKDF2 iteration count, a small positive constant (600,000; lowered only in tests), as a uint32 in the vault's key-encryption parameters |
+| `cmd/lucy/shadow.go` | G703 | `lucy shadow import` opens the export file the owner named on its command line, only to read it; the parser caps its size and checks every line against the format's allowlist, and nothing in it is written or executed |

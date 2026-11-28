@@ -337,3 +337,17 @@ func (c *Client) Runs(ctx context.Context, p api.RunsParams) (api.RunsPage, erro
 	err := c.Call(ctx, api.MethodRuns, p, &r)
 	return r, err
 }
+
+// ShadowImport calls shadow.import.
+func (c *Client) ShadowImport(ctx context.Context, t api.ShadowTask) (api.ShadowImported, error) {
+	var r api.ShadowImported
+	err := c.Call(ctx, api.MethodShImport, t, &r)
+	return r, err
+}
+
+// ShadowList calls shadow.list.
+func (c *Client) ShadowList(ctx context.Context, org string) (api.ShadowList, error) {
+	var r api.ShadowList
+	err := c.Call(ctx, api.MethodShList, api.ShadowListParams{Org: org}, &r)
+	return r, err
+}

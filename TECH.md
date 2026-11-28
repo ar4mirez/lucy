@@ -2,7 +2,7 @@
 id: tech
 title: "lucy: technical specification"
 status: active
-version: 34
+version: 35
 owner: ar4mirez
 requirements: [LUCY-EVT-001, LUCY-EVT-002, LUCY-EVT-003, LUCY-EVT-004, LUCY-EVT-005, LUCY-EVT-006, LUCY-API-001, LUCY-API-002, LUCY-API-003, LUCY-API-004, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-001, LUCY-POL-002, LUCY-POL-003, LUCY-POL-004, LUCY-POL-005, LUCY-POL-006, LUCY-POL-007, LUCY-SPEC-004, LUCY-SPEC-009, LUCY-SIM-001, LUCY-SIM-002, LUCY-RUN-001, LUCY-RUN-002, LUCY-RUN-003, LUCY-RUN-013, LUCY-CRED-001, LUCY-OPS-001, LUCY-REPO-007, LUCY-SEC-002]
 ---
@@ -240,6 +240,7 @@ gateway, pipeline, TUI, dashboard and MCP server. lucy's own Go dependencies are
 | `internal/sandbox/` | The runtime seam: providers, the guard, berth's client, a fake berth (section 6) |
 | `internal/harness/` | The harness adapter seam; `claudecode/` is the Claude Code adapter and its recorded transcripts, `harnesstest/` replays them (section 6) |
 | `internal/tower/` | The flight state machine and its seams: Pilot runtime, forge, clock (section 11) |
+| `internal/shadow/` | Shadow mode: the existing supervisor's tasks, imported from an offline file through an allowlist ([format](docs/tech/shadow.md), LUCY-RUN-012) |
 | `internal/supervise/` | The supervisor: proposes answers to Pilots' questions by rules, then models through the org's gateway within a daily token budget (LUCY-RUN-010) |
 | `internal/sim/` | The simulation harness: virtual clock, fake forge, fake Pilot runtime, fault hooks (section 11) |
 | `internal/converge/` | converge loops: level-triggered reconcilers woken by the event log, with resync and backoff (LUCY-SPEC-008) |

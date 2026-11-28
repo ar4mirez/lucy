@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 54
+version: 55
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -16,6 +16,12 @@ Changes since the last release. When a version is cut, its section moves to
 
 ### Added
 
+- `lucy shadow import <file>` records the existing supervisor's tasks for shadow mode, from an
+  offline JSON Lines file (`docs/tech/shadow.md`): each task's org, class, goal, repository, posture
+  and actions. The file is checked through an allowlist and refused whole, naming the line, for an
+  unknown field, a value out of bounds or anything that looks like a credential; tasks of an org
+  with no admitted Airspace are refused. A task is recorded once. `lucy shadow ls` lists them
+  (OpenRPC revision 27). lucy fetches nothing for it.
 - The supervisor asks rules before any model. Built-in safety rules send a question about a secret,
   a credential, a payment or an irreversible or production change to you, never to a model. Your
   own ordered rules in the org's Airspace (`spec.supervisor.rules`, RE2 matches) either suggest a
