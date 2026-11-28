@@ -53,10 +53,11 @@ The file is read through an allowlist. Any other field (a transcript, a diff, fi
 answer's text) is refused, and so is any value out of bounds and any goal or question that looks
 like a credential: a known token prefix, a private key block, a JWT, a cloud access key id, each
 at the start of the text or after a character that is not a letter or digit (so a word such as
-`task-runner-integration-tests` is not taken for a token). One refused line refuses the whole file, naming the line, and nothing is imported. The daemon checks
-every task again (`shadow.import`), whatever the client checked, and refuses, task by task, a task
-of an org with no admitted Airspace or a task id imported before with other contents: the import
-stops at that task, and the tasks recorded before it stay recorded.
+`task-runner-integration-tests` is not taken for a token). One refused line refuses the whole
+file, naming the line, and nothing is imported. The daemon checks every task again
+(`shadow.import`), whatever the client checked, and refuses, task by task, a task of an org with no
+admitted Airspace or a task id imported before with other contents: the import stops at that task,
+and the tasks recorded before it stay recorded.
 
 ## Import
 
