@@ -2,6 +2,7 @@ package sim
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -131,4 +132,27 @@ func TestPipelineSurvivesARestart(t *testing.T) {
 	}
 	run(t, w, RunOptions{})
 	wantState(t, w, "f1", tower.StateHolding, "")
+}
+
+// Only a hold waiting on the owner's approval times out. A cleared merge the forge refuses
+// MaxMergeErrors times holds for those errors, and the approval timeout does not ground it.
+func TestApprovalTimeoutSkipsAMergeErrorHold(t *testing.T) {
+	w := newWorld(t, 47)
+	s := spec("f1", policy.PostureGreen)
+	s.Pipeline = &tower.Pipeline{Name: "acme/ship", MaxRestarts: 1, ApprovalTimeout: time.Hour, OnTimeout: tower.OnTimeoutAbort}
+	dispatch(t, w, s)
+	const refusal = "forge: 405 base branch policy prohibits the merge"
+	armed := false
+	run(t, w, RunOptions{BeforeStep: func(_ context.Context, w *World, _ int) error {
+		if st := state(t, w, "f1"); !armed && st.State == tower.StateReview && st.PR > 0 {
+			armed = true
+			return w.Forge.FailMerge("acme/web", st.PR, -1, errors.New(refusal))
+		}
+		return nil
+	}})
+	wantState(t, w, "f1", tower.StateHolding, refusal)
+	stepAfter(t, w, 2*time.Hour)
+	wantState(t, w, "f1", tower.StateHolding, refusal)
+	wantOutcomes(t, w, "cleared:merge.posture")
+	checkInvariants(t, w)
 }

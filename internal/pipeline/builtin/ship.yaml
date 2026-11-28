@@ -15,15 +15,7 @@ spec:
       onFailure:
         strategy: retry
         maxRetries: 1
-      credentials:
-        scope: [contents:write, pull_requests:write]
-        ttl: PT10M
-        revokeOnComplete: true
     - name: merge
       approval:
         required: false
         blocking: true
-  pullRequest:
-    descriptionSections: [summary, acceptance, provenance]
-    includeProvenance: true
-    closeKeyword: Closes

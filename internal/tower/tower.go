@@ -446,7 +446,7 @@ func (t *Tower) watchPR(ctx context.Context, f *flight) error {
 	}
 	// A merge held past its Pipeline's approval timeout is grounded under abort; under escalate it
 	// keeps waiting on the owner, the one person it escalates to. Neither approves it.
-	if p := f.spec.Pipeline; f.state == StateHolding && p != nil && p.ApprovalTimeout > 0 && p.OnTimeout == OnTimeoutAbort &&
+	if p := f.spec.Pipeline; f.state == StateHolding && f.decision.Outcome == policy.Holding && p != nil && p.ApprovalTimeout > 0 && p.OnTimeout == OnTimeoutAbort &&
 		t.cfg.Clock.Now().Sub(f.since) >= p.ApprovalTimeout {
 		return t.record(ctx, f, ActorDaemon, Grounded{Reason: GroundApprovalTimeout,
 			Detail: "the merge held for the owner's approval for " + p.ApprovalTimeout.String() + "; a timeout never approves a merge"})

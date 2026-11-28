@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"errors"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,8 +28,7 @@ func pipelineDoc(ns, name, stages, extra string) string {
 const pilotStage = "    - { name: pilot, onFailure: { strategy: retry, maxRetries: 2 } }\n"
 
 // The built-in Pipelines are valid spec Pipelines and say what lucy does by default: a lost Pilot
-// is replaced once, its credentials last ten minutes and are revoked when it ends, and a ship
-// merge's approval is left to the autonomy posture, with no timeout.
+// is replaced once, and a ship merge's approval is left to the autonomy posture, with no timeout.
 func TestBuiltin(t *testing.T) {
 	b, err := Builtin()
 	if err != nil {
@@ -42,15 +40,6 @@ func TestBuiltin(t *testing.T) {
 	}
 	if ship.Merge != (Approval{}) {
 		t.Errorf("ship merge approval %+v, want the posture to decide, with no timeout", ship.Merge)
-	}
-	if ship.Credentials.TTL != 10*time.Minute || !ship.Credentials.RevokeOnComplete || !slices.Equal(ship.Credentials.Scope, []string{"contents:write", "pull_requests:write"}) {
-		t.Errorf("ship credentials %+v", ship.Credentials)
-	}
-	if !slices.Equal(research.Credentials.Scope, []string{"contents:read"}) {
-		t.Errorf("research credentials %+v", research.Credentials)
-	}
-	if ship.PullRequest.CloseKeyword != "Closes" || !ship.PullRequest.IncludeProvenance {
-		t.Errorf("ship pull request config %+v", ship.PullRequest)
 	}
 }
 
@@ -98,14 +87,28 @@ func TestRefused(t *testing.T) {
 		{"an agent on the merge", Ship, pilotStage + "    - { name: merge, agent: worker }\n", "", "no agent does"},
 		{"the wrong pilot agent", Ship, "    - { name: pilot, agent: reviewer }\n", "", "a ship Pilot is a worker"},
 		{"an approval before the Pilot", Ship, "    - { name: pilot, approval: { required: true } }\n", "", "does not hold a Pilot's start"},
-		{"credentials kept", Ship, "    - { name: pilot, credentials: { scope: [contents:read], revokeOnComplete: false } }\n", "", "revokes"},
-		{"a long credential", Ship, "    - { name: pilot, credentials: { scope: [contents:read], ttl: PT5H } }\n", "", "ttl"},
-		{"a pull request on research", Research, pilotStage, "  pullRequest: { closeKeyword: Fixes }\n", "a report"},
 		{"another Pipeline", "deploy", pilotStage, "", "only the Pipelines"},
 	} {
 		_, err := Parse(load(t, pipelineDoc("acme", c.pipeline, c.stages, c.extra)))
 		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), "acme/"+c.pipeline) {
 			t.Errorf("%s: %v, want ErrInvalid naming acme/%s and %q", c.name, err, c.pipeline, c.want)
+		}
+	}
+}
+
+// A setting lucy does not act on yet is refused, not silently ignored, naming the Pipeline and the
+// field.
+func TestUnsupported(t *testing.T) {
+	for _, c := range []struct{ name, pipeline, stages, extra, field string }{
+		{"a retry delay", Ship, "    - { name: pilot, onFailure: { strategy: retry, maxRetries: 2, retryDelay: PT1M } }\n", "", "retryDelay"},
+		{"credentials on the pilot", Ship, "    - { name: pilot, credentials: { scope: [contents:read], ttl: PT10M } }\n", "", "stage pilot credentials"},
+		{"credentials on the merge", Ship, pilotStage + "    - { name: merge, credentials: { scope: [contents:write] } }\n", "", "stage merge credentials"},
+		{"a pull request on ship", Ship, pilotStage, "  pullRequest: { closeKeyword: Closes }\n", "spec.pullRequest"},
+		{"a pull request on research", Research, pilotStage, "  pullRequest: { closeKeyword: Fixes }\n", "spec.pullRequest"},
+	} {
+		_, err := Parse(load(t, pipelineDoc("acme", c.pipeline, c.stages, c.extra)))
+		if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "acme/"+c.pipeline) || !strings.Contains(err.Error(), c.field) {
+			t.Errorf("%s: %v, want ErrUnsupported naming acme/%s and %q", c.name, err, c.pipeline, c.field)
 		}
 	}
 }

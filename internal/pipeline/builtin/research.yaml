@@ -15,7 +15,3 @@ spec:
       onFailure:
         strategy: retry
         maxRetries: 1
-      credentials:
-        scope: [contents:read]
-        ttl: PT10M
-        revokeOnComplete: true

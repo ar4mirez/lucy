@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 32
+version: 33
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -22,8 +22,9 @@ Changes since the last release. When a version is cut, its section moves to
   replaced; the merge stage's `approval` can require your approval for every merge, whatever the
   autonomy posture, and bound how long a merge holds (`timeout`, with `onTimeout: abort` to ground
   the flight or `escalate` to keep waiting on you). A timeout never approves a merge: a Pipeline
-  with `onTimeout: auto-approve` is refused, and the daemon does not start with one. Stage
-  `credentials` and `pullRequest` config are checked on load.
+  with `onTimeout: auto-approve` is refused, and the daemon does not start with one. Settings
+  lucy does not act on yet are refused until they are wired, not ignored: a stage's `credentials`,
+  `spec.pullRequest`, and the pilot stage's `onFailure.retryDelay`.
 
 - Roles are ai-sdlc AgentRole resources: lucy bundles one for each of its roles (supervisor,
   worker, researcher, reviewer), and an org adds to one with an `AgentRole` of that name in its

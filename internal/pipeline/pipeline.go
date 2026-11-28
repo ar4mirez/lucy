@@ -1,9 +1,9 @@
 // Package pipeline is how lucy flies a Flight, as ai-sdlc Pipeline resources (LUCY-SPEC-014): the
 // ship Pipeline (a pull request) and the research Pipeline (a report). lucy bundles one of each
 // (builtin/, in the reserved namespace lucy); an org replaces one with a Pipeline of the same name
-// in its namespace. A Pipeline's stages carry the spec's FailurePolicy, CredentialPolicy and
-// ApprovalPolicy, and the ship Pipeline its PullRequest config; Parse reads them into a Policy
-// and refuses what lucy does not do. Above all, a timeout never approves a merge: an ApprovalPolicy
+// in its namespace. Parse reads a Pipeline's FailurePolicy and ApprovalPolicy into a Policy and
+// refuses what lucy does not do, and every setting lucy does not act on yet (a stage's
+// CredentialPolicy, spec.pullRequest, onFailure.retryDelay) with ErrUnsupported. Above all, a timeout never approves a merge: an ApprovalPolicy
 // whose onTimeout is auto-approve is refused, on any stage.
 //
 // lucy flies two stages: pilot (the Pilot's session) and, for ship, merge (the Tower's merge).
@@ -39,7 +39,7 @@ const Namespace = "lucy"
 
 // Stages lucy flies.
 const (
-	StagePilot = "pilot" // the Pilot's session: its failure policy and its credentials
+	StagePilot = "pilot" // the Pilot's session: its failure policy
 	StageMerge = "merge" // the Tower's merge: its approval policy (ship only)
 )
 
@@ -51,27 +51,20 @@ const (
 	OnTimeoutEscalate = "escalate" // a merge held past its timeout keeps waiting on the owner, the only one it escalates to
 )
 
-// MaxCredentialTTL bounds a stage's credential lifetime.
-const MaxCredentialTTL = 4 * time.Hour
-
 // ErrAutoApprove refuses an ApprovalPolicy that would approve on a timeout.
 var ErrAutoApprove = errors.New("pipeline: a timeout never approves a merge: onTimeout auto-approve is refused")
 
 // ErrInvalid refuses a Pipeline lucy cannot fly.
 var ErrInvalid = errors.New("pipeline: invalid")
 
+// ErrUnsupported refuses a Pipeline setting lucy does not act on yet, so a Pipeline never carries
+// a setting that silently does nothing.
+var ErrUnsupported = errors.New("pipeline: not supported yet")
+
 // Failure is a stage's FailurePolicy.
 type Failure struct {
-	Strategy   string        // abort or retry
-	MaxRetries int           // for retry: how many lost Pilot sessions the Tower replaces; 0 for abort
-	RetryDelay time.Duration // for retry, 0 when not given
-}
-
-// Credentials is a stage's CredentialPolicy.
-type Credentials struct {
-	Scope            []string      // the permission scopes the stage asks for
-	TTL              time.Duration // the credential's lifetime
-	RevokeOnComplete bool          // always true: lucy revokes a run's capability when it ends
+	Strategy   string // abort or retry
+	MaxRetries int    // for retry: how many lost Pilot sessions the Tower replaces; 0 for abort
 }
 
 // Approval is the merge stage's ApprovalPolicy.
@@ -81,21 +74,11 @@ type Approval struct {
 	OnTimeout string        // abort or escalate; never an approval
 }
 
-// PullRequest is the ship Pipeline's PullRequest config.
-type PullRequest struct {
-	TitleTemplate       string
-	DescriptionSections []string
-	IncludeProvenance   bool
-	CloseKeyword        string
-}
-
 // Policy is one Pipeline, read.
 type Policy struct {
 	Name, Namespace string
 	Pilot           Failure
-	Credentials     Credentials
-	Merge           Approval    // ship only
-	PullRequest     PullRequest // ship only
+	Merge           Approval // ship only
 }
 
 //go:embed builtin/*.yaml
@@ -125,12 +108,15 @@ func Builtin() (map[string]Policy, error) {
 // Parse reads a Pipeline named ship or research, as the spec loader admitted it, and refuses what
 // lucy does not fly: a stage other than pilot or merge (merge only for ship), a missing pilot
 // stage, a failure strategy other than abort or retry, an approval anywhere but the merge stage,
-// a merge that does not block on its approval, an approval timeout that would approve, credentials
-// anywhere but the pilot stage, credentials kept after the run, or a lifetime past
-// MaxCredentialTTL.
+// a merge that does not block on its approval, or an approval timeout that would approve. It
+// refuses with ErrUnsupported a stage's credentials, spec.pullRequest and the pilot stage's
+// onFailure.retryDelay, which lucy does not act on yet.
 func Parse(r spec.Resource) (Policy, error) {
 	bad := func(format string, a ...any) (Policy, error) {
 		return Policy{}, fmt.Errorf("%w: Pipeline %s/%s: %s", ErrInvalid, r.Metadata.Namespace, r.Metadata.Name, fmt.Sprintf(format, a...))
+	}
+	unsupported := func(field, why string) (Policy, error) {
+		return Policy{}, fmt.Errorf("%w: Pipeline %s/%s: %s: %s; TODO(LUCY-SPEC-014) wire it", ErrUnsupported, r.Metadata.Namespace, r.Metadata.Name, field, why)
 	}
 	if r.APIVersion != spec.CoreAPIVersion || r.Kind != "Pipeline" {
 		return bad("not a Pipeline")
@@ -139,9 +125,10 @@ func Parse(r spec.Resource) (Policy, error) {
 	if !slices.Contains(Names, name) {
 		return bad("lucy flies only the Pipelines %v", Names)
 	}
-	p := Policy{Name: name, Namespace: r.Metadata.Namespace,
-		Pilot:       Failure{Strategy: StrategyAbort},
-		Credentials: Credentials{TTL: 10 * time.Minute, RevokeOnComplete: true}}
+	if _, ok := r.Spec["pullRequest"]; ok {
+		return unsupported("spec.pullRequest", "the Pilot is not given it yet")
+	}
+	p := Policy{Name: name, Namespace: r.Metadata.Namespace, Pilot: Failure{Strategy: StrategyAbort}}
 	stages, _ := r.Spec["stages"].([]any)
 	seen := map[string]bool{}
 	for i, s := range stages {
@@ -156,6 +143,9 @@ func Parse(r spec.Resource) (Policy, error) {
 			return bad("stage %q appears twice", sname)
 		}
 		seen[sname] = true
+		if _, ok := st["credentials"]; ok {
+			return unsupported("stage "+sname+" credentials", "scope, ttl and revokeOnComplete are not enforced: the gateway does not issue a run's capability with them yet")
+		}
 		if a, ok := st["approval"].(map[string]any); ok {
 			if t, _ := a["onTimeout"].(string); t == "auto-approve" {
 				return Policy{}, fmt.Errorf("%w (Pipeline %s/%s, stage %s)", ErrAutoApprove, r.Metadata.Namespace, name, sname)
@@ -167,9 +157,6 @@ func Parse(r spec.Resource) (Policy, error) {
 			}
 			if _, ok := st["onFailure"]; ok {
 				return bad("the merge stage has an onFailure; a failed merge is retried by the Tower, then held for the owner")
-			}
-			if _, ok := st["credentials"]; ok {
-				return bad("the merge stage has credentials; it uses the daemon's own")
 			}
 			if a, ok := st["approval"].(map[string]any); ok {
 				ap, err := approval(a)
@@ -188,30 +175,18 @@ func Parse(r spec.Resource) (Policy, error) {
 			return bad("the pilot stage has an approval; lucy does not hold a Pilot's start for the owner yet")
 		}
 		if f, ok := st["onFailure"].(map[string]any); ok {
+			if _, ok := f["retryDelay"]; ok {
+				return unsupported("stage pilot onFailure.retryDelay", "the Tower restarts a lost Pilot at once")
+			}
 			fp, err := failure(f)
 			if err != nil {
 				return bad("the pilot stage's onFailure: %v", err)
 			}
 			p.Pilot = fp
 		}
-		if c, ok := st["credentials"].(map[string]any); ok {
-			cp, err := credentials(c)
-			if err != nil {
-				return bad("the pilot stage's credentials: %v", err)
-			}
-			p.Credentials = cp
-		}
 	}
 	if !seen[StagePilot] {
 		return bad("it has no pilot stage")
-	}
-	if pr, ok := r.Spec["pullRequest"].(map[string]any); ok {
-		if name != Ship {
-			return bad("a research Pipeline delivers a report, not a pull request")
-		}
-		p.PullRequest = pullRequest(pr)
-	} else if name == Ship {
-		p.PullRequest = PullRequest{IncludeProvenance: true}
 	}
 	return p, nil
 }
@@ -235,15 +210,7 @@ func failure(f map[string]any) (Failure, error) {
 		if err != nil || n < 1 || n > 10 {
 			return Failure{}, fmt.Errorf("retry needs maxRetries from 1 to 10")
 		}
-		out := Failure{Strategy: s, MaxRetries: n}
-		if d, ok := f["retryDelay"].(string); ok {
-			delay, err := Duration(d)
-			if err != nil {
-				return Failure{}, fmt.Errorf("retryDelay: %w", err)
-			}
-			out.RetryDelay = delay
-		}
-		return out, nil
+		return Failure{Strategy: s, MaxRetries: n}, nil
 	}
 	return Failure{}, fmt.Errorf("strategy %q is not one lucy flies (abort or retry)", s)
 }
@@ -275,46 +242,6 @@ func approval(a map[string]any) (Approval, error) {
 		return Approval{}, fmt.Errorf("onTimeout %q is not abort or escalate", t)
 	}
 	return out, nil
-}
-
-func credentials(c map[string]any) (Credentials, error) {
-	out := Credentials{TTL: 10 * time.Minute, RevokeOnComplete: true}
-	list, _ := c["scope"].([]any)
-	for _, s := range list {
-		if str, ok := s.(string); ok && str != "" {
-			out.Scope = append(out.Scope, str)
-		}
-	}
-	if len(out.Scope) == 0 {
-		return Credentials{}, errors.New("no scope")
-	}
-	if t, ok := c["ttl"].(string); ok {
-		d, err := Duration(t)
-		if err != nil || d <= 0 || d > MaxCredentialTTL {
-			return Credentials{}, fmt.Errorf("ttl %q is not an ISO 8601 duration from 1s to %s", t, MaxCredentialTTL)
-		}
-		out.TTL = d
-	}
-	if r, ok := c["revokeOnComplete"].(bool); ok && !r {
-		return Credentials{}, errors.New("revokeOnComplete is false; lucy revokes a run's credentials when it ends")
-	}
-	return out, nil
-}
-
-func pullRequest(pr map[string]any) PullRequest {
-	out := PullRequest{IncludeProvenance: true}
-	out.TitleTemplate, _ = pr["titleTemplate"].(string)
-	out.CloseKeyword, _ = pr["closeKeyword"].(string)
-	if b, ok := pr["includeProvenance"].(bool); ok {
-		out.IncludeProvenance = b
-	}
-	list, _ := pr["descriptionSections"].([]any)
-	for _, s := range list {
-		if str, ok := s.(string); ok {
-			out.DescriptionSections = append(out.DescriptionSections, str)
-		}
-	}
-	return out
 }
 
 var durationRE = regexp.MustCompile(`^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$`)
