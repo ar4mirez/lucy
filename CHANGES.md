@@ -56,7 +56,7 @@ Changes since the last release. When a version is cut, its section moves to
   home: for Claude Code, onboarding complete, the run's directory trusted with no tools pre-allowed,
   no MCP servers, auto-updates off, no hooks. It writes only inside that home, through a guarded
   root, keeps every other key (the login among them), never reads your own home, and refuses the
-  spawn when a file it would write there is a symlink.
+  spawn when a file it would write there is a symlink or not a JSON object.
 
 - A Pilot that cannot start during an outage no longer grounds its flight: the failed start is
   recorded (`task.pilot_start_failed`) and retried after a backoff that doubles with each failure,
