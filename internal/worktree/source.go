@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/spec"
@@ -36,7 +37,7 @@ type Source struct {
 	Timeout time.Duration
 	Log     *slog.Logger // slog.Default when nil
 
-	runways map[string]runway // by org/project
+	runways atomic.Pointer[map[string]runway] // by org/project; a reload replaces it whole
 	wg      sync.WaitGroup
 }
 
@@ -63,12 +64,20 @@ func (s *Source) SetRunways(rs []spec.Resource) {
 		}
 		m[r.Metadata.Namespace+"/"+r.Metadata.Name] = runway{repo: repo, base: base}
 	}
-	s.runways = m
+	s.runways.Store(&m)
+}
+
+// runwayMap is the Runways the Source places runs by now, one snapshot: nil before SetRunways.
+func (s *Source) runwayMap() map[string]runway {
+	if m := s.runways.Load(); m != nil {
+		return *m
+	}
+	return nil
 }
 
 // repo is the pool repository of org's project, and whether its Runway names one.
 func (s *Source) repo(org, project string) (Repo, runway, bool, error) {
-	rw, ok := s.runways[org+"/"+project]
+	rw, ok := s.runwayMap()[org+"/"+project]
 	if !ok {
 		return Repo{}, runway{}, false, nil
 	}
@@ -100,7 +109,7 @@ func (s *Source) RemoteOf(org, project string) (remote string, ok bool, err erro
 
 // repoNamed is org's pool repository name, from the org's Runways, and whether one names it.
 func (s *Source) repoNamed(org, name string) (Repo, bool) {
-	for key, rw := range s.runways {
+	for key, rw := range s.runwayMap() {
 		if o, _, _ := strings.Cut(key, "/"); o != org {
 			continue
 		}

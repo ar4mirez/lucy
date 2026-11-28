@@ -56,7 +56,8 @@ const Version = 1
 // Revision 19 added flights.list's step_error and retry_at.
 // Revision 20: flights.list's autonomy is the posture a Flight is flown under: the one its
 // dispatch recorded, or else its Runway's from an AutonomyPolicy level, tightened by its own.
-const SchemaRevision = 20
+// Revision 21 added config.reload.
+const SchemaRevision = 21
 
 // Path is the HTTP path the API is served at, over the unix socket and, later, over HTTPS.
 const Path = "/rpc/v1"

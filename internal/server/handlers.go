@@ -37,6 +37,7 @@ func (s *Server) bindAll() map[string]handler {
 		api.MethodDecList:   bind(s.catalog),
 		api.MethodApprove:   bind(s.approve),
 		api.MethodFlights:   bind(s.flights),
+		api.MethodReload:    bind(s.reload),
 		api.MethodAnswer:    bind(s.answer),
 		api.MethodRuns:      bind(s.runs),
 		api.MethodHeld:      bind(s.sandboxHeld),
@@ -250,6 +251,9 @@ func (s *Server) resources(ctx context.Context, p *api.ResourcesParams) (api.Res
 			page.Refused = append(page.Refused, info)
 		}
 		page.RefusedTruncated = truncated
+		if s.opts.LastReload != nil {
+			page.LastReload = s.opts.LastReload()
+		}
 	}
 	if p.Offset >= len(all) {
 		return page, nil

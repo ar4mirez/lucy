@@ -17,6 +17,8 @@ const configUsage = `Usage:
   lucy config validate [<dir>]        validate the spec resources in a directory
   lucy config status [--socket <path>] show the resources the running daemon loaded, with status,
                                        and the documents it refused that name no resource
+  lucy config reload [--socket <path>] make the running daemon load its config again, without a
+                                       restart (as SIGHUP does)
 
 validate reads every .yaml, .yml and .json file under <dir> ($XDG_CONFIG_HOME/lucy/resources
 by default) the way the daemon does: each document must be an ai-sdlc.io/v1alpha1 or
@@ -24,6 +26,16 @@ lucy/v1alpha1 resource with metadata.namespace (its airspace), valid against its
 without status, which lucy keeps in its database. It prints each resource's Valid condition and
 every schema violation. It needs no daemon and changes no file. Exits 0 when every resource is
 valid, 1 when any is refused, 2 when the directory cannot be read.
+
+reload re-runs admission on the running daemon. A config with no refused resource replaces the
+one it runs on: Ready Flights are dispatched (when it dispatches) and flights in flight move to a
+stricter posture their config now asks for; a promotion applies only to later dispatches. A
+config with refused resources is not applied: the daemon keeps its last good config, but still
+tightens, and moves to owner every flight in flight whose Runway or AutonomyPolicy became
+invalid or vanished. A config directory that cannot be read, or no longer exists, fails the
+reload: the daemon keeps its last good config whole and changes no flight. Exits 0 when applied,
+1 when refused (it lists why) or failed (it says why); config status shows the last reload that
+was not applied.
 `
 
 func runConfig(args []string, stdout, stderr io.Writer) int {
@@ -39,6 +51,8 @@ func runConfig(args []string, stdout, stderr io.Writer) int {
 		return runConfigValidate(args[1:], stdout, stderr)
 	case "status":
 		return runConfigStatus(args[1:], stdout, stderr)
+	case "reload":
+		return runConfigReload(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "error: unknown config subcommand %q\nhelp: run `lucy config --help`\n", args[0])
 		return 2
@@ -127,13 +141,14 @@ func runConfigStatus(args []string, stdout, stderr io.Writer) int {
 	var all []api.ResourceInfo
 	var refused []api.RefusedInfo
 	var truncated int
+	var last api.ReloadOutcome
 	for offset := 0; ; {
 		page, err := c.Resources(ctx, api.ResourcesParams{Offset: offset, Limit: 500})
 		if err != nil {
 			return callFailed(err, c, stderr)
 		}
 		if offset == 0 {
-			refused, truncated = page.Refused, page.RefusedTruncated
+			refused, truncated, last = page.Refused, page.RefusedTruncated, page.LastReload
 		}
 		all = append(all, page.Resources...)
 		if !page.More {
@@ -141,8 +156,16 @@ func runConfigStatus(args []string, stdout, stderr io.Writer) int {
 		}
 		offset = page.Next
 	}
+	switch last.Outcome {
+	case "failed":
+		fmt.Fprintf(stdout, "last_reload: failed at %s; the daemon keeps its last good config whole\nreason: %s\nhelp: restore the config directory, then run `lucy config reload`\n",
+			untrusted(last.At), untrusted(last.Reason))
+	case "refused":
+		fmt.Fprintf(stdout, "last_reload: refused at %s (%d resources); the daemon keeps its last good config, but for the tightening\nhelp: fix them (`lucy config validate`), then run `lucy config reload`\n",
+			untrusted(last.At), last.Refused)
+	}
 	if len(all) == 0 && len(refused) == 0 {
-		fmt.Fprint(stdout, "resources[0]: the daemon has loaded none\nhelp: add resources to the config directory and restart the daemon\n")
+		fmt.Fprint(stdout, "resources[0]: the daemon has loaded none\nhelp: add resources to the config directory, then run `lucy config reload` (or send the daemon SIGHUP)\n")
 		return 0
 	}
 	fmt.Fprintf(stdout, "resources[%d]{namespace,kind,name,source,type,status,reason,message,since}:\n", len(all))
@@ -164,6 +187,39 @@ func runConfigStatus(args []string, stdout, stderr io.Writer) int {
 	if truncated > 0 {
 		fmt.Fprintf(stdout, "refused_truncated: %d\n", truncated)
 	}
-	fmt.Fprint(stdout, "help: these name no resource, so they carry no status of their own; run `lucy config validate` for details, fix them and restart the daemon\n")
+	fmt.Fprint(stdout, "help: these name no resource, so they carry no status of their own; run `lucy config validate` for details, fix them, then run `lucy config reload` (or send the daemon SIGHUP)\n")
 	return 0
+}
+
+func runConfigReload(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("config reload", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	sock := fs.String("socket", "", "")
+	if code, ok := parseFlags(fs, args, configUsage, "lucy config --help", stdout, stderr); !ok {
+		return code
+	}
+	c, code := dial(*sock, stderr)
+	if c == nil {
+		return code
+	}
+	defer c.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), client.DefaultTimeout)
+	defer cancel()
+	var r api.ReloadResult
+	if err := c.Call(ctx, api.MethodReload, api.NoParams{}, &r); err != nil {
+		return callFailed(err, c, stderr)
+	}
+	if r.Applied {
+		fmt.Fprintf(stdout, "reload: applied\ntightened: %d\n", r.Tightened)
+		return 0
+	}
+	if r.Failed != "" {
+		fmt.Fprintf(stdout, "reload: failed; the daemon keeps its last good config whole\nreason: %s\nhelp: restore the config directory, then run `lucy config reload` again\n", untrusted(r.Failed))
+		return 1
+	}
+	fmt.Fprintf(stdout, "reload: refused; the daemon keeps its last good config\ntightened: %d\nrefused[%d]:\n", r.Tightened, len(r.Refused))
+	for _, why := range r.Refused {
+		fmt.Fprintf(stdout, "  %s\n", untrusted(why))
+	}
+	return 1
 }

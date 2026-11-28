@@ -15,7 +15,9 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/api"
@@ -66,9 +68,22 @@ func (Stopped) EventType() string { return "daemon.stopped" }
 // EventVersion implements eventstore.Payload.
 func (Stopped) EventVersion() int { return 1 }
 
+// ConfigReloadFailed is appended when a reload cannot read the config directory: the daemon keeps
+// its last good config whole (LUCY-POL-005).
+type ConfigReloadFailed struct {
+	Dir    string `json:"dir"`
+	Reason string `json:"reason"`
+}
+
+// EventType implements eventstore.Payload.
+func (ConfigReloadFailed) EventType() string { return "daemon.config_reload_failed" }
+
+// EventVersion implements eventstore.Payload.
+func (ConfigReloadFailed) EventVersion() int { return 1 }
+
 // Registry returns the event registry the daemon opens the store with.
 func Registry() (*eventstore.Registry, error) {
-	payloads := append(spec.Payloads(), Started{}, Stopped{}, server.CommandEvent{}, policy.DecisionRecord{})
+	payloads := append(spec.Payloads(), Started{}, Stopped{}, ConfigReloadFailed{}, server.CommandEvent{}, policy.DecisionRecord{})
 	payloads = append(append(append(payloads, runner.Payloads()...), sandbox.Payloads()...), gateway.Payloads()...)
 	payloads = append(append(append(payloads, capability.Payloads()...), vault.Payloads()...), worktree.Payloads()...)
 	payloads = append(payloads, tower.Payloads()...)
@@ -265,6 +280,23 @@ func Run(ctx context.Context, opts Options) error {
 		return takeoverGate(remote)
 	}
 	hosted, err := startTower(ctx, store, broker, &set, pipelines, poll, log, opts.Dispatch, gate)
+	// refresh brings what the daemon built from the config at start up to an applied reload: the
+	// Pipelines and the worktree pool's Runways. TODO(LUCY-POL-005): the roles' blocked paths and the
+	// gateway's routes still take a restart.
+	refresh := func(next spec.Set) error {
+		p, err := pipeline.NewCatalog(next.Results)
+		if err != nil {
+			return fmt.Errorf("daemon: reload the pipelines: %w", err)
+		}
+		for org, err := range worktree.PoolErrors(next.Results) {
+			log.Warn("an org's WorktreePool is refused: its Flights are held", "org", org, "err", err)
+		}
+		hosted.mu.Lock()
+		hosted.pipelines = p
+		hosted.mu.Unlock()
+		worktrees.SetRunways(next.Admitted())
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("daemon: start the tower: %w", err)
 	}
@@ -284,7 +316,11 @@ func Run(ctx context.Context, opts Options) error {
 		CallTimeout:  opts.CallTimeout,
 		Questions:    server.TowerQuestions{Tower: hosted.tw, Lock: &hosted.mu},
 		Approvals:    server.TowerQuestions{Tower: hosted.tw, Lock: &hosted.mu},
-		Flights:      func() []api.FlightInfo { return hosted.flights(&set) },
+		Flights:      hosted.flights,
+		Reload: func(ctx context.Context) (api.ReloadResult, error) {
+			return hosted.reload(context.WithoutCancel(ctx), store, opts.ResourcesDir, opts.Dispatch, gate, refresh)
+		},
+		LastReload: hosted.lastReloadOutcome,
 	})
 	if err != nil {
 		return err
@@ -296,6 +332,30 @@ func Run(ctx context.Context, opts Options) error {
 	hs := srv.HTTPServer()
 	served := make(chan error, 1)
 	go func() { served <- hs.Serve(pl) }()
+	// SIGHUP reloads the config, as lucy config reload does (LUCY-POL-005).
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
+	reloading := make(chan struct{})
+	go func() {
+		defer close(reloading)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-hup:
+				r, err := hosted.reload(ctx, store, opts.ResourcesDir, opts.Dispatch, gate, refresh)
+				switch {
+				case err != nil:
+					log.Warn("config reload on SIGHUP failed", "err", err)
+				case r.Failed != "":
+					log.Warn("config reload on SIGHUP failed: the last good config stays whole", "reason", r.Failed)
+				default:
+					log.Info("config reloaded on SIGHUP", "applied", r.Applied, "refused", len(r.Refused), "tightened", r.Tightened)
+				}
+			}
+		}
+	}()
 	expiring := make(chan struct{})
 	go func() {
 		defer close(expiring)
@@ -329,6 +389,7 @@ func Run(ctx context.Context, opts Options) error {
 	stop(nil)
 	<-expiring
 	<-towering
+	<-reloading
 	worktrees.Wait()
 	if _, err := store.Append(shutdownCtx, DaemonStream, eventstore.AnyVersion, "daemon",
 		Stopped{PID: os.Getpid(), Reason: reason}); err != nil {
@@ -411,13 +472,7 @@ func openStore(ctx context.Context, opts Options) (*eventstore.Store, error) {
 // (spec.LoadDir). Refused resources do not stop the daemon: recordResources records them as
 // Valid=False and they are not admitted. A directory that cannot be read at all is an error.
 func loadResources(dir string) (spec.Set, error) {
-	if dir == "" {
-		var err error
-		if dir, err = config.ResourcesDir(); err != nil {
-			return spec.Set{}, err
-		}
-	}
-	set, err := spec.LoadDir(dir)
+	set, dir, err := readResources(dir)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		set = spec.Set{Dir: dir}
@@ -425,6 +480,19 @@ func loadResources(dir string) (spec.Set, error) {
 		return spec.Set{}, fmt.Errorf("daemon: %w", err)
 	}
 	return set, nil
+}
+
+// readResources loads the config directory, the default one when dir is empty, and returns the
+// directory it read.
+func readResources(dir string) (spec.Set, string, error) {
+	if dir == "" {
+		var err error
+		if dir, err = config.ResourcesDir(); err != nil {
+			return spec.Set{}, dir, err
+		}
+	}
+	set, err := spec.LoadDir(dir)
+	return set, dir, err
 }
 
 // recordResources records each loaded resource's status in the event store, never in the files

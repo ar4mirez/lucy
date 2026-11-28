@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 30
+version: 31
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-RUN-005, LUCY-OPS-005, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -38,7 +38,7 @@ or `error`); every mutating call as `api.command`, appended before the call runs
 
 ## Config and its status
 
-At start the daemon loads the spec resources in `$XDG_CONFIG_HOME/lucy/resources` (or
+At start, and on each reload, the daemon loads the spec resources in `$XDG_CONFIG_HOME/lucy/resources` (or
 `--resources <dir>`; a missing directory means none) exactly as `lucy config validate` does, then
 records the outcome in the `config` stream: a `resource.status` event for each resource whose status
 changed, `resource.removed` for one no longer in config, and a `config.loaded` summary. It never
@@ -55,7 +55,8 @@ A document that names no resource (it does not parse, lacks a valid kind, name o
 duplicates another) has no status of its own; `lucy config status` lists the latest load's under
 `refused`, with its file and document.
 
-Change config by editing the files and restarting the daemon. Recorded violation messages carry
+Change config by editing the files, then running `lucy config reload` (or sending the daemon
+SIGHUP); only the roles' blocked paths and the gateway's routes still need a restart. Recorded violation messages carry
 only the paths; `lucy config validate` shows the full messages.
 
 ## The audit chain
@@ -162,7 +163,7 @@ lucy answer f1 use the staging account   # relayed to the Pilot by the Tower; th
 
 The daemon hosts the Tower and steps the flights in its log whenever the log changes, and at
 least every minute while one is active, but it dispatches no Flight unless started with
-`lucy daemon --dispatch`. With it, at start it dispatches every Flight in the config directory
+`lucy daemon --dispatch`. With it, at start and on each applied reload it dispatches every Flight in the config directory
 whose `Ready` condition is True and that it does not fly yet, by the Flight's name, starting its
 Pilot through the runner protocol. A Flight that is not Ready is never dispatched.
 
@@ -191,7 +192,16 @@ slice. The gate is checked again whenever a run is leased: a run whose Runway na
 gets the gate as its `worktree_error`, with nothing reserved or cloned, and fails without starting.
 The gateway refuses every git push (see [gateway](../tech/gateway.md)).
 
-A Runway's posture change takes effect at the daemon's next start. Demoting a Runway (for example
+A Runway's posture change takes effect without a restart: run `lucy config reload` (or send the
+daemon SIGHUP) after editing the config, or it applies at the next start. A reload with no
+refused resource replaces the config the daemon runs on and dispatches its new Ready Flights;
+one with refused resources is not applied (it lists why, and the daemon keeps its last good
+config), but its strictening still applies. A config directory that cannot be read, or no longer
+exists, fails the reload: the daemon keeps its last good config whole, tightens no flight and
+records no resource removed; it records `daemon.config_reload_failed` with the reason, and
+`lucy config status` shows the last reload that was failed or refused above the resources. Only at
+start does a missing directory mean nothing is configured. The Pipelines and worktree pool follow a reload; the
+roles' blocked paths and the gateway's routes still take a restart. Demoting a Runway (for example
 `autonomyLevel` 1, green, to 0, owner) tightens its flights already in flight, recorded as
 `task.posture_tightened`, so their next merge waits for you; promoting it applies only to Flights
 dispatched afterwards. A flight whose posture can no longer be resolved from the config moves to
