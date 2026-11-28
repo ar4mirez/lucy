@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 19
+version: 20
 owner: ar4mirez
 requirements: []
 ---
@@ -184,7 +184,9 @@ slice table, requirement status and exit tests stay in the plan.
   refused with `pipeline.ErrUnsupported` naming its path. An org Pipeline lucy cannot fly (loader
   or Parse refusal) is held in the catalog as its error: the daemon starts and holds that org's
   Flights of its shape as `PipelineInvalid`, never on the built-in one. Left in 7a: wiring those (LUCY-SPEC-014), the
-  roles' other constraints and tools and their session instructions (LUCY-SPEC-015), and Core conformance (LUCY-SPEC-017).
+  roles' other constraints and tools and their session instructions (LUCY-SPEC-015), and the worktree pool and backlog on
+  the spec's schemas (LUCY-SPEC-017). Core conformance (LUCY-SPEC-017): the suite's Core fixtures are vendored under
+  `internal/spec/testdata/conformance` and `TestCoreConformance` runs them through the loader.
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real

@@ -1,0 +1,11 @@
+# Valid: stages is deprecated (RFC-0056) and optional.
+apiVersion: ai-sdlc.io/v1alpha1
+kind: Pipeline
+metadata:
+  name: no-stages-pipeline
+spec:
+  triggers:
+    - event: issue.assigned
+  providers:
+    issueTracker:
+      type: linear

@@ -2,9 +2,9 @@
 id: tech-spec
 title: "lucy: the spec model and audit log"
 status: active
-version: 1
+version: 2
 owner: ar4mirez
-requirements: [LUCY-SPEC-001, LUCY-SPEC-002, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-007, LUCY-SPEC-009]
+requirements: [LUCY-SPEC-001, LUCY-SPEC-002, LUCY-SPEC-003, LUCY-SPEC-004, LUCY-SPEC-005, LUCY-SPEC-007, LUCY-SPEC-009, LUCY-SPEC-017]
 ---
 
 # lucy: the spec model and audit log
@@ -46,3 +46,8 @@ Built in `internal/spec`, `internal/jcs` and `internal/audit` ([D3b](../decision
   event's own transaction; the table refuses UPDATE and DELETE. `audit.VerifyStore` rechecks
   every hash and link and that every entry is exactly what its event maps to, up to the log's head
   when it starts; `audit.VerifyJSONL` verifies the spec's cross-SDK sample chains (LUCY-SPEC-009).
+- **Core conformance** (LUCY-SPEC-017, spec section 11). The suite's Core fixtures are vendored
+  under `internal/spec/testdata/conformance` and `TestCoreConformance` loads each: every valid one
+  is admitted once written as an org's config (a namespace, no `status`), every invalid one is
+  refused on the schema. lucy refuses a spec-valid document only under its own two rules:
+  `MissingNamespace` (LUCY-SPEC-002) and `StatusInConfig` (LUCY-SPEC-003).

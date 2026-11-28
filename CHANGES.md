@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 35
+version: 36
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -15,6 +15,11 @@ Changes since the last release. When a version is cut, its section moves to
 ## Unreleased
 
 ### Added
+
+- lucy passes the ai-sdlc spec's Core conformance level: every Core fixture of the spec's own
+  conformance suite, vendored at the pinned commit, is accepted or rejected as the suite requires.
+  lucy refuses a spec-valid document only under its two own rules: a resource must name its org in
+  `metadata.namespace`, and a config file never carries `status`.
 
 - Flights are flown on ai-sdlc Pipeline resources: lucy bundles a `ship` and a `research`
   Pipeline, and an org replaces one with a `Pipeline` of that name in its namespace. The pilot

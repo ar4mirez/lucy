@@ -1,0 +1,97 @@
+apiVersion: ai-sdlc.io/v1alpha1
+kind: Pipeline
+metadata:
+  name: orchestrated-pipeline
+  namespace: team-alpha
+  labels:
+    ai-sdlc.io/rfc: '0002'
+spec:
+  triggers:
+    - event: issue.assigned
+      filter:
+        labels:
+          - ai-eligible
+  providers:
+    issueTracker:
+      type: linear
+      config:
+        teamId: ENG
+    sourceControl:
+      type: github
+      config:
+        org: acme
+  stages:
+    - name: validate-issue
+      qualityGates:
+        - input-validation
+      onFailure:
+        strategy: abort
+        notification: gate-failure
+    - name: code
+      agent: coding-agent
+      timeout: PT30M
+      credentials:
+        scope:
+          - repo:read
+          - repo:write
+        ttl: PT15M
+        revokeOnComplete: true
+      onFailure:
+        strategy: retry
+        maxRetries: 3
+        retryDelay: PT1M
+        notification: agent-failure
+    - name: review
+      agent: reviewer-agent
+      qualityGates:
+        - human-approval
+      approval:
+        required: true
+        tierOverride: peer-review
+        blocking: true
+        timeout: PT24H
+        onTimeout: escalate
+      onFailure:
+        strategy: pause
+    - name: deploy
+      agent: deploy-agent
+      onFailure:
+        strategy: continue
+  routing:
+    complexityThresholds:
+      low:
+        min: 1
+        max: 3
+        strategy: fully-autonomous
+  branching:
+    pattern: 'ai-sdlc/issue-{issueNumber}'
+    targetBranch: main
+    cleanup: on-merge
+  pullRequest:
+    titleTemplate: 'fix: {issueTitle} (#{issueNumber})'
+    descriptionSections:
+      - summary
+      - changes
+      - closes
+    includeProvenance: true
+    closeKeyword: Closes
+  notifications:
+    templates:
+      gate-failure:
+        target: issue
+        title: 'AI-SDLC: Quality Gate Failed'
+        body: '{details}'
+      agent-failure:
+        target: issue
+        title: 'AI-SDLC: Agent Failed'
+        body: 'Error during {stageName}: {details}'
+      pr-created:
+        target: both
+        title: 'AI-SDLC: PR Created'
+        body: 'Pull request: {prUrl}'
+status:
+  phase: Running
+  activeStage: code
+  stageAttempts:
+    validate-issue: 1
+    code: 2

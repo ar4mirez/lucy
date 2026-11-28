@@ -18,6 +18,7 @@ const provenanceFile = "schemas/ai-sdlc/PROVENANCE"
 var vendoredDirs = []string{
 	"internal/spec/schemas/ai-sdlc/v1alpha1",
 	"internal/spec/testdata/examples",
+	"internal/spec/testdata/conformance",
 	"internal/audit/testdata/audit-chain",
 }
 
