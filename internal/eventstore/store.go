@@ -74,6 +74,9 @@ type Store struct {
 
 	closeOnce sync.Once
 	closeErr  error
+
+	wakeMu sync.Mutex
+	wake   chan struct{} // closed, and replaced, when a transaction that appended commits
 }
 
 // geteuid is swapped in tests.
@@ -344,4 +347,26 @@ func (s *Store) QueryContext(ctx context.Context, query string, args ...any) (*s
 // QueryRowContext runs a read-only query that returns at most one row.
 func (s *Store) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	return s.reader.QueryRowContext(ctx, query, args...)
+}
+
+// Changed returns a channel that is closed once a transaction that appended at least one event
+// commits after the call: the signal converge loops wake on (LUCY-SPEC-008). It carries no event;
+// a loop that wakes reads the state it reconciles from the store. Take a new channel after each
+// wake: a closed one stays closed.
+func (s *Store) Changed() <-chan struct{} {
+	s.wakeMu.Lock()
+	defer s.wakeMu.Unlock()
+	if s.wake == nil {
+		s.wake = make(chan struct{})
+	}
+	return s.wake
+}
+
+func (s *Store) wakeWaiters() {
+	s.wakeMu.Lock()
+	defer s.wakeMu.Unlock()
+	if s.wake != nil {
+		close(s.wake)
+		s.wake = nil
+	}
 }

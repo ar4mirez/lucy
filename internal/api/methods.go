@@ -730,6 +730,8 @@ type FlightInfo struct {
 	Autonomy   string        `json:"autonomy,omitempty" doc:"Its autonomy posture: owner, green or client."`
 	State      string        `json:"state,omitempty" doc:"The Tower's state of the flight; empty when the Tower does not fly it."`
 	Reason     string        `json:"reason,omitempty" doc:"Why the flight is in its state, when the Tower says: a grounding reason, for example."`
+	StepError  string        `json:"step_error,omitempty" doc:"Why the Tower's last step of the flight failed; empty after a clean step."`
+	RetryAt    time.Time     `json:"retry_at,omitempty,omitzero" doc:"When the Tower steps the flight again after a failed step, UTC; absent after a clean one."`
 	Ready      ConditionInfo `json:"ready" doc:"Its Ready condition: whether it has what dispatch needs."`
 	Dispatched ConditionInfo `json:"dispatched" doc:"Its Dispatched condition: whether the Tower flies it, and why not; empty (no type) when the Flight is not Ready."`
 }

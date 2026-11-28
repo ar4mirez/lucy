@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/sim"
@@ -122,5 +123,94 @@ func TestQuestionCapped(t *testing.T) {
 	st, _ := w.Tower.Flight("f1")
 	if st.State != tower.StateAsking || len(st.Question) > 1024 || !strings.HasPrefix(q, st.Question) || len(st.Question)%2 != 0 {
 		t.Fatalf("question of %d bytes in state %s", len(st.Question), st.State)
+	}
+}
+
+// failingPolls is a Runtime whose Poll fails for one flight's sessions, and counts those polls.
+type failingPolls struct {
+	tower.Runtime
+	flight   string
+	sessions map[string]bool
+	polls    []time.Time
+	clock    tower.Clock
+}
+
+func (r *failingPolls) Start(ctx context.Context, req tower.PilotRequest) (string, error) {
+	s, err := r.Runtime.Start(ctx, req)
+	if err == nil && req.Flight == r.flight {
+		r.sessions[s] = true
+	}
+	return s, err
+}
+
+func (r *failingPolls) Poll(ctx context.Context, session string) (tower.PilotReport, error) {
+	if r.sessions[session] {
+		r.polls = append(r.polls, r.clock.Now())
+		return tower.PilotReport{}, errors.New("the runtime cannot read this session")
+	}
+	return r.Runtime.Poll(ctx, session)
+}
+
+// A flight whose step keeps failing backs off on its own (LUCY-SPEC-008): it is retried after 1 s,
+// 2 s, 4 s and so on, not sooner whatever wakes the Tower, and its status shows why; the other
+// flight's question reaches the owner on the usual schedule, one poll after its Pilot starts.
+func TestAFailingFlightBacksOffAlone(t *testing.T) {
+	ctx := context.Background()
+	w := world(t)
+	rt := &failingPolls{Runtime: w.Runtime, flight: "bad", sessions: map[string]bool{}, clock: w.Clock}
+	tw, err := tower.New(ctx, tower.Config{Store: w.Store, Runtime: rt, Forge: w.Forge, Clock: w.Clock, ForgeIdentity: sim.DefaultIdentity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := func(id string) tower.Spec {
+		return tower.Spec{ID: id, Org: "acme", Project: "web", Goal: "g", Posture: policy.PostureOwner, Delivery: tower.DeliveryPullRequest, Acceptance: "the checks pass"}
+	}
+	w.Runtime.Script("good", sim.Ask("which account?"))
+	for _, id := range []string{"bad", "good"} {
+		if err := tw.Dispatch(ctx, spec(id)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	start := w.Clock.Now()
+	if err := tw.Step(ctx); err != nil { // both Pilots start
+		t.Fatal(err)
+	}
+	var asked time.Time
+	for i := 0; i < 7; i++ {
+		next, active := tw.NextWake()
+		if !active {
+			t.Fatal("no flight is active")
+		}
+		w.Clock.Advance(next.Sub(w.Clock.Now()))
+		err := tw.Step(ctx)
+		var fe *tower.FlightError
+		if !errors.As(err, &fe) || fe.Flight != "bad" {
+			t.Fatalf("step %d: %v, want the bad flight's error alone", i, err)
+		}
+		if st, _ := tw.Flight("good"); st.State == tower.StateAsking && asked.IsZero() {
+			asked = w.Clock.Now()
+		}
+		if err := tw.Step(ctx); err != nil { // woken again at once: the bad flight's backoff holds
+			t.Fatalf("step %d, woken again: %v", i, err)
+		}
+	}
+	if asked.IsZero() || asked.Sub(start) > tower.DefaultPollInterval {
+		t.Fatalf("the good flight asked at %v after its start, want within one poll interval (%v)", asked.Sub(start), tower.DefaultPollInterval)
+	}
+	if len(rt.polls) != 7 {
+		t.Fatalf("the bad flight was polled %d times in 7 wakes, want 7", len(rt.polls))
+	}
+	for i := 1; i < len(rt.polls); i++ {
+		want := time.Second << (i - 1)
+		if got := rt.polls[i].Sub(rt.polls[i-1]); got != want {
+			t.Errorf("retry %d of the bad flight came %v after the last, want %v", i, got, want)
+		}
+	}
+	st, _ := tw.Flight("bad")
+	if !strings.Contains(st.StepError, "cannot read this session") || st.Failures != 7 || !st.RetryAt.After(w.Clock.Now()) {
+		t.Fatalf("the bad flight's status: %+v, want its error, 7 failures and a retry time ahead", st)
+	}
+	if st, _ := tw.Flight("good"); st.StepError != "" || st.Failures != 0 || !st.RetryAt.IsZero() {
+		t.Fatalf("the good flight's status: %+v, want no step error", st)
 	}
 }
