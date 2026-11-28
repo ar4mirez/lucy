@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 27
+version: 28
 owner: ar4mirez
 requirements: []
 ---
@@ -217,7 +217,7 @@ slice table, requirement status and exit tests stay in the plan.
   its own may only tighten it (green, owner, client, in that order); one that would loosen it, or
   whose Runway names a policy lucy cannot fly, is held with `Dispatched` reason `AutonomyInvalid`.
   The dispatch records the effective posture. Promotion and demotion are the owner's, by hand.
-  At each start the daemon tightens every flight in flight whose config now asks for a stricter
+  At each start, and on each reload (`lucy config reload`, SIGHUP), the daemon tightens every flight in flight whose config now asks for a stricter
   posture (its Runway demoted, its Flight's autonomy tightened), and moves a flight whose posture
   can no longer be resolved from the config to owner (a client flight stays client): its Runway is
   removed or refused, its Runway's AutonomyPolicy can no longer be read, or neither its Runway nor

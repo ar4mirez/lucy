@@ -87,6 +87,9 @@ type Options struct {
 	// Flights lists the Flights the daemon loaded, with the Tower's state of each, which
 	// flights.list serves. Nil means none: the list is empty.
 	Flights func() []api.FlightInfo
+	// Reload loads the config directory again, which config.reload serves. Nil means this daemon
+	// reloads nothing: the method answers unavailable.
+	Reload func(ctx context.Context) (api.ReloadResult, error)
 	// Containers is the guarded view of the org containers, which sandbox.held and
 	// sandbox.confirm serve. Nil means this daemon has no Sandbox binding open: nothing is held
 	// and a confirmation is unavailable. TODO(LUCY-SBX-001): set it once the daemon opens the

@@ -57,6 +57,7 @@ const (
 	MethodDecList   = "decisions.list"
 	MethodApprove   = "flights.approve"
 	MethodFlights   = "flights.list"
+	MethodReload    = "config.reload"
 )
 
 var methods = []Method{
@@ -77,6 +78,7 @@ var methods = []Method{
 	{MethodFinish, "Finish a leased run with its outcome.", "command", ScopeRun, true, typeOf[FinishParams](), typeOf[FinishResult]()},
 	{MethodPermit, "Ask the policy engine whether a leased run's Pilot may use a prompted file tool; the decision is recorded before it is returned.", "command", ScopeRun, true, typeOf[PermitParams](), typeOf[PermitResult]()},
 	{MethodDecList, "The decisions that wait on the owner, projected from the event log as the spec's Decision resources (RFC-0035): a Pilot's question, a merge holding for approval, a container operation holding for confirmation. Only the owner's recorded word closes one.", "query", ScopeRead, false, typeOf[CatalogParams](), typeOf[CatalogList]()},
+	{MethodReload, "Load the config directory again and re-run admission, without a restart. A load with no refused resource replaces the config: its statuses are recorded, its Ready Flights dispatched (when the daemon dispatches) and its flights in flight tightened to a stricter posture their config now asks for. A load with refused resources changes nothing but that tightening, which then also moves to owner every flight in flight whose Runway or AutonomyPolicy became invalid or vanished; the last good config stays. A loosening never applies to a flight in flight.", "command", ScopeAdmin, true, typeOf[NoParams](), typeOf[ReloadResult]()},
 	{MethodFlights, "Every Flight the daemon loaded, with its goal, its readiness, whether the Tower flies it and the Tower's state of it: lucy's backlog, which lucy flights --json writes as the spec's BacklogTask documents (LUCY-SPEC-017).", "query", ScopeRead, false, typeOf[NoParams](), typeOf[FlightList]()},
 	{MethodApprove, "Approve, as the owner, the merge a flight holds for: the Tower then asks the policy engine again with the approval, bound to the facts it holds now.", "command", ScopeDecide, true, typeOf[ApproveParams](), typeOf[ApproveResult]()},
 	{MethodQuestions, "The Pilots' open questions, as the Tower records them: each flight that is asking, oldest first.", "query", ScopeRead, false, typeOf[NoParams](), typeOf[QuestionsList]()},
@@ -734,4 +736,11 @@ type FlightInfo struct {
 	RetryAt    time.Time     `json:"retry_at,omitempty,omitzero" doc:"When the Tower steps the flight again after a failed step, UTC; absent after a clean one."`
 	Ready      ConditionInfo `json:"ready" doc:"Its Ready condition: whether it has what dispatch needs."`
 	Dispatched ConditionInfo `json:"dispatched" doc:"Its Dispatched condition: whether the Tower flies it, and why not; empty (no type) when the Flight is not Ready."`
+}
+
+// ReloadResult answers config.reload.
+type ReloadResult struct {
+	Applied   bool     `json:"applied" doc:"Whether the new config replaced the old: true when no resource was refused."`
+	Refused   []string `json:"refused,omitempty" doc:"The refused resources, each as its source, reason and message, when the reload was not applied."`
+	Tightened int      `json:"tightened" doc:"How many flights in flight moved to a stricter posture."`
 }

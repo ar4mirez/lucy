@@ -58,6 +58,11 @@ type hostedTower struct {
 	mu        sync.Mutex
 	log       *slog.Logger
 	pipelines *pipeline.Catalog // each org's ship and research Pipelines (LUCY-SPEC-014)
+
+	// set is the config the daemon runs on: the last load with no refused resource (or the
+	// start's), guarded by mu. Reloads replace it (reload, under reloadMu).
+	set      *spec.Set
+	reloadMu sync.Mutex
 }
 
 // ErrTakeoverGate refuses to dispatch a Flight whose Runway names a real repository: until runs
@@ -129,7 +134,7 @@ func startTower(ctx context.Context, store *eventstore.Store, broker *runner.Bro
 	if err != nil {
 		return nil, err
 	}
-	h := &hostedTower{tw: tw, log: log, pipelines: pipelines}
+	h := &hostedTower{tw: tw, log: log, pipelines: pipelines, set: set}
 	h.dispatch(ctx, set, dispatch, gate)
 	h.tighten(ctx, set)
 	return h, nil
@@ -308,9 +313,10 @@ func towerPipeline(p pipeline.Policy) *tower.Pipeline {
 // flights lists the admitted Flights of set, sorted by org and name, with their Ready and
 // Dispatched conditions and the Tower's state of each flight it flies under the Flight's name and
 // org (LUCY-SPEC-017).
-func (h *hostedTower) flights(set *spec.Set) []api.FlightInfo {
+func (h *hostedTower) flights() []api.FlightInfo {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	set := h.set
 	cond := func(res spec.Result, typ string) api.ConditionInfo {
 		c, ok := res.Condition(typ)
 		if !ok {
@@ -373,9 +379,10 @@ func flightPosture(set *spec.Set, f spec.Resource) (policy.Posture, error) {
 // Runway is gone or refused, its Runway's AutonomyPolicy can no longer be read, or neither its
 // Runway nor its Flight states a posture any more. A flight is never loosened in flight: a
 // promotion applies only to flights dispatched after it.
-func (h *hostedTower) tighten(ctx context.Context, set *spec.Set) {
+func (h *hostedTower) tighten(ctx context.Context, set *spec.Set) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	n := 0
 	policies := map[string]spec.Resource{}
 	runways := map[string]spec.Resource{}
 	flights := map[string]spec.Resource{}
@@ -424,7 +431,59 @@ func (h *hostedTower) tighten(ctx context.Context, set *spec.Set) {
 		case err != nil:
 			h.log.Warn("could not tighten a flight's posture", "flight", st.Org+"/"+st.ID, "to", to, "err", err)
 		case done:
+			n++
 			h.log.Info("flight's posture tightened", "flight", st.Org+"/"+st.ID, "to", to, "why", why)
 		}
 	}
+	return n
+}
+
+// Reload is what a reload of the config directory did.
+type Reload struct {
+	Applied   bool     // the new config replaced the old: it had no refused resource
+	Refused   []string // the refused resources, as "source: reason: message", when not applied
+	Tightened int      // flights in flight moved to a stricter posture
+}
+
+// reload loads the config directory again and re-runs admission, without a restart
+// (LUCY-POL-005). A load with no refused resource replaces the config the daemon runs on: its
+// statuses are recorded, its Ready Flights dispatched (with dispatch on) and its flights in flight
+// tightened. A load with refused resources changes nothing but the strictening rules: flights in
+// flight still move to their Runways' stricter postures, and to owner where a Runway or its
+// AutonomyPolicy became invalid or vanished; the last good config stays for everything else. A
+// loosening is never applied to a flight in flight.
+func (h *hostedTower) reload(ctx context.Context, store *eventstore.Store, dir string, enabled bool, gate func(org, project string) error,
+	refresh func(set spec.Set) error) (Reload, error) {
+	h.reloadMu.Lock()
+	defer h.reloadMu.Unlock()
+	next, err := loadResources(dir)
+	if err != nil {
+		return Reload{}, err // nothing is known about the new config: keep the last good one whole
+	}
+	if next.Invalid() > 0 {
+		out := Reload{Tightened: h.tighten(ctx, &next)}
+		for _, r := range next.Results {
+			if !r.Valid() {
+				c, _ := r.Condition(spec.ConditionValid)
+				out.Refused = append(out.Refused, fmt.Sprintf("%s: %s: %s", r.Source, c.Reason, c.Message))
+			}
+		}
+		h.log.Warn("config reload refused: the last good config stays, but for the strictening rules",
+			"refused", len(out.Refused), "tightened", out.Tightened)
+		return out, nil
+	}
+	if refresh != nil {
+		if err := refresh(next); err != nil {
+			return Reload{}, err
+		}
+	}
+	h.dispatch(ctx, &next, enabled, gate)
+	out := Reload{Applied: true, Tightened: h.tighten(ctx, &next)}
+	h.mu.Lock()
+	h.set = &next
+	h.mu.Unlock()
+	if err := recordResources(ctx, store, next, h.log); err != nil {
+		return out, err
+	}
+	return out, nil
 }

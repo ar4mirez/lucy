@@ -2,7 +2,7 @@
 id: runbook-daemon
 title: The daemon and its API
 status: active
-version: 30
+version: 31
 owner: ar4mirez
 requirements: [LUCY-RUN-001, LUCY-RUN-005, LUCY-OPS-005, LUCY-API-001, LUCY-API-003, LUCY-API-005, LUCY-API-006, LUCY-API-007, LUCY-API-008, LUCY-POL-002, LUCY-POL-003, LUCY-SPEC-003, LUCY-SPEC-007, LUCY-SPEC-009]
 ---
@@ -191,7 +191,12 @@ slice. The gate is checked again whenever a run is leased: a run whose Runway na
 gets the gate as its `worktree_error`, with nothing reserved or cloned, and fails without starting.
 The gateway refuses every git push (see [gateway](../tech/gateway.md)).
 
-A Runway's posture change takes effect at the daemon's next start. Demoting a Runway (for example
+A Runway's posture change takes effect without a restart: run `lucy config reload` (or send the
+daemon SIGHUP) after editing the config, or it applies at the next start. A reload with no
+refused resource replaces the config the daemon runs on and dispatches its new Ready Flights;
+one with refused resources is not applied (it lists why, and the daemon keeps its last good
+config), but its strictening still applies. The Pipelines and worktree pool follow a reload; the
+roles' blocked paths and the gateway's routes still take a restart. Demoting a Runway (for example
 `autonomyLevel` 1, green, to 0, owner) tightens its flights already in flight, recorded as
 `task.posture_tightened`, so their next merge waits for you; promoting it applies only to Flights
 dispatched afterwards. A flight whose posture can no longer be resolved from the config moves to

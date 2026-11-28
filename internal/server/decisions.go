@@ -76,3 +76,10 @@ func (s *Server) flights(_ context.Context, _ *api.NoParams) (api.FlightList, er
 	}
 	return out, nil
 }
+
+func (s *Server) reload(ctx context.Context, _ *api.NoParams) (api.ReloadResult, error) {
+	if s.opts.Reload == nil {
+		return api.ReloadResult{}, api.NewError(api.CodeUnavailable, "this daemon reloads no config")
+	}
+	return s.opts.Reload(ctx)
+}

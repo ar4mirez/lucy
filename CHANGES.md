@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 44
+version: 45
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -16,8 +16,16 @@ Changes since the last release. When a version is cut, its section moves to
 
 ### Added
 
-- Demoting a Runway's autonomy level now tightens its flights already in flight, at the daemon's
-  next start: each moves to the stricter posture, recorded as `task.posture_tightened` with the old
+- `lucy config reload` (the API's `config.reload`, OpenRPC revision 21) and SIGHUP make the daemon
+  load its config again without a restart. A config with no refused resource is applied: its
+  statuses are recorded, its new Ready Flights dispatched (with `--dispatch`), its flights in flight
+  tightened. A config with refused resources is not applied, and the command lists why, but its
+  strictening still applies: a flight whose Runway or AutonomyPolicy became invalid or vanished
+  moves to owner. A loosening never applies to a flight in flight. The roles' blocked paths and the
+  gateway's routes still take a restart.
+
+- Demoting a Runway's autonomy level now tightens its flights already in flight, on `lucy config
+  reload`, SIGHUP or the next start: each moves to the stricter posture, recorded as `task.posture_tightened` with the old
   and new posture and why, and its next merge is decided again under it. A promotion applies only
   to Flights dispatched afterwards, never to one in flight. A flight whose posture can no longer be
   resolved from the config moves to owner (a client flight stays client): its Runway is removed or

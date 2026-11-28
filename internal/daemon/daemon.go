@@ -15,7 +15,9 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/ar4mirez/lucy/internal/api"
@@ -265,6 +267,23 @@ func Run(ctx context.Context, opts Options) error {
 		return takeoverGate(remote)
 	}
 	hosted, err := startTower(ctx, store, broker, &set, pipelines, poll, log, opts.Dispatch, gate)
+	// refresh brings what the daemon built from the config at start up to an applied reload: the
+	// Pipelines and the worktree pool's Runways. TODO(LUCY-POL-005): the roles' blocked paths and the
+	// gateway's routes still take a restart.
+	refresh := func(next spec.Set) error {
+		p, err := pipeline.NewCatalog(next.Results)
+		if err != nil {
+			return fmt.Errorf("daemon: reload the pipelines: %w", err)
+		}
+		for org, err := range worktree.PoolErrors(next.Results) {
+			log.Warn("an org's WorktreePool is refused: its Flights are held", "org", org, "err", err)
+		}
+		hosted.mu.Lock()
+		hosted.pipelines = p
+		hosted.mu.Unlock()
+		worktrees.SetRunways(next.Admitted())
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("daemon: start the tower: %w", err)
 	}
@@ -284,7 +303,11 @@ func Run(ctx context.Context, opts Options) error {
 		CallTimeout:  opts.CallTimeout,
 		Questions:    server.TowerQuestions{Tower: hosted.tw, Lock: &hosted.mu},
 		Approvals:    server.TowerQuestions{Tower: hosted.tw, Lock: &hosted.mu},
-		Flights:      func() []api.FlightInfo { return hosted.flights(&set) },
+		Flights:      hosted.flights,
+		Reload: func(ctx context.Context) (api.ReloadResult, error) {
+			r, err := hosted.reload(ctx, store, opts.ResourcesDir, opts.Dispatch, gate, refresh)
+			return api.ReloadResult{Applied: r.Applied, Refused: r.Refused, Tightened: r.Tightened}, err
+		},
 	})
 	if err != nil {
 		return err
@@ -296,6 +319,26 @@ func Run(ctx context.Context, opts Options) error {
 	hs := srv.HTTPServer()
 	served := make(chan error, 1)
 	go func() { served <- hs.Serve(pl) }()
+	// SIGHUP reloads the config, as lucy config reload does (LUCY-POL-005).
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-hup:
+				r, err := hosted.reload(ctx, store, opts.ResourcesDir, opts.Dispatch, gate, refresh)
+				switch {
+				case err != nil:
+					log.Warn("config reload on SIGHUP failed: the last good config stays", "err", err)
+				default:
+					log.Info("config reloaded on SIGHUP", "applied", r.Applied, "refused", len(r.Refused), "tightened", r.Tightened)
+				}
+			}
+		}
+	}()
 	expiring := make(chan struct{})
 	go func() {
 		defer close(expiring)

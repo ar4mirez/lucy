@@ -3,7 +3,7 @@
   "info": {
     "title": "lucy API",
     "description": "One typed API behind every lucy surface: JSON-RPC 2.0, one request per POST to /rpc/v1, over the daemon's unix socket (and HTTPS for remote surfaces, from m1). See ADR D10.",
-    "version": "1.20.0"
+    "version": "1.21.0"
   },
   "servers": [
     {
@@ -1631,6 +1631,43 @@
       "x-lucy-scope": "read",
       "x-lucy-mutating": false,
       "x-lucy-group": "query"
+    },
+    {
+      "name": "config.reload",
+      "summary": "Load the config directory again and re-run admission, without a restart. A load with no refused resource replaces the config: its statuses are recorded, its Ready Flights dispatched (when the daemon dispatches) and its flights in flight tightened to a stricter posture their config now asks for. A load with refused resources changes nothing but that tightening, which then also moves to owner every flight in flight whose Runway or AutonomyPolicy became invalid or vanished; the last good config stays. A loosening never applies to a flight in flight.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "result",
+        "required": true,
+        "schema": {
+          "properties": {
+            "applied": {
+              "description": "Whether the new config replaced the old: true when no resource was refused.",
+              "type": "boolean"
+            },
+            "refused": {
+              "description": "The refused resources, each as its source, reason and message, when the reload was not applied.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "tightened": {
+              "description": "How many flights in flight moved to a stricter posture.",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "applied",
+            "tightened"
+          ],
+          "type": "object"
+        }
+      },
+      "x-lucy-scope": "admin",
+      "x-lucy-mutating": true,
+      "x-lucy-group": "command"
     },
     {
       "name": "flights.list",

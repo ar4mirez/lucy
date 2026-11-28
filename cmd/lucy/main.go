@@ -28,6 +28,7 @@ Usage:
   lucy events [--after <seq>] [--limit <n>]
   lucy config validate [<dir>]
   lucy config status
+  lucy config reload
   lucy audit verify
   lucy questions
   lucy answer <flight> <answer>...
@@ -51,7 +52,7 @@ Commands:
   daemon         run the daemon: the API on a unix socket, over the event store
   status         show the running daemon's status, through its API
   events         list events from the daemon's log
-  config         validate spec resources; show the daemon's view of them
+  config         validate spec resources; show the daemon's view of them; reload them
   audit          verify the hash-chained audit log
   runner         run a runner on this machine: lease runs, run a command for each
   decisions      list the decisions that wait on you
