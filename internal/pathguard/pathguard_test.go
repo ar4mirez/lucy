@@ -320,3 +320,77 @@ func TestRemoveAllStaysInsideItsRoot(t *testing.T) {
 	mustBeGone(filepath.Join(tr.scratch, "t"))
 	mustExist(outside, tr.home, tr.proj, tr.scratch, filepath.Join(tr.proj, "sub", "f"))
 }
+
+func TestMatchGlob(t *testing.T) {
+	for _, c := range []struct {
+		g, p string
+		want bool
+	}{
+		{"**", "a/b/c", true},
+		{"**/x", "x", true},
+		{"**/x", "a/b/x", true},
+		{"a/**", "a", true},
+		{"a/**/z", "a/z", true},
+		{"a/**/z", "a/b/c/z", true},
+		{"a/*/z", "a/b/c/z", false},
+		{"*.go", "dir/main.go", false},
+		{".env*", ".env.local", true},
+		{".github/workflows/**", ".GitHub/Workflows/ci.yml", true},
+		{"**/Secrets/**", "app/secrets/key", true},
+	} {
+		if got := MatchGlob(c.g, c.p); got != c.want {
+			t.Errorf("MatchGlob(%q, %q) = %v, want %v", c.g, c.p, got, c.want)
+		}
+	}
+	for g, want := range map[string]bool{"**": true, "a/*.go": true, "": false, "/": false, "a//b": false, "[x": false} {
+		if got := ValidGlob(g); got != want {
+			t.Errorf("ValidGlob(%q) = %v, want %v", g, got, want)
+		}
+	}
+}
+
+// A guard carrying blocked paths refuses, deleting nothing, a target that matches one or a
+// directory holding an entry that does, and deletes any other target as before (LUCY-SPEC-015).
+func TestRemoveAllRefusesBlockedPaths(t *testing.T) {
+	tr := newTree(t)
+	write := func(rel string) string {
+		t.Helper()
+		p := filepath.Join(tr.proj, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	ci := write(".github/workflows/ci.yml")
+	key := write("app/config/secrets/key.txt")
+	other := write("app/main.go")
+	g, err := tr.g.WithBlocked(tr.proj, []string{".github/workflows/**", "**/secrets/**"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tr.g.WithBlocked(tr.proj, []string{"a//b"}); err == nil {
+		t.Error("an invalid glob was accepted")
+	}
+	for _, p := range []string{ci, filepath.Join(tr.proj, ".github"), filepath.Join(tr.proj, "app"), filepath.Dir(key)} {
+		if err := g.RemoveAll(p); !errors.Is(err, ErrBlocked) || !errors.Is(err, ErrRefused) {
+			t.Errorf("RemoveAll(%q): %v, want a blocked refusal", p, err)
+		}
+	}
+	for _, p := range []string{ci, key, other} {
+		if _, err := os.Lstat(p); err != nil {
+			t.Fatalf("a refused delete removed %s: %v", p, err)
+		}
+	}
+	if err := g.RemoveAll(other); err != nil {
+		t.Fatalf("an unblocked delete: %v", err)
+	}
+	if _, err := os.Lstat(other); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("%s was not deleted: %v", other, err)
+	}
+	if err := tr.g.RemoveAll(ci); err != nil {
+		t.Fatalf("the guard without blocked paths: %v", err)
+	}
+}

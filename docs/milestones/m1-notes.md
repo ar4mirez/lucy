@@ -176,8 +176,8 @@ slice table, requirement status and exit tests stay in the plan.
   `lucy approve` give a holding merge the owner's word. Roles (LUCY-SPEC-015): `internal/role` bundles one AgentRole per role (builtin/, namespace
   `lucy`); an org's AgentRole of a role's name adds its blockedPaths, and the daemon gives them,
   with the run's checkout, to `runner.permit` as facts for the policy engine's `role.blocked-paths`
-  rule. Left in 7a: pipelines (LUCY-SPEC-014), roles (LUCY-SPEC-015) and Core
-  conformance (LUCY-SPEC-017).
+  rule. Left in 7a: pipelines (LUCY-SPEC-014), the roles' other constraints and tools and their
+  session instructions (LUCY-SPEC-015), and Core conformance (LUCY-SPEC-017).
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;
   the owner is the only override role.
 - **13.** Hard prerequisite: [#36](https://github.com/ar4mirez/lucy/issues/36), runs with an OS boundary of their own. No Pilot runs real

@@ -720,7 +720,7 @@ func (b *Broker) expire(ctx context.Context, run string) (expired bool, err erro
 // those come from the lease (LUCY-POL-001, LUCY-POL-004).
 func (b *Broker) Permit(ctx context.Context, runner, run string, fence int64, p PermitRequest) (Permission, error) {
 	if !permitKinds[p.Kind] || p.Tool == "" || len(p.Tool) > 64 || len(p.Resource) > MaxPermitResource {
-		return Permission{}, fmt.Errorf("%w: a permit is a read, write, exec or fetch by a named tool, on at most %d bytes", ErrInvalid, MaxPermitResource)
+		return Permission{}, fmt.Errorf("%w: a permit is a read, write, delete, exec or fetch by a named tool, on at most %d bytes", ErrInvalid, MaxPermitResource)
 	}
 	var perm Permission
 	err := b.held(ctx, runner, run, fence, func(tx *eventstore.Tx, ri RunInfo) error {
@@ -748,4 +748,4 @@ func (b *Broker) Permit(ctx context.Context, runner, run string, fence int64, p 
 }
 
 // permitKinds are the actions a Pilot's prompted tool may be asked about.
-var permitKinds = map[policy.Kind]bool{policy.KindRead: true, policy.KindWrite: true, policy.KindExec: true, policy.KindFetch: true}
+var permitKinds = map[policy.Kind]bool{policy.KindRead: true, policy.KindWrite: true, policy.KindDelete: true, policy.KindExec: true, policy.KindFetch: true}

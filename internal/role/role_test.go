@@ -1,9 +1,12 @@
 package role
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/spec"
 )
 
@@ -55,4 +58,35 @@ func TestOrgRolesAddBlockedPaths(t *testing.T) {
 	if got := c.BlockedPaths("beta", "reviewer"); !slices.Equal(got, []string{"docs/**"}) {
 		t.Errorf("beta's reviewer blocks %v", got)
 	}
+}
+
+// An org AgentRole whose blockedPaths the policy engine would refuse, a glob it does not read or,
+// with the built-in role's, too many paths, is refused by name rather than left to deny every tool.
+func TestOrgRolesWithBadBlockedPathsAreRefused(t *testing.T) {
+	many := make([]string, policy.MaxFactItems+1)
+	for i := range many {
+		many[i] = fmt.Sprintf("dir%d/**", i)
+	}
+	for name, r := range map[string]spec.Resource{
+		"an empty segment": agentRole("acme", "worker", "a//b"),
+		"a bad pattern":    agentRole("acme", "worker", "[x"),
+		"an empty glob":    agentRole("acme", "worker", ""),
+		"too many":         agentRole("acme", "worker", many...),
+	} {
+		if _, err := NewCatalog([]spec.Resource{r}); err == nil || !strings.Contains(err.Error(), "acme/worker") {
+			t.Errorf("%s: %v, want a refusal naming acme/worker", name, err)
+		}
+	}
+	if _, err := NewCatalog([]spec.Resource{agentRole("acme", "worker", many[:policy.MaxFactItems-len(builtinWorker(t))]...)}); err != nil {
+		t.Errorf("as many paths as the engine reads: %v", err)
+	}
+}
+
+func builtinWorker(t *testing.T) []string {
+	t.Helper()
+	c, err := NewCatalog(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c.BlockedPaths("none", "worker")
 }

@@ -19,8 +19,12 @@ Changes since the last release. When a version is cut, its section moves to
 - Roles are ai-sdlc AgentRole resources: lucy bundles one for each of its roles (supervisor,
   worker, researcher, reviewer), and an org adds to one with an `AgentRole` of that name in its
   namespace. A role's `constraints.blockedPaths` globs are enforced: the policy engine (rule set
-  version 7, rule `role.blocked-paths`) denies a Pilot's write or delete of a blocked path,
-  relative to its checkout, whatever else would allow it.
+  version 7, rule `role.blocked-paths`) denies a Pilot's file-write and delete tools on a blocked
+  path, relative to its checkout and ignoring case, whatever else would allow it. A Pilot's shell
+  commands go to the engine as exec requests, which it refuses by default. An org AgentRole with a
+  blocked path the engine cannot read stops the daemon from starting, naming the resource. The
+  path guard's delete executor can carry a role's blocked paths, and then refuses, deleting
+  nothing, a target that matches one or that holds an entry that does.
 
 - Decisions waiting on you are a catalog: a Pilot's question, a merge holding for your approval and
   a container operation holding for your confirmation are each projected from the event log into

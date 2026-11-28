@@ -479,6 +479,7 @@ func TestBlockedPaths(t *testing.T) {
 		rule    string
 	}{
 		{"a workflow", KindWrite, root + "/.github/workflows/ci.yml", Denied, "role.blocked-paths"},
+		{"a workflow in another case", KindWrite, root + "/.GitHub/Workflows/ci.yml", Denied, "role.blocked-paths"},
 		{"a nested secret", KindWrite, root + "/app/config/secrets/key.txt", Denied, "role.blocked-paths"},
 		{"a top-level pem", KindWrite, root + "/server.pem", Denied, "role.blocked-paths"},
 		{"a pem deeper down", KindWrite, root + "/certs/server.pem", Cleared, "write.worker-only"},
@@ -505,27 +506,6 @@ func TestBlockedPaths(t *testing.T) {
 	for _, bad := range []Facts{{BlockedPaths: []string{""}}, {BlockedPaths: []string{"a//b"}}, {BlockedPaths: []string{"[x"}}, {WorkRoot: "relative"}} {
 		if d := Evaluate(request(worker, KindWrite, "web", root+"/x"), bad); d.Outcome != Denied || d.Rule != "facts.valid" {
 			t.Errorf("facts %+v: %s by %s", bad, d.Outcome, d.Rule)
-		}
-	}
-}
-
-func TestMatchGlob(t *testing.T) {
-	for _, c := range []struct {
-		g, p string
-		want bool
-	}{
-		{"**", "a/b/c", true},
-		{"**/x", "x", true},
-		{"**/x", "a/b/x", true},
-		{"a/**", "a", true},
-		{"a/**/z", "a/z", true},
-		{"a/**/z", "a/b/c/z", true},
-		{"a/*/z", "a/b/c/z", false},
-		{"*.go", "dir/main.go", false},
-		{".env*", ".env.local", true},
-	} {
-		if got := matchGlob(c.g, c.p); got != c.want {
-			t.Errorf("matchGlob(%q, %q) = %v, want %v", c.g, c.p, got, c.want)
 		}
 	}
 }

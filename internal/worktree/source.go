@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -267,8 +268,9 @@ func (s *Source) spawn(what, run string, f func(ctx context.Context) error) {
 	})
 }
 
-// Checkout returns the worktree of the slot run holds of its project's repository, and whether it
-// holds one.
+// Checkout returns the worktree of the slot run holds of its project's repository, with every
+// symlink resolved, as the runner resolves the paths of a Pilot's tools, and whether it holds one
+// whose path resolves.
 func (s *Source) Checkout(ctx context.Context, org, project, run string) (string, bool) {
 	repo, _, ok, err := s.repo(org, project)
 	if !ok || err != nil {
@@ -278,5 +280,9 @@ func (s *Source) Checkout(ctx context.Context, org, project, run string) (string
 	if err != nil {
 		return "", false
 	}
-	return slot.Path, true
+	p, err := filepath.EvalSymlinks(slot.Path)
+	if err != nil {
+		return "", false
+	}
+	return p, true
 }

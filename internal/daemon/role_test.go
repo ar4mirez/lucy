@@ -12,8 +12,9 @@ import (
 	"github.com/ar4mirez/lucy/internal/runner"
 )
 
-// An org's worker AgentRole blocks paths: a leased Pilot's prompted write of a blocked path is
-// denied by the policy engine, and one of any other path is decided as before (LUCY-SPEC-015).
+// An org's worker AgentRole blocks paths: a leased Pilot's prompted write or delete of a blocked
+// path is denied by the policy engine, and one of any other path is decided as before, a delete
+// still by the delete rules, which deny it without the delete facts (LUCY-SPEC-015).
 func TestTheWorkerRoleBlocksPaths(t *testing.T) {
 	dir := shortTempDir(t)
 	o := opts(dir)
@@ -47,13 +48,12 @@ func TestTheWorkerRoleBlocksPaths(t *testing.T) {
 	if err != nil || !l.Leased {
 		t.Fatalf("lease: %+v, %v", l, err)
 	}
-	permit := func(path string) api.PermitResult {
-		t.Helper()
-		res, err := c.RunnerPermit(ctx, api.PermitParams{Runner: "acme-host-1", Run: l.Run.Run, Fence: l.Run.Fence, Tool: "Write", Kind: "write", Resource: path})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return res
+	permit := func(path string) api.PermitResult { return permitKind(t, c, l.Run, "write", path) }
+	if res := permitKind(t, c, l.Run, "delete", "/runs/f1/app/secrets/key.txt"); res.Outcome != "denied" || res.Rule != "role.blocked-paths" {
+		t.Fatalf("a blocked delete: %+v", res)
+	}
+	if res := permitKind(t, c, l.Run, "delete", "/runs/f1/app/main.go"); res.Outcome != "denied" || res.Rule == "role.blocked-paths" {
+		t.Fatalf("an unblocked delete: %+v", res)
 	}
 	if res := permit("/runs/f1/app/secrets/key.txt"); res.Outcome != "denied" || res.Rule != "role.blocked-paths" {
 		t.Fatalf("a blocked write: %+v", res)
@@ -61,4 +61,13 @@ func TestTheWorkerRoleBlocksPaths(t *testing.T) {
 	if res := permit("/runs/f1/app/main.go"); res.Rule == "role.blocked-paths" {
 		t.Fatalf("an unblocked write was blocked: %+v", res)
 	}
+}
+
+func permitKind(t *testing.T, c *client.Client, run api.RunLease, kind, path string) api.PermitResult {
+	t.Helper()
+	res, err := c.RunnerPermit(context.Background(), api.PermitParams{Runner: "acme-host-1", Run: run.Run, Fence: run.Fence, Tool: "Write", Kind: kind, Resource: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
 }
