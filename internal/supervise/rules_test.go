@@ -11,7 +11,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/tower"
 )
 
-// The oracle is LUCY-RUN-010 and decision 076: rules come before any model; the built-in safety
+// The oracle is LUCY-RUN-010 and docs/runbooks/supervisor.md: rules come before any model; the built-in safety
 // rules always send a question about a secret, a credential, a payment or an irreversible or
 // production change to the owner, never to a model, and the org's rules can only add to them; the
 // org's ordered rules either propose a fixed answer (supervisor/rules) or send the question to the

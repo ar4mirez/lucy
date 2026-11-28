@@ -10,7 +10,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/shadow"
 )
 
-// The oracle is docs/tech/shadow.md and decision 077: a versioned JSON Lines format read through an
+// The oracle is docs/tech/shadow.md and LUCY-RUN-012: a versioned JSON Lines format read through an
 // allowlist that refuses unknown fields, credentials, transcripts and file contents, and refuses
 // the whole file, naming the line, when any line is refused.
 
@@ -84,6 +84,25 @@ func TestRefusals(t *testing.T) {
 			tasks, err := shadow.Parse(strings.NewReader(c.file))
 			if !errors.Is(err, shadow.ErrRefused) || !strings.Contains(err.Error(), c.want) || tasks != nil {
 				t.Fatalf("%v (tasks %v), want refused with %q", err, tasks, c.want)
+			}
+		})
+	}
+}
+
+func TestTaskRefusalsNameTheLine(t *testing.T) {
+	second := strings.ReplaceAll(task, "t-1", "t-2")
+	act2 := func(rest string) string { return strings.Replace(act(rest), "t-1", "t-2", 1) }
+	for name, c := range map[string]struct {
+		file, want string
+	}{
+		"a bad posture": {task + "\n" + dispatched + "\n\n" + strings.Replace(second, `"green"`, `"yolo"`, 1) + "\n" + act2(`"action":"dispatched"`), "line 4: "},
+		"an unknown action deep in the file": {task + "\n" + second + "\n" + dispatched + "\n" + act2(`"action":"dispatched"`) + "\n" +
+			act(`"action":"asked","text":"which region?"`) + "\n" + act2(`"action":"rebooted"`) + "\n" + act(`"action":"merged"`), "line 6: "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := shadow.Parse(strings.NewReader(c.file))
+			if !errors.Is(err, shadow.ErrRefused) || !strings.HasPrefix(err.Error(), c.want) || !strings.Contains(err.Error(), `task "t-2"`) {
+				t.Fatalf("%v, want refused at %q for task t-2", err, c.want)
 			}
 		})
 	}

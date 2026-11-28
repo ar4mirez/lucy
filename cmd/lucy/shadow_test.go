@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// The oracle is decision 077 and docs/tech/shadow.md: lucy shadow import checks the whole file
+// The oracle is LUCY-RUN-012 and docs/tech/shadow.md: lucy shadow import checks the whole file
 // before importing anything, records each task of an admitted org once, and lucy shadow ls lists
 // them by org, class and task. The file is a fixture; nothing is fetched.
 func TestShadowImport(t *testing.T) {

@@ -21,7 +21,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/gateway"
 )
 
-// The oracle is LUCY-RUN-010 and decision 073: armed with --supervise for an org whose Airspace
+// The oracle is LUCY-RUN-010 and docs/runbooks/supervisor.md: armed with --supervise for an org whose Airspace
 // opts in, the daemon's supervisor reaches the model only through the org's credential gateway, on
 // the org's model route, with a supervisor capability the gateway verifies; the gateway, not the
 // daemon, holds and injects the key; the proposal is shown beside the question and never reaches

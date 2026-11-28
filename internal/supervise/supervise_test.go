@@ -20,7 +20,7 @@ import (
 	"github.com/ar4mirez/lucy/internal/tower"
 )
 
-// The oracle is LUCY-RUN-010 and decision 073: rules, then a small model, then a large one, then the
+// The oracle is LUCY-RUN-010 and docs/runbooks/supervisor.md: rules, then a small model, then a large one, then the
 // owner; every call through the org's gateway route with a supervisor capability; only the question
 // and the flight's org, project and goal are sent; tokens count against the org's daily budget, and
 // a spent budget, a refusal or an error records supervisor.declined and proposes nothing.

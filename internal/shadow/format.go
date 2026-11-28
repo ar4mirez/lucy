@@ -128,6 +128,8 @@ func Parse(r io.Reader) ([]Task, error) {
 		return nil, refuse("the file is over %d bytes", MaxFileBytes)
 	}
 	var tasks []Task
+	var taskLines []int
+	var actionLines [][]int
 	index := map[string]int{}
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(make([]byte, 0, MaxLineBytes), MaxLineBytes)
@@ -153,6 +155,8 @@ func Parse(r io.Reader) ([]Task, error) {
 			}
 			index[t.ID] = len(tasks)
 			tasks = append(tasks, t)
+			taskLines = append(taskLines, n)
+			actionLines = append(actionLines, nil)
 		case "action":
 			i, ok := index[*l.Task]
 			if !ok {
@@ -169,6 +173,7 @@ func Parse(r io.Reader) ([]Task, error) {
 				}
 			}
 			tasks[i].Actions = append(tasks[i].Actions, a)
+			actionLines[i] = append(actionLines[i], n)
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -177,9 +182,13 @@ func Parse(r io.Reader) ([]Task, error) {
 		}
 		return nil, err
 	}
-	for _, t := range tasks {
-		if err := Validate(t); err != nil {
-			return nil, fmt.Errorf("task %q: %w", t.ID, err)
+	for i, t := range tasks {
+		if a, err := validate(t); err != nil {
+			at := taskLines[i]
+			if a >= 0 {
+				at = actionLines[i][a]
+			}
+			return nil, fmt.Errorf("line %d: task %q: %w", at, t.ID, err)
 		}
 	}
 	return tasks, nil
@@ -243,39 +252,46 @@ func firstUnknown(keys map[string]json.RawMessage) string {
 // Validate checks a task as an import accepts it: its names, bounds and actions, and that no value
 // looks like a credential. The daemon checks every task again, whatever a client checked.
 func Validate(t Task) error {
+	_, err := validate(t)
+	return err
+}
+
+// validate is Validate, also returning the index of the refused action, or -1 when the task's own
+// fields are refused.
+func validate(t Task) (int, error) {
 	switch {
 	case !orgRE.MatchString(t.Org):
-		return refuse("org %q is not an org name", t.Org)
+		return -1, refuse("org %q is not an org name", t.Org)
 	case !idRE.MatchString(t.ID):
-		return refuse("task %q: lower-case letters, digits, '.', '_' and '-', at most 64", t.ID)
+		return -1, refuse("task %q: lower-case letters, digits, '.', '_' and '-', at most 64", t.ID)
 	case !classRE.MatchString(t.Class):
-		return refuse("class %q: lower-case letters, digits and '-', at most 32", t.Class)
+		return -1, refuse("class %q: lower-case letters, digits and '-', at most 32", t.Class)
 	case !repoRE.MatchString(t.Repository):
-		return refuse("repository %q is not a repository name", t.Repository)
+		return -1, refuse("repository %q is not a repository name", t.Repository)
 	case !slices.Contains(postures, t.Posture):
-		return refuse("posture must be green, owner or client")
+		return -1, refuse("posture must be green, owner or client")
 	case t.Goal == "" || len(t.Goal) > MaxGoal || !utf8.ValidString(t.Goal):
-		return refuse("goal: 1 to %d bytes of UTF-8", MaxGoal)
+		return -1, refuse("goal: 1 to %d bytes of UTF-8", MaxGoal)
 	case len(t.Actions) == 0 || len(t.Actions) > MaxActions:
-		return refuse("1 to %d actions", MaxActions)
+		return -1, refuse("1 to %d actions", MaxActions)
 	case t.Actions[0].Action != ActDispatched:
-		return refuse("a task's first action is dispatched")
+		return 0, refuse("a task's first action is dispatched")
 	}
 	if credential.MatchString(t.Goal) {
-		return refuse("the goal holds what looks like a credential")
+		return -1, refuse("the goal holds what looks like a credential")
 	}
 	for i, a := range t.Actions {
 		if err := validAction(a); err != nil {
-			return fmt.Errorf("action %d: %w", i+1, err)
+			return i, fmt.Errorf("action %d: %w", i+1, err)
 		}
 		if i > 0 && a.At.Before(t.Actions[i-1].At) {
-			return fmt.Errorf("action %d: %w", i+1, refuse("actions are in time order"))
+			return i, fmt.Errorf("action %d: %w", i+1, refuse("actions are in time order"))
 		}
 		if i > 0 && terminal[t.Actions[i-1].Action] {
-			return fmt.Errorf("action %d: %w", i+1, refuse("nothing follows %s", t.Actions[i-1].Action))
+			return i, fmt.Errorf("action %d: %w", i+1, refuse("nothing follows %s", t.Actions[i-1].Action))
 		}
 	}
-	return nil
+	return -1, nil
 }
 
 func validAction(a Action) error {
