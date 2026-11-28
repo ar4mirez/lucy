@@ -1,5 +1,5 @@
-// Package supervise is lucy's model-backed supervisor (LUCY-RUN-010): rules first, then a small
-// model, then a large one, then the owner. It is a tower.Supervisor, so it only proposes: a
+// Package supervise is lucy's model-backed supervisor (LUCY-RUN-010): a small model, then a large
+// one, then the owner; TODO(LUCY-RUN-010): rules before the models. It is a tower.Supervisor, so it only proposes: a
 // proposal is recorded and shown beside a Pilot's question, never reaches the Pilot and never
 // closes the question; the owner answers (corpus rule channel-05).
 //
@@ -90,8 +90,11 @@ type Supervisor struct {
 	Transport func(org string) http.RoundTripper
 	Now       func() time.Time
 
-	mu    sync.Mutex
-	orgs  map[string]Config
+	mu   sync.Mutex
+	orgs map[string]Config
+	// locks holds one mutex per org, held across ProposeAnswer's budget check, model calls and
+	// their records, so concurrent questions of one org cannot all pass the check and overspend
+	// the budget; different orgs do not wait on each other.
 	locks map[string]*sync.Mutex
 }
 
