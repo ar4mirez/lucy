@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ar4mirez/lucy/internal/policy"
 	"github.com/ar4mirez/lucy/internal/runner"
@@ -173,6 +174,26 @@ func PilotsStarted(flight string, n int) Assertion {
 		}
 		if c != n {
 			return fmt.Errorf("%d started", c)
+		}
+		return nil
+	}}
+}
+
+// StartsBackOff asserts the Tower tried to start a Pilot n times, each wait at least as long as
+// the one before and the first at least min: a retried start backs off, it does not spin.
+func StartsBackOff(n int, min time.Duration) Assertion {
+	return Assertion{fmt.Sprintf("%d Pilot starts, backing off from %s", n, min), func(_ context.Context, e *Env) error {
+		at := e.World.Runtime.Attempts
+		if len(at) != n {
+			return fmt.Errorf("%d starts tried", len(at))
+		}
+		prev := min
+		for i := 1; i < len(at); i++ {
+			if gap := at[i].Sub(at[i-1]); gap < prev {
+				return fmt.Errorf("start %d came %s after the one before, sooner than %s", i+1, gap, prev)
+			} else {
+				prev = gap
+			}
 		}
 		return nil
 	}}

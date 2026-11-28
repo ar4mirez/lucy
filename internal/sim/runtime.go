@@ -65,9 +65,13 @@ type Runtime struct {
 	sessions map[string]*session
 	next     int
 
-	Started []tower.PilotRequest // every Start, in order
-	Stopped []string             // every Stop, in order
-	Answers map[string][]string  // session -> the answers it got
+	Started  []tower.PilotRequest // every Start that started a session, in order
+	Attempts []time.Time          // when every Start was called, failed ones included
+	Stopped  []string             // every Stop, in order
+
+	failStarts int // the next Starts that fail with startErr
+	startErr   error
+	Answers    map[string][]string // session -> the answers it got
 }
 
 type session struct {
@@ -104,8 +108,17 @@ func (r *Runtime) script(flight string, gen int) []Step {
 	return s[gen-1]
 }
 
+// FailStarts makes the next times Starts fail with err: an outage of the runtime, or a refusal when
+// err wraps tower.ErrStartRefused.
+func (r *Runtime) FailStarts(times int, err error) { r.failStarts, r.startErr = times, err }
+
 // Start implements tower.Runtime.
 func (r *Runtime) Start(_ context.Context, req tower.PilotRequest) (string, error) {
+	r.Attempts = append(r.Attempts, r.clock.Now())
+	if r.failStarts > 0 {
+		r.failStarts--
+		return "", r.startErr
+	}
 	r.next++
 	s := &session{id: fmt.Sprintf("sim-%d", r.next), req: req, steps: r.script(req.Flight, req.Generation), at: r.clock.Now()}
 	for _, st := range s.steps {

@@ -151,6 +151,15 @@ func Conflict(flight string, on bool) Action {
 	}}
 }
 
+// FailStarts makes the runtime fail the next times Pilot starts with msg: an outage, from which the
+// Tower recovers by retrying.
+func FailStarts(times int, msg string) Action {
+	return Action{fmt.Sprintf("fail the next %d Pilot starts", times), func(_ context.Context, e *Env) error {
+		e.World.Runtime.FailStarts(times, errors.New(msg))
+		return nil
+	}}
+}
+
 // FailMerges makes the forge refuse the next times merges of the flight (every one when -1)
 // with msg, before they happen.
 func FailMerges(flight string, times int, msg string) Action {

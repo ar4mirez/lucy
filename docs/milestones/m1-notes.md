@@ -2,7 +2,7 @@
 id: m1-notes
 title: "m1: notes per slice"
 status: active
-version: 23
+version: 24
 owner: ar4mirez
 requirements: []
 ---
@@ -197,8 +197,11 @@ slice table, requirement status and exit tests stay in the plan.
   flight's failed step backs off that flight alone, on the Tower's clock and in memory (a restart
   retries every flight at once), shown as its status's step error and retry time; only a failure
   outside a flight's step backs off the whole Tower. Lease expiry and token revocation run in the
-  same pass whichever fails, and back off at most `ExpiryInterval`. Next:
-  a Pilot start that fails is retried with backoff instead of grounding the flight (retry-05).
+  same pass whichever fails, and back off at most `ExpiryInterval`. A Pilot start that fails (an
+  outage) is recorded (`task.pilot_start_failed`) and retried on a backoff computed from the
+  recorded times, so a restart keeps that schedule and the corpus's restart-every-step replay stays
+  identical; only a start the runtime refuses for good (`tower.ErrStartRefused`: an invalid task, a
+  run id another flight holds, a stale generation) grounds the flight (retry-05).
   Postures from AutonomyPolicy follow, as decided: a Runway names a policy and a level, and only
   `guardrails.requireApproval` maps (`all` to owner, `security-critical-only` to green).
 - **7.** m0 already validates QualityGate and AutonomyPolicy against the vendored schemas on load;

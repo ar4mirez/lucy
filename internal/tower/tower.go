@@ -188,6 +188,10 @@ type flight struct {
 	stepErr  error
 	failures int
 	stepAt   time.Time
+	// Failed Pilot starts since the last start, from the log: the start backoff, kept across restarts.
+	startFails int
+	startErr   string
+	startAt    time.Time // when the last start failed
 }
 
 // Tower flies flights.
@@ -314,25 +318,37 @@ func (t *Tower) Flight(id string) (Status, bool) {
 	if !ok {
 		return Status{}, false
 	}
-	return f.status(), true
+	return f.status(t.cfg.Backoff), true
 }
 
 // Flights returns every flight's status, sorted by id.
 func (t *Tower) Flights() []Status {
 	out := make([]Status, 0, len(t.order))
 	for _, id := range t.order {
-		out = append(out, t.flights[id].status())
+		out = append(out, t.flights[id].status(t.cfg.Backoff))
 	}
 	return out
 }
 
-func (f *flight) status() Status {
+func (f *flight) status(b converge.Options) Status {
 	s := Status{ID: f.spec.ID, Org: f.spec.Org, Project: f.spec.Project, State: f.state, Session: f.session, Generation: f.generation, Question: f.question,
 		PR: f.pr, Observed: f.observed, Reason: f.reason, Since: f.since, Failures: f.failures, RetryAt: f.stepAt}
 	if f.stepErr != nil {
 		s.StepError = f.stepErr.Error()
 	}
+	if f.state == StateDispatched && f.startFails > 0 && f.stepErr == nil {
+		s.StepError, s.Failures, s.RetryAt = "the Pilot did not start: "+f.startErr, f.startFails, f.startRetryAt(b)
+	}
 	return s
+}
+
+// startRetryAt is when a flight whose Pilot start failed is started again: its backoff, doubling
+// with each consecutive failure, after the last one, from recorded times. Zero when none failed.
+func (f *flight) startRetryAt(b converge.Options) time.Time {
+	if f.startFails == 0 {
+		return time.Time{}
+	}
+	return f.startAt.Add(b.Backoff(f.startFails))
 }
 
 // NextWake returns when a driver should Step again: one poll interval from now while any flight
@@ -348,6 +364,9 @@ func (t *Tower) NextWake() (time.Time, bool) {
 		active = true
 		if f.stepAt.After(now) && f.stepAt.Before(next) {
 			next = f.stepAt
+		}
+		if at := f.startRetryAt(t.cfg.Backoff); f.state == StateDispatched && at.After(now) && at.Before(next) {
+			next = at
 		}
 	}
 	if !active {
@@ -408,16 +427,30 @@ func (t *Tower) step(ctx context.Context, f *flight) error {
 	return nil
 }
 
-// startPilot starts the flight's next Pilot generation. A generation started but not recorded,
-// because the daemon stopped in between, is started again after the restart: the runner protocol
-// (runner.Runtime) returns the run it already queued, and fences any older live run of the flight
-// before it queues a new one, so a flight never has two live sessions (LUCY-RUN-004).
+// ErrStartRefused is a Runtime's refusal to start a Pilot that no retry would change: a request it
+// will never accept. The Tower grounds the flight on it. Any other start error is taken as
+// transient (an outage of the runner protocol or the store): the flight stays dispatched and its
+// start is retried on its own backoff (LUCY-SPEC-008).
+var ErrStartRefused = errors.New("tower: the runtime refuses to start this Pilot")
+
+// startPilot starts the flight's next Pilot generation. A start that fails is recorded as
+// task.pilot_start_failed and retried on the start backoff those recorded times give
+// (startRetryAt), and only a refusal (ErrStartRefused) grounds the flight. A generation started
+// but not recorded, because the daemon stopped in between, is started again after the restart: the
+// runner protocol (runner.Runtime) returns the run it already queued, and fences any older live run
+// of the flight before it queues a new one, so a flight never has two live sessions (LUCY-RUN-004).
 func (t *Tower) startPilot(ctx context.Context, f *flight) error {
+	if t.cfg.Clock.Now().Before(f.startRetryAt(t.cfg.Backoff)) {
+		return nil // backing off after a failed start
+	}
 	gen := f.generation + 1
 	session, err := t.cfg.Runtime.Start(ctx, PilotRequest{Flight: f.spec.ID, Org: f.spec.Org, Project: f.spec.Project,
 		Goal: f.spec.Goal, Base: f.spec.Base, Generation: gen})
-	if err != nil {
+	if errors.Is(err, ErrStartRefused) {
 		return t.record(ctx, f, ActorDaemon, Grounded{Reason: GroundStartFailed, Detail: capText(err.Error())})
+	}
+	if err != nil {
+		return t.record(ctx, f, ActorDaemon, PilotStartFailed{Generation: gen, Error: capText(err.Error())})
 	}
 	return t.record(ctx, f, ActorDaemon, PilotStarted{Session: session, Generation: gen})
 }
@@ -685,7 +718,10 @@ func (f *flight) apply(e eventstore.Event, p eventstore.Payload) {
 	switch p := p.(type) {
 	case Dispatched:
 		enter(StateDispatched)
+	case PilotStartFailed:
+		f.startFails, f.startErr, f.startAt = f.startFails+1, p.Error, e.Time
 	case PilotStarted:
+		f.startFails, f.startErr, f.startAt = 0, "", time.Time{}
 		f.session, f.generation, f.progress, f.question = p.Session, p.Generation, e.Time, ""
 		enter(StateFlying)
 	case PilotAsked:
