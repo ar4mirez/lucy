@@ -2,7 +2,7 @@
 id: changes
 title: Changes
 status: active
-version: 46
+version: 47
 owner: ar4mirez
 requirements: [LUCY-REPO-005]
 ---
@@ -51,6 +51,12 @@ Changes since the last release. When a version is cut, its section moves to
   `flights.list` reports the posture a Flight is flown under (OpenRPC revision 20).
 
 ### Changed
+
+- Before every spawn, the runner re-asserts the harness's account state in the org's synthetic
+  home: for Claude Code, onboarding complete, the run's directory trusted with no tools pre-allowed,
+  no MCP servers, auto-updates off, no hooks. It writes only inside that home, through a guarded
+  root, keeps every other key (the login among them), never reads your own home, and refuses the
+  spawn when a file it would write there is a symlink.
 
 - A Pilot that cannot start during an outage no longer grounds its flight: the failed start is
   recorded (`task.pilot_start_failed`) and retried after a backoff that doubles with each failure,

@@ -169,6 +169,20 @@ func (p *ProcessExecutor) Start(_ context.Context, l Lease) (Execution, error) {
 		}
 		session.Permit = permitFor(work, protected, l, p.Permitter, log)
 	}
+	if conv, ok := p.Harness.(harness.Converger); ok {
+		// Re-assert the harness's account state in the org's home before every spawn, through a
+		// Root on that home, so nothing lands outside it (LUCY-RUN-008). A failed converge refuses
+		// the spawn.
+		changed, err := convergeHome(conv, orgHome, work)
+		if err != nil {
+			pe.cleanup()
+			return nil, err
+		}
+		if len(changed) > 0 {
+			log.Info("harness account state re-asserted in the org's home", "run", l.Run, "changed", changed)
+			pe.lines = append(pe.lines, Event{Kind: KindOutput, Text: "lucy: the harness's account state was re-asserted in the org's home: " + strings.Join(changed, ", ")})
+		}
+	}
 	if p.Harness != nil {
 		env = append(env, p.Harness.Env()...)
 		if err := checkHarness(p.Harness, p.Command, work, env); err != nil {
@@ -621,4 +635,18 @@ func checkWorktree(path string) (string, error) {
 		return "", fmt.Errorf("runner: the run's worktree %s is not a directory (a symlink is refused)", path)
 	}
 	return filepath.EvalSymlinks(path)
+}
+
+// convergeHome runs conv on the org's home, opened as a Root.
+func convergeHome(conv harness.Converger, orgHome, work string) ([]string, error) {
+	r, err := os.OpenRoot(orgHome)
+	if err != nil {
+		return nil, fmt.Errorf("runner: open the org's home: %w", err)
+	}
+	defer r.Close() //nolint:errcheck // a read-only handle's close error is no news
+	changed, err := conv.Converge(r, work)
+	if err != nil {
+		return nil, fmt.Errorf("runner: re-assert the harness's account state: %w", err)
+	}
+	return changed, nil
 }

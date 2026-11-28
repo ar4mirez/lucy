@@ -2,7 +2,7 @@
 id: security
 title: "lucy: security policy and model"
 status: active
-version: 18
+version: 19
 owner: ar4mirez
 requirements: [LUCY-SEC-004, LUCY-SEC-003, LUCY-SEC-002, LUCY-REPO-008, LUCY-POL-001, LUCY-CRED-005]
 ---
@@ -145,7 +145,7 @@ root as the one root, and the run's branch stays in the clone. A guard given a r
 (`Guard.WithBlocked`, LUCY-SPEC-015) also refuses, before removing anything, a target that matches
 one, ignoring case, or a directory holding an entry that does. Every other delete removes one file
 lucy made and names: a stale socket of its own (checked to be a socket first), a runner's registry
-entry, a temporary file it created, or a vault file through the vault's own `os.Root`. Otherwise
+entry, a temporary file it created (a harness converge's, removed through an `os.Root` on the org's home), or a vault file through the vault's own `os.Root`. Otherwise
 the worktree pool deletes nothing itself: resetting a free slot, whose work has landed or never
 started, lets git remove that slot's changes and untracked files, and `git worktree prune` removes
 only base.git's stale registrations.

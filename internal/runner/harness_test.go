@@ -46,9 +46,10 @@ func TestPilotReachesTheOwnerOnlyThroughTheTower(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := t.TempDir()
+	runnerRoot := filepath.Join(t.TempDir(), "runner")
 	p := &loseOneAnswer{socket: socket{w}}
 	r, err := runner.New(runner.Config{ID: "local", Org: "acme", Protocol: p, Now: w.sim.Clock.Now, TTL: 3 * time.Minute,
-		Executor: &runner.ProcessExecutor{Root: filepath.Join(t.TempDir(), "runner"), Home: home, Command: []string{exe},
+		Executor: &runner.ProcessExecutor{Root: runnerRoot, Home: home, Command: []string{exe},
 			Harness: claudecode.Adapter{}, StopGrace: time.Second},
 		Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
@@ -83,7 +84,7 @@ func TestPilotReachesTheOwnerOnlyThroughTheTower(t *testing.T) {
 		if err := w.tower.Step(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if answered && !w.runs()[0].Asking && w.runs()[0].Accepted <= 7 { // the events before the session has its answer
+		if answered && !w.runs()[0].Asking && w.runs()[0].Accepted <= 8 { // the events before the session has its answer, the converge record first
 			// the answer waits for the runner's next renewal, at a third of its lease: move time
 			// on until the runner has collected it, and not past, so the Pilot timeout stays away
 			w.sim.Clock.Advance(20 * time.Second)
@@ -92,6 +93,15 @@ func TestPilotReachesTheOwnerOnlyThroughTheTower(t *testing.T) {
 	}
 	if st := w.flight("f1"); !answered || st.PR != 7 || !p.lost {
 		t.Fatalf("answered %v, reply lost %v, flight %+v", answered, p.lost, st)
+	}
+	// The harness's account state was re-asserted before the spawn in the org's synthetic home,
+	// and the user's home was not touched (LUCY-RUN-008).
+	state, err := os.ReadFile(filepath.Join(runnerRoot, "home", ".claude.json"))
+	if err != nil || !strings.Contains(string(state), `"hasCompletedOnboarding": true`) || !strings.Contains(string(state), `"hasTrustDialogAccepted": true`) {
+		t.Fatalf("the org home's state file: %s, %v", state, err)
+	}
+	if entries, err := os.ReadDir(home); err != nil || len(entries) != 0 {
+		t.Fatalf("the user's home was touched: %v, %v", entries, err)
 	}
 	if ri := w.runs()[0]; ri.Asking {
 		t.Fatalf("the run ended asking: %+v", ri)

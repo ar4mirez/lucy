@@ -91,7 +91,10 @@ const SessionSettings = `{"permissions":{"allow":[]}}`
 // Adapter is the Claude Code adapter. Its zero value is ready to use.
 type Adapter struct{}
 
-var _ harness.Adapter = Adapter{}
+var (
+	_ harness.Adapter   = Adapter{}
+	_ harness.Converger = Adapter{}
+)
 
 // Name implements harness.Adapter.
 func (Adapter) Name() string { return Name }
