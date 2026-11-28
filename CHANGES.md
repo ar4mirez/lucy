@@ -24,7 +24,8 @@ Changes since the last release. When a version is cut, its section moves to
   commands go to the engine as exec requests, which it refuses by default. An org AgentRole with a
   blocked path the engine cannot read stops the daemon from starting, naming the resource. The
   path guard's delete executor can carry a role's blocked paths, and then refuses, deleting
-  nothing, a target that matches one or that holds an entry that does.
+  nothing, a target that matches one or that holds an entry that does. The API's `runner.permit`
+  accepts the `delete` kind (OpenRPC revision 17).
 
 - Decisions waiting on you are a catalog: a Pilot's question, a merge holding for your approval and
   a container operation holding for your confirmation are each projected from the event log into
